@@ -51,7 +51,7 @@ export class BridgeServer {
       } catch (error: any) {
         ws.send(JSON.stringify({ 
           type: 'error', 
-          error: error.message 
+          error: error?.message || error?.toString() || 'Unknown error' 
         }));
         ws.close();
       }
