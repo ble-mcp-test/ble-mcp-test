@@ -1,6 +1,6 @@
 # WebSocket-to-BLE Bridge
 
-Minimal WebSocket-to-BLE bridge for CS108 RFID reader testing. Extracted from noble-cs108-cruft with only the essential functionality.
+A minimal, device-agnostic WebSocket-to-BLE bridge. Originally extracted from noble-cs108-cruft but now supports any BLE device by passing UUIDs as parameters.
 
 ## Features
 

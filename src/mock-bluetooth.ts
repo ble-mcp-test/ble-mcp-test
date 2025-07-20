@@ -68,7 +68,7 @@ class MockBluetoothRemoteGATTServer {
   constructor(public device: MockBluetoothDevice) {}
 
   async connect(): Promise<MockBluetoothRemoteGATTServer> {
-    await this.device.transport.connect(this.device.name);
+    await this.device.transport.connect({ device: this.device.name });
     this.connected = true;
     return this;
   }
@@ -117,8 +117,8 @@ export class MockBluetooth {
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
     // Bypass all dialogs - immediately return a mock device
-    // Use the namePrefix filter if provided, otherwise use default
-    let deviceName = 'CS108Reader000000';
+    // Use the namePrefix filter if provided, otherwise use generic name
+    let deviceName = 'MockDevice000000';
     
     if (options?.filters) {
       for (const filter of options.filters) {

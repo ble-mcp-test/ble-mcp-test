@@ -9,15 +9,37 @@ export class BridgeServer {
     
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
-      const devicePrefix = url.searchParams.get('device') || 'CS108';
-      console.log(`[BridgeServer] New WebSocket connection, device prefix: ${devicePrefix}`);
+      
+      // Parse BLE configuration from URL parameters
+      const bleConfig = {
+        devicePrefix: url.searchParams.get('device') || '',
+        serviceUuid: url.searchParams.get('service') || '',
+        writeUuid: url.searchParams.get('write') || '',
+        notifyUuid: url.searchParams.get('notify') || ''
+      };
+      
+      // Validate required parameters
+      if (!bleConfig.devicePrefix || !bleConfig.serviceUuid || !bleConfig.writeUuid || !bleConfig.notifyUuid) {
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          error: 'Missing required parameters: device, service, write, notify' 
+        }));
+        ws.close();
+        return;
+      }
+      
+      console.log(`[BridgeServer] New WebSocket connection`);
+      console.log(`[BridgeServer]   Device prefix: ${bleConfig.devicePrefix}`);
+      console.log(`[BridgeServer]   Service UUID: ${bleConfig.serviceUuid}`);
+      console.log(`[BridgeServer]   Write UUID: ${bleConfig.writeUuid}`);
+      console.log(`[BridgeServer]   Notify UUID: ${bleConfig.notifyUuid}`);
       
       const transport = new NobleTransport();
       
       try {
         // Connect to BLE device
         console.log('[BridgeServer] Starting BLE connection...');
-        await transport.connect(devicePrefix, {
+        await transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));

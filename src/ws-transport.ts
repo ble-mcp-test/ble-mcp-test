@@ -15,9 +15,12 @@ export class WebSocketTransport {
     this.serverUrl = serverUrl;
   }
   
-  async connect(deviceId?: string): Promise<void> {
+  async connect(options?: { device?: string; service?: string; write?: string; notify?: string }): Promise<void> {
     const url = new URL(this.serverUrl);
-    if (deviceId) url.searchParams.set('device', deviceId);
+    if (options?.device) url.searchParams.set('device', options.device);
+    if (options?.service) url.searchParams.set('service', options.service);
+    if (options?.write) url.searchParams.set('write', options.write);
+    if (options?.notify) url.searchParams.set('notify', options.notify);
     
     this.ws = new WebSocket(url.toString());
     

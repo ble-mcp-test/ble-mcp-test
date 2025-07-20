@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { BridgeServer } from '../../src/index.js';
 import WebSocket from 'ws';
+import { WS_URL, getDeviceConfig } from '../test-config.js';
 
-const WS_URL = process.env.WS_URL || 'ws://localhost:8080';
+const DEVICE_CONFIG = getDeviceConfig();
 
 describe('Bridge Connection', () => {
   let server: BridgeServer;
@@ -27,7 +28,8 @@ describe('Bridge Connection', () => {
   });
   
   it('connects to CS108 device', async () => {
-    const ws = new WebSocket(`${WS_URL}?device=CS108`);
+    const params = new URLSearchParams(DEVICE_CONFIG);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     
     const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
       ws.on('message', (data) => {
@@ -56,7 +58,8 @@ describe('Bridge Connection', () => {
   });
   
   it('sends and receives data', async () => {
-    const ws = new WebSocket(`${WS_URL}?device=CS108`);
+    const params = new URLSearchParams(DEVICE_CONFIG);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     
     // Wait for connection
     await new Promise((resolve) => {
@@ -86,7 +89,9 @@ describe('Bridge Connection', () => {
   });
   
   it('handles connection errors', async () => {
-    const ws = new WebSocket(`${WS_URL}?device=NONEXISTENT`);
+    const errorConfig = { ...DEVICE_CONFIG, device: 'NONEXISTENT' };
+    const params = new URLSearchParams(errorConfig);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     
     const error = await new Promise<boolean>((resolve) => {
       ws.on('message', (data) => {

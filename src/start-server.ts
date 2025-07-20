@@ -8,7 +8,7 @@ const host = process.env.WS_HOST || '0.0.0.0';
 console.log('🚀 Starting WebSocket-to-BLE Bridge Server');
 console.log(`   Port: ${port}`);
 console.log(`   Host: ${host}`);
-console.log(`   Device: ${process.env.CS108_DEVICE_NAME || 'ANY (first CS108 found)'}`);
+console.log('   Device-agnostic - UUIDs provided by client');
 console.log('   Press Ctrl+C to stop\n');
 
 const server = new BridgeServer();

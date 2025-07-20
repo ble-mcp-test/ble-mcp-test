@@ -1,13 +1,15 @@
 import noble from '@stoprocent/noble';
 
-// CS108 uses shortened UUIDs
-const CS108_SERVICE_UUID = '9800';
-const CS108_WRITE_UUID = '9900';
-const CS108_NOTIFY_UUID = '9901';
-
 interface Callbacks {
   onData: (data: Uint8Array) => void;
   onDisconnected: () => void;
+}
+
+interface BLEConfig {
+  devicePrefix: string;
+  serviceUuid: string;
+  writeUuid: string;
+  notifyUuid: string;
 }
 
 export class NobleTransport {
@@ -16,8 +18,8 @@ export class NobleTransport {
   private notifyChar: any = null;
   private deviceName = '';
 
-  async connect(devicePrefix: string, callbacks: Callbacks): Promise<void> {
-    console.log(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
+  async connect(config: BLEConfig, callbacks: Callbacks): Promise<void> {
+    console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
     
     // Ensure Noble is ready
     if (noble.state !== 'poweredOn') {
@@ -44,14 +46,14 @@ export class NobleTransport {
           console.log('[NobleTransport] Scan timeout - no matching device found');
           noble.removeAllListeners('discover');
           await noble.stopScanningAsync();
-          reject(new Error(`No device found with prefix: ${devicePrefix}`));
+          reject(new Error(`No device found with prefix: ${config.devicePrefix}`));
         }
       }, 10000);
       
       const discoverHandler = async (p: any) => {
         const name = p.advertisement.localName || '';
         console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${p.id})`);
-        if (!found && name.startsWith(devicePrefix)) {
+        if (!found && name.startsWith(config.devicePrefix)) {
           found = true;
           console.log(`[NobleTransport] Found matching device: ${name}`);
           clearTimeout(timer);
@@ -72,11 +74,14 @@ export class NobleTransport {
     await peripheral.connectAsync();
     console.log('[NobleTransport] Connected to BLE device');
     
-    // Discover services and characteristics using shortened UUIDs
+    // Discover services and characteristics
     console.log('[NobleTransport] Discovering services and characteristics...');
+    console.log(`[NobleTransport]   Service UUID: ${config.serviceUuid}`);
+    console.log(`[NobleTransport]   Write UUID: ${config.writeUuid}`);
+    console.log(`[NobleTransport]   Notify UUID: ${config.notifyUuid}`);
     const result = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
-      [CS108_SERVICE_UUID],
-      [CS108_WRITE_UUID, CS108_NOTIFY_UUID]
+      [config.serviceUuid],
+      [config.writeUuid, config.notifyUuid]
     );
     console.log(`[NobleTransport] Found ${result.services.length} services, ${result.characteristics.length} characteristics`);
     
@@ -84,10 +89,10 @@ export class NobleTransport {
     for (const char of result.characteristics) {
       const uuid = char.uuid;
       console.log(`[NobleTransport]   Characteristic: ${uuid}`);
-      if (uuid === CS108_WRITE_UUID) {
+      if (uuid === config.writeUuid) {
         this.writeChar = char;
         console.log('[NobleTransport]   -> This is the WRITE characteristic');
-      } else if (uuid === CS108_NOTIFY_UUID) {
+      } else if (uuid === config.notifyUuid) {
         this.notifyChar = char;
         console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
       }
