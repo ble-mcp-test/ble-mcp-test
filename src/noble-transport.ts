@@ -1,8 +1,9 @@
 import noble from '@stoprocent/noble';
 
-const CS108_SERVICE_UUID = '00009800-0000-1000-8000-00805f9b34fb';
-const CS108_WRITE_UUID = '00009900-0000-1000-8000-00805f9b34fb';
-const CS108_NOTIFY_UUID = '00009901-0000-1000-8000-00805f9b34fb';
+// CS108 uses shortened UUIDs
+const CS108_SERVICE_UUID = '9800';
+const CS108_WRITE_UUID = '9900';
+const CS108_NOTIFY_UUID = '9901';
 
 interface Callbacks {
   onData: (data: Uint8Array) => void;
@@ -50,7 +51,7 @@ export class NobleTransport {
     await peripheral.connectAsync();
     console.log('[NobleTransport] Connected to BLE device');
     
-    // Discover services and characteristics
+    // Discover services and characteristics using shortened UUIDs
     console.log('[NobleTransport] Discovering services and characteristics...');
     const result = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
       [CS108_SERVICE_UUID],
@@ -60,11 +61,14 @@ export class NobleTransport {
     
     // Find our characteristics
     for (const char of result.characteristics) {
-      const normalizedUuid = char.uuid.toLowerCase();
-      if (normalizedUuid === '9900' || normalizedUuid === CS108_WRITE_UUID.replace(/-/g, '').toLowerCase()) {
+      const uuid = char.uuid;
+      console.log(`[NobleTransport]   Characteristic: ${uuid}`);
+      if (uuid === CS108_WRITE_UUID) {
         this.writeChar = char;
-      } else if (normalizedUuid === '9901' || normalizedUuid === CS108_NOTIFY_UUID.replace(/-/g, '').toLowerCase()) {
+        console.log('[NobleTransport]   -> This is the WRITE characteristic');
+      } else if (uuid === CS108_NOTIFY_UUID) {
         this.notifyChar = char;
+        console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
       }
     }
     
