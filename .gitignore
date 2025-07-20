@@ -1,0 +1,112 @@
+# Previous implementation (reference only, not part of this repo)
+previous-implementation/
+
+# AssemblyScript build output
+build/
+*.wasm
+*.wat
+*.map
+
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# TypeScript build output - AGGRESSIVE BUILD ARTIFACT PREVENTION
+**/dist/
+**/build/
+**/*.js
+**/*.js.map  
+**/*.d.ts
+**/*.d.ts.map
+
+# EXCEPT these specific JS files
+!web/vite.config.js
+!scripts/*.js
+!packages/*/scripts/*.js
+
+# EXCEPT dist folders for GitHub package installation
+!packages/core/dist/
+!packages/core/dist/**
+!packages/web-ble-mock/dist/
+!packages/web-ble-mock/dist/**
+!packages/ws-bridge/dist/
+!packages/ws-bridge/dist/**
+!packages/cs108/dist/
+!packages/cs108/dist/**
+!packages/test-utils/dist/
+!packages/test-utils/dist/**
+!packages/playwright-rfid/dist/
+!packages/playwright-rfid/dist/**
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Test coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs/
+*.log
+
+# OS files
+Thumbs.db
+._*
+.DS_Store
+
+# AssemblyScript specific
+.asconfig
+.asconfig.json
+
+# Debug files
+*.log.txt
+*.debug
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Test output files (should be in tmp/ not project root)
+build.txt
+test-l2.txt
+test-*.txt
+build-*.txt
+
+# Example build outputs
+examples/node/dist/
+examples/web/dist/
+examples/react-native/build/
+examples/react-native/android/app/build/
+examples/react-native/ios/build/
+
+# Package lock files (optional - uncomment if you want to exclude)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yamldist/
+*.tsbuildinfo
+web/vitest.config.ts
+web/playwright-report/
+web/test-results/
+
+# Level-3 Playwright test artifacts
+tests/level-3/playwright-report/
+tests/level-3/test-results/
+
+# Turbo
+.turbo
