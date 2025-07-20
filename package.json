@@ -8,9 +8,11 @@
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
+    "start": "node dist/start-server.js",
     "test": "vitest",
     "lint": "eslint src --ext .ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@stoprocent/noble": "^2.3.4",
