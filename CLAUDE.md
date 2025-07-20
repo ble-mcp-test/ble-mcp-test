@@ -1,5 +1,23 @@
 # Instructions for Claude Code
 
+## Git Workflow Rules
+
+**NEVER commit or push directly to main branch. ALWAYS use feature branches.**
+
+### Branch Naming Convention:
+- `feature/` - New features (e.g., `feature/add-device-filtering`)
+- `fix/` - Bug fixes (e.g., `fix/websocket-timeout`)
+- `refactor/` - Code refactoring (e.g., `refactor/simplify-transport`)
+- `docs/` - Documentation updates (e.g., `docs/update-readme`)
+- `test/` - Test additions or fixes (e.g., `test/add-integration-tests`)
+
+### Workflow:
+1. Create descriptive branch: `git checkout -b feature/description`
+2. Make changes and commit with clear messages
+3. Push to branch: `git push origin feature/description`
+4. Create PR for review (mention this to user)
+5. Never merge directly - always via PR
+
 ## Project Goal
 Create a minimal WebSocket-to-BLE bridge for CS108 testing. Target: <500 lines total.
 
