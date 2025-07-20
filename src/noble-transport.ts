@@ -19,28 +19,49 @@ export class NobleTransport {
   async connect(devicePrefix: string, callbacks: Callbacks): Promise<void> {
     console.log(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
     
+    // Ensure Noble is ready
+    if (noble.state !== 'poweredOn') {
+      console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
+      await new Promise<void>((resolve) => {
+        noble.once('stateChange', (state) => {
+          if (state === 'poweredOn') {
+            console.log('[NobleTransport] Bluetooth powered on');
+            resolve();
+          }
+        });
+      });
+    }
+    
     // Start scanning
     await noble.startScanningAsync([], false);
     console.log('[NobleTransport] Scanning started');
     
     // Find device
     const peripheral = await new Promise<any>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        console.log('[NobleTransport] Scan timeout - no matching device found');
-        noble.stopScanningAsync();
-        reject(new Error(`No device found with prefix: ${devicePrefix}`));
+      let found = false;
+      const timer = setTimeout(async () => {
+        if (!found) {
+          console.log('[NobleTransport] Scan timeout - no matching device found');
+          noble.removeAllListeners('discover');
+          await noble.stopScanningAsync();
+          reject(new Error(`No device found with prefix: ${devicePrefix}`));
+        }
       }, 10000);
       
-      noble.on('discover', (p: any) => {
+      const discoverHandler = async (p: any) => {
         const name = p.advertisement.localName || '';
         console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${p.id})`);
-        if (name.startsWith(devicePrefix)) {
+        if (!found && name.startsWith(devicePrefix)) {
+          found = true;
           console.log(`[NobleTransport] Found matching device: ${name}`);
           clearTimeout(timer);
-          noble.stopScanningAsync();
+          noble.removeListener('discover', discoverHandler);
+          await noble.stopScanningAsync();
           resolve(p);
         }
-      });
+      };
+      
+      noble.on('discover', discoverHandler);
     });
     
     this.peripheral = peripheral;
