@@ -10,22 +10,27 @@ export class BridgeServer {
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
       const devicePrefix = url.searchParams.get('device') || 'CS108';
+      console.log(`[BridgeServer] New WebSocket connection, device prefix: ${devicePrefix}`);
       
       const transport = new NobleTransport();
       
       try {
         // Connect to BLE device
+        console.log('[BridgeServer] Starting BLE connection...');
         await transport.connect(devicePrefix, {
           onData: (data) => {
+            console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
+            console.log('[BridgeServer] BLE disconnected, closing WebSocket');
             ws.send(JSON.stringify({ type: 'disconnected' }));
             ws.close();
           }
         });
         
         // Send connected message
+        console.log(`[BridgeServer] BLE connected, sending connected message`);
         ws.send(JSON.stringify({ 
           type: 'connected', 
           device: transport.getDeviceName() 
@@ -45,10 +50,12 @@ export class BridgeServer {
         
         // Clean disconnect on WebSocket close
         ws.on('close', () => {
+          console.log('[BridgeServer] WebSocket closed, disconnecting BLE');
           transport.disconnect();
         });
         
       } catch (error: any) {
+        console.error('[BridgeServer] Error:', error?.message || error);
         ws.send(JSON.stringify({ 
           type: 'error', 
           error: error?.message || error?.toString() || 'Unknown error' 
