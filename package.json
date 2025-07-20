@@ -1,0 +1,14 @@
+{
+  "name": "@trakrf/noble-cs108",  // Scoped package
+  "version": "0.1.0",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ]
+}
