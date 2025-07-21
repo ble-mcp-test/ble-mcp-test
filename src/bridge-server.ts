@@ -61,8 +61,13 @@ export class BridgeServer {
       console.log(`[BridgeServer]   Write UUID: ${bleConfig.writeUuid}`);
       console.log(`[BridgeServer]   Notify UUID: ${bleConfig.notifyUuid}`);
       
-      // Check if another connection is active
-      if (this.transport && this.transport.getState() !== ConnectionState.DISCONNECTED) {
+      // Create transport if needed
+      if (!this.transport) {
+        this.transport = new NobleTransport();
+      }
+      
+      // Try to claim the connection atomically
+      if (!this.transport.tryClaimConnection()) {
         console.warn(`[BridgeServer] Rejecting connection - BLE state: ${this.transport.getState()}`);
         ws.send(JSON.stringify({ 
           type: 'error', 
@@ -70,11 +75,6 @@ export class BridgeServer {
         }));
         ws.close();
         return;
-      }
-      
-      // Create transport if needed
-      if (!this.transport) {
-        this.transport = new NobleTransport();
       }
       
       try {

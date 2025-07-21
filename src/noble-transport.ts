@@ -18,7 +18,8 @@ interface BLEConfig {
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
-  CONNECTED = 'connected'
+  CONNECTED = 'connected',
+  DISCONNECTING = 'disconnecting'
 }
 
 export class NobleTransport {
@@ -32,12 +33,20 @@ export class NobleTransport {
     return this.state;
   }
 
-  async connect(config: BLEConfig, callbacks: Callbacks): Promise<void> {
+  // Atomically check and claim connection
+  tryClaimConnection(): boolean {
     if (this.state !== ConnectionState.DISCONNECTED) {
-      throw new Error(`Cannot connect in state: ${this.state}`);
+      return false;
     }
-    
     this.state = ConnectionState.CONNECTING;
+    return true;
+  }
+
+  async connect(config: BLEConfig, callbacks: Callbacks): Promise<void> {
+    // State should already be CONNECTING from tryClaimConnection
+    if (this.state !== ConnectionState.CONNECTING) {
+      throw new Error(`Invalid state for connect: ${this.state}`);
+    }
     
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
@@ -151,8 +160,8 @@ export class NobleTransport {
   async disconnect(): Promise<void> {
     if (!this.peripheral) return;
     
-    // Set state immediately to prevent new connections
-    this.state = ConnectionState.DISCONNECTED;
+    // Set state to disconnecting to prevent new connections
+    this.state = ConnectionState.DISCONNECTING;
     
     try {
       if (this.notifyChar) {
@@ -163,11 +172,13 @@ export class NobleTransport {
       }
     } catch (error) {
       // Ignore errors during disconnect
+    } finally {
+      // Always reset to disconnected state
+      this.peripheral = null;
+      this.writeChar = null;
+      this.notifyChar = null;
+      this.state = ConnectionState.DISCONNECTED;
     }
-    
-    this.peripheral = null;
-    this.writeChar = null;
-    this.notifyChar = null;
   }
   
   getDeviceName(): string {
