@@ -51,6 +51,23 @@ web-ble-bridge
 
 The server will start on `ws://localhost:8080` by default.
 
+### Monitoring Server Logs
+
+The bridge server supports real-time log streaming via WebSocket:
+
+```bash
+# Stream logs from the command line
+pnpm logs
+
+# Or use a custom server URL
+WS_URL=ws://192.168.1.100:8080 pnpm logs
+```
+
+You can also view logs in a web browser:
+1. Open `log-viewer.html` in your browser
+2. Logs will stream in real-time with color coding
+3. Features auto-reconnect, filtering, and auto-scroll
+
 ### Step 2: Use in Your Browser Tests
 
 ```html

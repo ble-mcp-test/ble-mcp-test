@@ -1,5 +1,8 @@
 import noble from '@stoprocent/noble';
 
+// Increase max listeners to prevent warning during concurrent scans
+noble.setMaxListeners(20);
+
 interface Callbacks {
   onData: (data: Uint8Array) => void;
   onDisconnected: () => void;
