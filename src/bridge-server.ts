@@ -124,8 +124,6 @@ export class BridgeServer {
           if (this.transport) {
             await this.transport.disconnect();
             console.log('[BridgeServer] BLE disconnected successfully');
-            // Delay to ensure transport state is fully reset
-            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         });
         
