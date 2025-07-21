@@ -151,6 +151,9 @@ export class NobleTransport {
   async disconnect(): Promise<void> {
     if (!this.peripheral) return;
     
+    // Set state immediately to prevent new connections
+    this.state = ConnectionState.DISCONNECTED;
+    
     try {
       if (this.notifyChar) {
         await this.notifyChar.unsubscribeAsync();
@@ -165,7 +168,6 @@ export class NobleTransport {
     this.peripheral = null;
     this.writeChar = null;
     this.notifyChar = null;
-    this.state = ConnectionState.DISCONNECTED;
   }
   
   getDeviceName(): string {
