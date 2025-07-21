@@ -159,8 +159,8 @@ mkdir -p "$SANDBOX_PATH" 2>/dev/null || true
 
 # Clear previous logs for clean debugging  
 print_step "Clearing previous WebSocket bridge logs..."
-rm -f tmp/ws-server-*
-rm -f "$SANDBOX_PATH"/ws-server-* 2>/dev/null || true
+rm -f tmp/ws-server.log
+rm -f "$SANDBOX_PATH"/ws-server.log 2>/dev/null || true
 print_success "Previous logs cleared"
 
 # Export environment variables for the bridge
@@ -186,16 +186,16 @@ trap cleanup SIGINT SIGTERM
 # Start the WebSocket bridge
 print_step "Starting WebSocket bridge server..."
 echo "  Command: pnpm start"
-echo "  Logging to: tmp/ws-server-$TIMESTAMP.log"
+echo "  Logging to: tmp/ws-server.log"
 if [ -d "$SANDBOX_PATH" ]; then
-    echo "  Also logging to: $SANDBOX_PATH/ws-server-$TIMESTAMP.log"
+    echo "  Also logging to: $SANDBOX_PATH/ws-server.log"
 fi
 echo "  Press Ctrl+C to stop"
 echo ""
 
 # Create log files
-LOG_FILE="tmp/ws-server-$TIMESTAMP.log"
-SANDBOX_LOG=$([ -d "$SANDBOX_PATH" ] && echo "$SANDBOX_PATH/ws-server-$TIMESTAMP.log" || echo "")
+LOG_FILE="tmp/ws-server.log"
+SANDBOX_LOG=$([ -d "$SANDBOX_PATH" ] && echo "$SANDBOX_PATH/ws-server.log" || echo "")
 
 # Write header info directly to log files (and display on console)
 {

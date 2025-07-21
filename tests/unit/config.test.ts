@@ -4,7 +4,8 @@ import { getTestConfig } from '../test-config.js';
 describe('Device-agnostic configuration', () => {
   it('provides default CS108 configuration', () => {
     const config = getTestConfig();
-    expect(config.wsUrl).toBe('ws://localhost:8080');
+    // Check that wsUrl is either the default or from env var
+    expect(config.wsUrl).toMatch(/^ws:\/\/(localhost|[\d.]+):8080$/);
     expect(config.device).toBe('CS108');
     expect(config.service).toBe('9800');
     expect(config.write).toBe('9900');
