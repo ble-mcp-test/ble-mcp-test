@@ -266,11 +266,18 @@ The bridge uses a simple JSON protocol over WebSocket:
 - `web-ble-bridge reset` - Reset BLE adapter
 - `web-ble-bridge monitor` - Live connection monitoring
 
+### v0.4.0 - HTTP API
+- `GET /status` - Current connection status and device info
+- `GET /metrics` - Connection stats, data throughput, errors
+- `GET /health` - Health check endpoint for monitoring
+- `POST /reset` - Reset BLE adapter via HTTP
+
 ### Future Considerations
 - Reconnection support with configurable retry
 - WebSocket authentication/authorization
-- Metrics and monitoring endpoints
+- OpenTelemetry integration for distributed tracing
 - Docker container for easy deployment
+- Prometheus metrics export
 
 ## Contributing
 
