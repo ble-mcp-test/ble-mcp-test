@@ -23,63 +23,6 @@ export enum ConnectionState {
   DISCONNECTING = 'disconnecting'
 }
 
-// Scanner singleton that maintains one long-lived generator
-class Scanner {
-  private static instance: Scanner;
-  private generator: AsyncGenerator<any, void, unknown> | null = null;
-  private isStarted = false;
-  
-  static getInstance(): Scanner {
-    if (!Scanner.instance) {
-      Scanner.instance = new Scanner();
-    }
-    return Scanner.instance;
-  }
-  
-  private async ensureScanning() {
-    if (this.isStarted) return;
-    
-    console.log('[Scanner] Starting persistent scanner');
-    
-    // Ensure Noble is ready
-    if (noble.state !== 'poweredOn') {
-      await noble.waitForPoweredOnAsync();
-    }
-    
-    // Start scanning once for the lifetime of the process
-    await noble.startScanningAsync([], false);
-    this.isStarted = true;
-    
-    // Create the generator
-    this.generator = noble.discoverAsync();
-  }
-  
-  async findDevice(devicePrefix: string, timeoutMs: number = 10000): Promise<any> {
-    await this.ensureScanning();
-    
-    const timeout = Date.now() + timeoutMs;
-    
-    while (Date.now() < timeout) {
-      const { value: peripheral, done } = await this.generator!.next();
-      
-      if (done) {
-        console.log('[Scanner] Generator exhausted (should not happen)');
-        return null;
-      }
-      
-      const name = peripheral.advertisement.localName || '';
-      console.log(`[Scanner] Discovered: ${name || 'Unknown'} (${peripheral.id})`);
-      
-      if (name.startsWith(devicePrefix)) {
-        console.log(`[Scanner] Found matching device: ${name}`);
-        return peripheral;
-      }
-    }
-    
-    console.log('[Scanner] Timeout - no matching device found');
-    return null;
-  }
-}
 
 export class NobleTransport {
   private peripheral: any = null;
@@ -230,11 +173,11 @@ export class NobleTransport {
       throw new Error('Scan already in progress');
     }
     
-    // Enforce scanner recovery delay
+    // Enforce scanner recovery delay to allow GC to clean up previous scanner
     const timeSinceLastDestroy = Date.now() - NobleTransport.lastScannerDestroyTime;
     if (timeSinceLastDestroy < NobleTransport.SCANNER_RECOVERY_DELAY) {
       const waitTime = NobleTransport.SCANNER_RECOVERY_DELAY - timeSinceLastDestroy;
-      console.log(`[NobleTransport] Waiting ${waitTime}ms for scanner recovery`);
+      console.log(`[NobleTransport] Waiting ${waitTime}ms for GC recovery before new scan`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
@@ -243,20 +186,44 @@ export class NobleTransport {
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
       
-      // Use the scanner singleton
-      const scanner = Scanner.getInstance();
-      const peripheral = await scanner.findDevice(devicePrefix);
+      // Start fresh scanning each time
+      await noble.startScanningAsync([], false);
+      console.log('[NobleTransport] Scanning started');
+      
+      const generator = noble.discoverAsync();
+      const timeout = Date.now() + 10000; // 10 second timeout
+      let peripheral = null;
+      
+      while (Date.now() < timeout) {
+        const { value: device, done } = await generator.next();
+        
+        if (done) break;
+        
+        const name = device.advertisement.localName || '';
+        console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+        
+        if (name.startsWith(devicePrefix)) {
+          console.log(`[NobleTransport] Found matching device: ${name}`);
+          peripheral = device;
+          break;
+        }
+      }
+      
+      // Always stop scanning and clean up generator
+      await noble.stopScanningAsync();
+      generator.return();
       
       if (!peripheral) {
+        console.log('[NobleTransport] Scan timeout - no matching device found');
         throw new Error(`No device found with prefix: ${devicePrefix}`);
       }
       
       return peripheral;
     } finally {
       this.isScanning = false;
-      // Mark when we're done with scanner
+      // Mark when scanner cleanup completes to enforce GC delay
       NobleTransport.lastScannerDestroyTime = Date.now();
-      console.log('[NobleTransport] Scanner destroyed, recovery timer started');
+      console.log('[NobleTransport] Scanner cleanup complete, GC recovery timer started');
     }
   }
 }
