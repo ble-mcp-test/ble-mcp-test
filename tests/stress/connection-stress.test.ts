@@ -82,7 +82,7 @@ describe('Connection Stress Tests', () => {
     expect(results.length).toBe(cycles);
   });
   
-  it('prevents concurrent connections (only 1 should succeed)', async () => {
+  it('prevents concurrent connections to same BLE device', async () => {
     console.log('\n🔥 Test 2: Concurrent Connection Attempts');
     
     const connections: WebSocket[] = [];
@@ -122,9 +122,10 @@ describe('Connection Stress Tests', () => {
     console.log(`✅ ${connectedCount}/5 connections succeeded`);
     console.log(`   Results: ${results.join(', ')}`);
     
-    // Our minimal implementation should allow all WebSocket connections
-    // but only one should successfully connect to BLE device
+    // With connection state tracking, only 1 should connect to BLE
+    // Others should be rejected with 'Another connection is active'
     expect(connectedCount).toBeLessThanOrEqual(1);
+    expect(results.filter(r => r === 'error').length).toBeGreaterThanOrEqual(3);
     
     // Clean up
     connections.forEach(ws => ws.close());
@@ -155,7 +156,7 @@ describe('Connection Stress Tests', () => {
     });
     
     console.log(`✅ Result: ${result}`);
-    expect(['error', 'closed', 'survived']).toContain(result);
+    expect(['error', 'closed', 'survived', 'message:error']).toContain(result);
   });
   
   it('catches race condition: immediate data after connect', async () => {
@@ -260,6 +261,6 @@ describe('Connection Stress Tests', () => {
     console.log(`✅ Result: ${result}, Responses: ${responsesReceived}/${messagesSent}`);
     
     // Should handle rapid messages without crashing
-    expect(result).toMatch(/success|received:\d+|error:No device found/);
+    expect(result).toMatch(/success|received:\d+|error:No device found|error:Another connection is active/);
   });
 });
