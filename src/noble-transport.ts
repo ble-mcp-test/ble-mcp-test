@@ -23,6 +23,64 @@ export enum ConnectionState {
   DISCONNECTING = 'disconnecting'
 }
 
+// Scanner singleton that maintains one long-lived generator
+class Scanner {
+  private static instance: Scanner;
+  private generator: AsyncGenerator<any, void, unknown> | null = null;
+  private isStarted = false;
+  
+  static getInstance(): Scanner {
+    if (!Scanner.instance) {
+      Scanner.instance = new Scanner();
+    }
+    return Scanner.instance;
+  }
+  
+  private async ensureScanning() {
+    if (this.isStarted) return;
+    
+    console.log('[Scanner] Starting persistent scanner');
+    
+    // Ensure Noble is ready
+    if (noble.state !== 'poweredOn') {
+      await noble.waitForPoweredOnAsync();
+    }
+    
+    // Start scanning once for the lifetime of the process
+    await noble.startScanningAsync([], false);
+    this.isStarted = true;
+    
+    // Create the generator
+    this.generator = noble.discoverAsync();
+  }
+  
+  async findDevice(devicePrefix: string, timeoutMs: number = 10000): Promise<any> {
+    await this.ensureScanning();
+    
+    const timeout = Date.now() + timeoutMs;
+    
+    while (Date.now() < timeout) {
+      const { value: peripheral, done } = await this.generator!.next();
+      
+      if (done) {
+        console.log('[Scanner] Generator exhausted (should not happen)');
+        return null;
+      }
+      
+      const name = peripheral.advertisement.localName || '';
+      console.log(`[Scanner] Discovered: ${name || 'Unknown'} (${peripheral.id})`);
+      
+      if (name.startsWith(devicePrefix)) {
+        console.log(`[Scanner] Found matching device: ${name}`);
+        return peripheral;
+      }
+    }
+    
+    console.log('[Scanner] Timeout - no matching device found');
+    return null;
+  }
+}
+
 export class NobleTransport {
   private peripheral: any = null;
   private writeChar: any = null;
@@ -30,7 +88,6 @@ export class NobleTransport {
   private deviceName = '';
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
-  private scanController: AbortController | null = null;
 
   getState(): ConnectionState {
     return this.state;
@@ -170,40 +227,21 @@ export class NobleTransport {
     }
     
     this.isScanning = true;
-    this.scanController = new AbortController();
     
     try {
-      await noble.startScanningAsync([], false);
-      console.log('[NobleTransport] Scanning started');
+      console.log(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
       
-      const timeout = Date.now() + 10000; // 10 second timeout
+      // Use the scanner singleton
+      const scanner = Scanner.getInstance();
+      const peripheral = await scanner.findDevice(devicePrefix);
       
-      for await (const peripheral of noble.discoverAsync()) {
-        // Check if scan was aborted
-        if (this.scanController.signal.aborted) {
-          console.log('[NobleTransport] Scan aborted');
-          break;
-        }
-        
-        const name = peripheral.advertisement.localName || '';
-        console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${peripheral.id})`);
-        
-        if (name.startsWith(devicePrefix)) {
-          console.log(`[NobleTransport] Found matching device: ${name}`);
-          return peripheral;
-        }
-        
-        if (Date.now() > timeout) {
-          console.log('[NobleTransport] Scan timeout - no matching device found');
-          break;
-        }
+      if (!peripheral) {
+        throw new Error(`No device found with prefix: ${devicePrefix}`);
       }
       
-      return null;
+      return peripheral;
     } finally {
-      await noble.stopScanningAsync();
       this.isScanning = false;
-      this.scanController = null;
     }
   }
 }
