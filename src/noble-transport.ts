@@ -42,47 +42,41 @@ export class NobleTransport {
       // Ensure Noble is ready
     if (noble.state !== 'poweredOn') {
       console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
-      await new Promise<void>((resolve) => {
-        noble.once('stateChange', (state) => {
-          if (state === 'poweredOn') {
-            console.log('[NobleTransport] Bluetooth powered on');
-            resolve();
-          }
-        });
-      });
+      await noble.waitForPoweredOnAsync();
+      console.log('[NobleTransport] Bluetooth powered on');
     }
     
     // Start scanning
     await noble.startScanningAsync([], false);
     console.log('[NobleTransport] Scanning started');
     
-    // Find device
-    const peripheral = await new Promise<any>((resolve, reject) => {
-      let found = false;
-      const timer = setTimeout(async () => {
-        if (!found) {
-          console.log('[NobleTransport] Scan timeout - no matching device found');
-          noble.removeAllListeners('discover');
-          await noble.stopScanningAsync();
-          reject(new Error(`No device found with prefix: ${config.devicePrefix}`));
-        }
-      }, 10000);
-      
-      const discoverHandler = async (p: any) => {
+    // Find device using async generator
+    let peripheral: any = null;
+    const timeout = Date.now() + 10000; // 10 second timeout
+    
+    try {
+      for await (const p of noble.discoverAsync()) {
         const name = p.advertisement.localName || '';
         console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${p.id})`);
-        if (!found && name.startsWith(config.devicePrefix)) {
-          found = true;
+        
+        if (name.startsWith(config.devicePrefix)) {
           console.log(`[NobleTransport] Found matching device: ${name}`);
-          clearTimeout(timer);
-          noble.removeListener('discover', discoverHandler);
-          await noble.stopScanningAsync();
-          resolve(p);
+          peripheral = p;
+          break;
         }
-      };
-      
-      noble.on('discover', discoverHandler);
-    });
+        
+        if (Date.now() > timeout) {
+          console.log('[NobleTransport] Scan timeout - no matching device found');
+          break;
+        }
+      }
+    } finally {
+      await noble.stopScanningAsync();
+    }
+    
+    if (!peripheral) {
+      throw new Error(`No device found with prefix: ${config.devicePrefix}`);
+    }
     
     this.peripheral = peripheral;
     this.deviceName = peripheral.advertisement.localName || 'Unknown';

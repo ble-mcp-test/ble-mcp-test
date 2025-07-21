@@ -80,15 +80,21 @@ export class BridgeServer {
       try {
         // Connect to BLE device
         console.log('[BridgeServer] Starting BLE connection...');
+        
+        // Track if we're already disconnecting to prevent loops
+        let isDisconnecting = false;
+        
         await this.transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
-            console.log('[BridgeServer] BLE disconnected, closing WebSocket');
-            ws.send(JSON.stringify({ type: 'disconnected' }));
-            ws.close();
+            if (!isDisconnecting) {
+              console.log('[BridgeServer] BLE disconnected, closing WebSocket');
+              ws.send(JSON.stringify({ type: 'disconnected' }));
+              ws.close();
+            }
           }
         });
         
@@ -112,9 +118,13 @@ export class BridgeServer {
         });
         
         // Clean disconnect on WebSocket close
-        ws.on('close', () => {
+        ws.on('close', async () => {
           console.log('[BridgeServer] WebSocket closed, disconnecting BLE');
-          this.transport?.disconnect();
+          isDisconnecting = true;
+          if (this.transport) {
+            await this.transport.disconnect();
+            console.log('[BridgeServer] BLE disconnected successfully');
+          }
         });
         
       } catch (error: any) {
