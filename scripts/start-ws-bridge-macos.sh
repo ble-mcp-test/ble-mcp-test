@@ -116,9 +116,16 @@ fi
 
 # Get network information
 print_step "Network information:"
+# Show all available IP addresses
+echo "  Available interfaces:"
+ifconfig | grep -E "inet.*broadcast" | grep -v "127.0.0.1" | while read line; do
+    IP=$(echo $line | awk '{print $2}')
+    echo "    - $IP"
+done
+# Use the first one for display (or could be made configurable)
 IP_ADDRESS=$(ifconfig | grep -E "inet.*broadcast" | grep -v "127.0.0.1" | head -1 | awk '{print $2}')
 if [ -n "$IP_ADDRESS" ]; then
-    echo "  IP Address: $IP_ADDRESS"
+    echo "  Primary IP: $IP_ADDRESS"
     echo "  WebSocket URL: ws://$IP_ADDRESS:$WS_PORT"
     echo "  mDNS Name: $(hostname).local"
 else
