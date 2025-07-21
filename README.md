@@ -57,22 +57,22 @@ The server will start on `ws://localhost:8080` by default.
 <!-- In your test HTML -->
 <script src="node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js"></script>
 <script>
-  // Initialize the mock with your bridge server URL
-  WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
-  
-  // Now use Web Bluetooth API as normal!
-  async function connectToDevice() {
-    const device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'MyDevice' }],
-      optionalServices: ['180f'] // Battery service
-    });
-    
-    const server = await device.gatt.connect();
-    const service = await server.getPrimaryService('180f');
-    const characteristic = await service.getCharacteristic('2a19');
-    const value = await characteristic.readValue();
-    console.log('Battery level:', value.getUint8(0), '%');
-  }
+    // Initialize the mock with your bridge server URL
+    WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+
+    // Now use Web Bluetooth API as normal!
+    async function connectToDevice() {
+        const device = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: 'MyDevice' }],
+            optionalServices: ['180f'] // Battery service
+        });
+
+        const server = await device.gatt.connect();
+        const service = await server.getPrimaryService('180f');
+        const characteristic = await service.getCharacteristic('2a19');
+        const value = await characteristic.readValue();
+        console.log('Battery level:', value.getUint8(0), '%');
+    }
 </script>
 ```
 
@@ -86,17 +86,17 @@ import { test, expect } from '@playwright/test';
 test('read battery level from BLE device', async ({ page }) => {
   // Load test page
   await page.goto('/test.html');
-  
+
   // Inject the Web Bluetooth mock
-  await page.addScriptTag({ 
-    path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js' 
+  await page.addScriptTag({
+    path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js'
   });
-  
+
   // Initialize mock with bridge server
   await page.evaluate(() => {
     WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
   });
-  
+
   // Test Web Bluetooth code
   const batteryLevel = await page.evaluate(async () => {
     const device = await navigator.bluetooth.requestDevice({
@@ -106,7 +106,7 @@ test('read battery level from BLE device', async ({ page }) => {
     // ... rest of Web Bluetooth code
     return batteryLevel;
   });
-  
+
   expect(batteryLevel).toBeGreaterThan(0);
 });
 ```
@@ -149,7 +149,7 @@ Environment variables:
 Pass device configuration via URL parameters:
 - `device` - Device name prefix to search for
 - `service` - BLE service UUID
-- `write` - Write characteristic UUID  
+- `write` - Write characteristic UUID
 - `notify` - Notify characteristic UUID
 
 Example:
@@ -164,6 +164,47 @@ ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901
 3. **Communication**: Mock sends Web Bluetooth API calls over WebSocket to bridge
 4. **BLE Operations**: Bridge performs actual BLE operations using Noble.js
 5. **Results**: Bridge sends results back to browser over WebSocket
+
+## Architecture Diagram
+
+The following sequence diagram shows the complete data flow from test to device:
+
+```mermaid
+sequenceDiagram
+    participant Test as Playwright Test
+    participant Browser as Browser (Mock)
+    participant Bridge as Bridge Server
+    participant BLE as BLE Device
+
+    Note over Test,Browser: 1. Test Setup
+    Test->>Browser: injectWebBluetoothMock('ws://localhost:8080')
+    Browser->>Browser: Replace navigator.bluetooth
+
+    Note over Test,BLE: 2. Device Connection
+    Test->>Browser: navigator.bluetooth.requestDevice()
+    Browser->>Bridge: WebSocket connect<br/>ws://localhost:8080?device=CS108&service=...
+    Bridge->>BLE: Noble scan for device
+    BLE-->>Bridge: Device found
+    Bridge->>BLE: Connect via Noble
+    BLE-->>Bridge: Connected
+    Bridge-->>Browser: {"type": "connected", "device": "CS108-123"}
+    Browser-->>Test: Return MockBluetoothDevice
+
+    Note over Test,BLE: 3. Data Exchange
+    Test->>Browser: characteristic.writeValue([0xA7, 0xB3, ...])
+    Browser->>Bridge: {"type": "data", "data": [167, 179, ...]}
+    Bridge->>BLE: Write via Noble
+    
+    BLE->>Bridge: Notification data
+    Bridge->>Browser: {"type": "data", "data": [179, 167, ...]}
+    Browser->>Test: characteristicvaluechanged event
+
+    Note over Test,BLE: 4. Disconnection
+    Test->>Browser: device.gatt.disconnect()
+    Browser->>Bridge: WebSocket close
+    Bridge->>BLE: Disconnect via Noble
+    Bridge->>Bridge: Cleanup connection
+```
 
 ## Protocol
 
@@ -195,7 +236,7 @@ The bridge uses a simple JSON protocol over WebSocket:
 - Check that your device is powered on and in range
 - Verify the device name prefix matches
 
-### "Connection timeout" error  
+### "Connection timeout" error
 - Check firewall settings if using remote bridge
 - Ensure WebSocket port is accessible
 - Try using IP address instead of hostname
