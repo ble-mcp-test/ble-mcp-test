@@ -127,11 +127,15 @@ fi
 
 # Check if bridge server is already running
 print_step "Checking if WebSocket bridge is already running..."
-if lsof -i :$WS_PORT &> /dev/null; then
+# Use timeout to prevent lsof from hanging
+if timeout 5 lsof -i :$WS_PORT &> /dev/null; then
     print_warning "Something is already using port $WS_PORT"
     print_step "Attempting to kill existing process..."
-    lsof -ti:$WS_PORT | xargs kill -9 2>/dev/null || true
+    timeout 5 lsof -ti:$WS_PORT | xargs kill -9 2>/dev/null || true
     sleep 1
+else
+    # If lsof times out or port is free, continue
+    print_success "Port $WS_PORT is available"
 fi
 
 # Get current commit info for troubleshooting
