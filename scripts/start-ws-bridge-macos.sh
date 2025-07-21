@@ -134,16 +134,12 @@ fi
 
 # Check if bridge server is already running
 print_step "Checking if WebSocket bridge is already running..."
-# Use timeout to prevent lsof from hanging
-if timeout 5 lsof -i :$WS_PORT &> /dev/null; then
-    print_warning "Something is already using port $WS_PORT"
-    print_step "Attempting to kill existing process..."
-    timeout 5 lsof -ti:$WS_PORT | xargs kill -9 2>/dev/null || true
-    sleep 1
-else
-    # If lsof times out or port is free, continue
-    print_success "Port $WS_PORT is available"
-fi
+# Skip lsof check entirely - it's causing hangs on multi-interface systems
+# Instead, just try to start and let it fail if port is in use
+print_warning "Skipping port check due to multi-interface issues"
+# Kill any existing bridge server processes
+pkill -f "node.*start-server.js" 2>/dev/null || true
+sleep 1
 
 # Get current commit info for troubleshooting
 COMMIT_HASH=$(git rev-parse HEAD)
