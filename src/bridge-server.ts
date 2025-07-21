@@ -142,13 +142,14 @@ export class BridgeServer {
     });
   }
   
-  stop() {
+  async stop() {
     if (this.zombieCheckInterval) {
       clearInterval(this.zombieCheckInterval);
       this.zombieCheckInterval = null;
     }
     this.wss?.close();
-    this.transport?.disconnect();
+    await this.transport?.disconnect();
+    this.transport?.destroy();
   }
   
   private checkForZombieConnections() {

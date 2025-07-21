@@ -29,6 +29,13 @@ export class NobleTransport {
   private notifyChar: any = null;
   private deviceName = '';
   private state: ConnectionState = ConnectionState.DISCONNECTED;
+  private discoveredDevices: Map<string, any> = new Map();
+  private scanInterval: any = null;
+  private isScanning = false;
+  
+  constructor() {
+    this.startBackgroundScanning();
+  }
 
   getState(): ConnectionState {
     return this.state;
@@ -50,46 +57,38 @@ export class NobleTransport {
     }
     
     try {
-      console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
+      console.log(`[NobleTransport] Looking for device prefix: ${config.devicePrefix}`);
       
       // Ensure Noble is ready
-    if (noble.state !== 'poweredOn') {
-      console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
-      await noble.waitForPoweredOnAsync();
-      console.log('[NobleTransport] Bluetooth powered on');
-    }
-    
-    // Start scanning
-    await noble.startScanningAsync([], false);
-    console.log('[NobleTransport] Scanning started');
-    
-    // Find device using async generator
-    let peripheral: any = null;
-    const timeout = Date.now() + 10000; // 10 second timeout
-    
-    try {
-      for await (const p of noble.discoverAsync()) {
-        const name = p.advertisement.localName || '';
-        console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${p.id})`);
-        
-        if (name.startsWith(config.devicePrefix)) {
-          console.log(`[NobleTransport] Found matching device: ${name}`);
-          peripheral = p;
-          break;
-        }
-        
-        if (Date.now() > timeout) {
-          console.log('[NobleTransport] Scan timeout - no matching device found');
-          break;
-        }
+      if (noble.state !== 'poweredOn') {
+        console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
+        await noble.waitForPoweredOnAsync();
+        console.log('[NobleTransport] Bluetooth powered on');
       }
-    } finally {
-      await noble.stopScanningAsync();
-    }
-    
-    if (!peripheral) {
-      throw new Error(`No device found with prefix: ${config.devicePrefix}`);
-    }
+      
+      // Wait for device to appear in our cache (max 15 seconds)
+      let peripheral: any = null;
+      const timeout = Date.now() + 15000;
+      
+      while (Date.now() < timeout) {
+        // Check discovered devices
+        for (const [name, p] of this.discoveredDevices) {
+          if (name.startsWith(config.devicePrefix)) {
+            console.log(`[NobleTransport] Found cached device: ${name}`);
+            peripheral = p;
+            break;
+          }
+        }
+        
+        if (peripheral) break;
+        
+        // Wait a bit before checking again
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      if (!peripheral) {
+        throw new Error(`No device found with prefix: ${config.devicePrefix}`);
+      }
     
     this.peripheral = peripheral;
     this.deviceName = peripheral.advertisement.localName || 'Unknown';
@@ -184,5 +183,69 @@ export class NobleTransport {
   
   getDeviceName(): string {
     return this.deviceName;
+  }
+  
+  private async startBackgroundScanning() {
+    // Scan every 10 seconds when disconnected
+    this.scanInterval = setInterval(async () => {
+      if (this.state === ConnectionState.DISCONNECTED) {
+        await this.performScan();
+      }
+    }, 10000);
+    
+    // Initial scan
+    if (this.state === ConnectionState.DISCONNECTED) {
+      await this.performScan();
+    }
+  }
+  
+  private async performScan() {
+    // Atomic guard - if already scanning, skip
+    if (this.isScanning) {
+      console.log('[NobleTransport] Scan already in progress, skipping');
+      return;
+    }
+    
+    this.isScanning = true;
+    
+    try {
+      // Ensure Noble is ready
+      if (noble.state !== 'poweredOn') {
+        await noble.waitForPoweredOnAsync();
+      }
+      
+      console.log('[NobleTransport] Background scan started');
+      
+      // Clear old devices
+      this.discoveredDevices.clear();
+      
+      // Scan for 5 seconds
+      await noble.startScanningAsync([], false);
+      
+      const scanTimeout = Date.now() + 5000;
+      for await (const peripheral of noble.discoverAsync()) {
+        const name = peripheral.advertisement.localName || '';
+        if (name) {
+          this.discoveredDevices.set(name, peripheral);
+          console.log(`[NobleTransport] Discovered: ${name}`);
+        }
+        
+        if (Date.now() > scanTimeout) break;
+      }
+      
+      await noble.stopScanningAsync();
+      console.log(`[NobleTransport] Background scan complete. Found ${this.discoveredDevices.size} devices`);
+    } catch (error) {
+      console.error('[NobleTransport] Background scan error:', error);
+    } finally {
+      this.isScanning = false;
+    }
+  }
+  
+  destroy() {
+    if (this.scanInterval) {
+      clearInterval(this.scanInterval);
+      this.scanInterval = null;
+    }
   }
 }
