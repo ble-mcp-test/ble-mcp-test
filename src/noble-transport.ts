@@ -30,7 +30,7 @@ export class NobleTransport {
   
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
-  private static SCANNER_RECOVERY_DELAY = 2000; // 2 seconds initially
+  private static SCANNER_RECOVERY_DELAY = 1000; // 1 second buffer
 
   getState(): ConnectionState {
     return this.state;
