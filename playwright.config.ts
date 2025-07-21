@@ -10,6 +10,7 @@ export default defineConfig({
     viewport: { width: 1280, height: 720 },
     ignoreHTTPSErrors: true,
     video: 'retain-on-failure',
+    baseURL: 'http://localhost:3000',
   },
   projects: [
     {
@@ -17,4 +18,9 @@ export default defineConfig({
       use: { browserName: 'chromium' },
     },
   ],
+  webServer: {
+    command: 'python3 -m http.server 3000 --directory .',
+    port: 3000,
+    reuseExistingServer: !process.env.CI,
+  },
 });

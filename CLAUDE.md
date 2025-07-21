@@ -1,5 +1,15 @@
 # Instructions for Claude Code
 
+## ⚠️ MANDATORY: Package Manager Rules
+1. This project uses pnpm EXCLUSIVELY
+2. NEVER use npm or npx - use pnpm instead
+3. Replace ALL instances of `npx` with `pnpm exec` or `pnpm dlx`
+4. Examples:
+   - ❌ WRONG: `npx playwright test`
+   - ✅ CORRECT: `pnpm exec playwright test`
+   - ❌ WRONG: `npm run build`
+   - ✅ CORRECT: `pnpm run build`
+
 ## Git Workflow Rules
 
 **NEVER commit or push directly to main branch. ALWAYS use feature branches.**
@@ -65,7 +75,7 @@ await peripheral.discoverServicesAsync();
 ## Clean Code Rules
 1. DELETE don't deprecate - no .old files, no commented code
 2. If a file isn't listed above, don't copy it
-3. Total implementation < 500 LOC
+3. Total implementation < 600 LOC
 4. Use pnpm exclusively (not npm/yarn)
 5. Node.js 24.x required for BLE compatibility
 

@@ -1,19 +1,39 @@
 {
   "name": "@trakrf/web-ble-bridge",
   "version": "0.1.0",
-  "type": "module",
-  "exports": {
-    ".": "./dist/index.js"
+  "description": "WebSocket-to-BLE bridge for Web Bluetooth API testing",
+  "keywords": ["bluetooth", "ble", "web-bluetooth", "testing", "mock", "websocket"],
+  "homepage": "https://github.com/trakrf/web-ble-bridge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trakrf/web-ble-bridge.git"
   },
+  "type": "module",
+  "main": "./dist/index.js",
+  "browser": "./dist/web-ble-mock.bundle.js",
+  "bin": {
+    "web-ble-bridge": "./dist/start-server.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./browser": "./dist/web-ble-mock.bundle.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && pnpm run build:browser",
+    "build:browser": "esbuild src/mock-bluetooth.ts --bundle --format=iife --global-name=WebBleMock --outfile=dist/web-ble-mock.bundle.js",
     "dev": "tsc --watch",
     "start": "node dist/start-server.js",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:run"
   },
   "dependencies": {
     "@stoprocent/noble": "^2.3.4",
@@ -25,7 +45,9 @@
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.37.0",
     "@typescript-eslint/parser": "^8.37.0",
+    "esbuild": "^0.25.8",
     "eslint": "^8.56.0",
+    "playwright": "^1.54.1",
     "typescript": "^5.3.3",
     "vitest": "^1.2.0"
   }
