@@ -149,7 +149,6 @@ export class BridgeServer {
     }
     this.wss?.close();
     await this.transport?.disconnect();
-    this.transport?.destroy();
   }
   
   private checkForZombieConnections() {
