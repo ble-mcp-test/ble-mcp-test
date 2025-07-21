@@ -1,7 +1,8 @@
 import noble from '@stoprocent/noble';
 
-// Increase max listeners to prevent warning during concurrent scans
-noble.setMaxListeners(20);
+// Increase max listeners to handle multiple sequential scans
+// Noble's async generator can leak listeners during cleanup
+noble.setMaxListeners(100);
 
 interface Callbacks {
   onData: (data: Uint8Array) => void;
