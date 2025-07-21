@@ -165,6 +165,8 @@ ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901
 4. **BLE Operations**: Bridge performs actual BLE operations using Noble.js
 5. **Results**: Bridge sends results back to browser over WebSocket
 
+**Important**: The bridge currently supports **one connection at a time**. Multiple WebSocket clients can connect, but only one can have an active BLE connection. This design prevents race conditions and ensures reliable operation.
+
 ## Architecture Diagram
 
 The following sequence diagram shows the complete data flow from test to device:
@@ -251,9 +253,30 @@ The bridge uses a simple JSON protocol over WebSocket:
 - [API Documentation](docs/API.md) - Detailed API reference
 - [Migration Guide](docs/MIGRATION.md) - Migrating from native Web Bluetooth
 
+## Roadmap
+
+### v0.2.0 - Multi-Device Support
+- Support multiple simultaneous BLE connections
+- Route WebSocket clients to specific devices
+- Connection pooling and management
+
+### v0.3.0 - CLI Tools
+- `web-ble-bridge scan` - Scan for nearby BLE devices
+- `web-ble-bridge test <device>` - Test connection to a device
+- `web-ble-bridge reset` - Reset BLE adapter
+- `web-ble-bridge monitor` - Live connection monitoring
+
+### Future Considerations
+- Reconnection support with configurable retry
+- WebSocket authentication/authorization
+- Metrics and monitoring endpoints
+- Docker container for easy deployment
+
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+If you're interested in working on any of the roadmap items, please open an issue to discuss first.
 
 ## License
 

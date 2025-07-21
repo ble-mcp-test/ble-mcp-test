@@ -140,6 +140,20 @@ The mock implements the following Web Bluetooth API methods:
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
 
+## Limitations
+
+### Single Connection
+The bridge currently supports **one BLE connection at a time**. If a WebSocket client tries to connect while another client has an active BLE connection, it will receive an error:
+
+```json
+{
+  "type": "error",
+  "error": "Another connection is active"
+}
+```
+
+This is by design to prevent race conditions and ensure reliable operation. See the [Roadmap](../README.md#roadmap) for planned multi-device support.
+
 ## Error Handling
 
 The bridge provides clear error messages:
