@@ -88,6 +88,10 @@ export class NobleTransport {
   private deviceName = '';
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
+  
+  // Scanner recovery delay management
+  private static lastScannerDestroyTime = 0;
+  private static SCANNER_RECOVERY_DELAY = 2000; // 2 seconds initially
 
   getState(): ConnectionState {
     return this.state;
@@ -226,6 +230,14 @@ export class NobleTransport {
       throw new Error('Scan already in progress');
     }
     
+    // Enforce scanner recovery delay
+    const timeSinceLastDestroy = Date.now() - NobleTransport.lastScannerDestroyTime;
+    if (timeSinceLastDestroy < NobleTransport.SCANNER_RECOVERY_DELAY) {
+      const waitTime = NobleTransport.SCANNER_RECOVERY_DELAY - timeSinceLastDestroy;
+      console.log(`[NobleTransport] Waiting ${waitTime}ms for scanner recovery`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+    
     this.isScanning = true;
     
     try {
@@ -242,6 +254,9 @@ export class NobleTransport {
       return peripheral;
     } finally {
       this.isScanning = false;
+      // Mark when we're done with scanner
+      NobleTransport.lastScannerDestroyTime = Date.now();
+      console.log('[NobleTransport] Scanner destroyed, recovery timer started');
     }
   }
 }
