@@ -1,11 +1,18 @@
 import { WebSocketServer } from 'ws';
-import { NobleTransport } from './noble-transport.js';
+import { NobleTransport, ConnectionState } from './noble-transport.js';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
+  private transport: NobleTransport | null = null;
+  private zombieCheckInterval: any = null;
 
   start(port = 8080) {
     this.wss = new WebSocketServer({ port });
+    
+    // Start zombie connection check every 30 seconds
+    this.zombieCheckInterval = setInterval(() => {
+      this.checkForZombieConnections();
+    }, 30000);
     
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
@@ -34,12 +41,26 @@ export class BridgeServer {
       console.log(`[BridgeServer]   Write UUID: ${bleConfig.writeUuid}`);
       console.log(`[BridgeServer]   Notify UUID: ${bleConfig.notifyUuid}`);
       
-      const transport = new NobleTransport();
+      // Check if another connection is active
+      if (this.transport && this.transport.getState() !== ConnectionState.DISCONNECTED) {
+        console.warn(`[BridgeServer] Rejecting connection - BLE state: ${this.transport.getState()}`);
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          error: 'Another connection is active' 
+        }));
+        ws.close();
+        return;
+      }
+      
+      // Create transport if needed
+      if (!this.transport) {
+        this.transport = new NobleTransport();
+      }
       
       try {
         // Connect to BLE device
         console.log('[BridgeServer] Starting BLE connection...');
-        await transport.connect(bleConfig, {
+        await this.transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
@@ -55,15 +76,15 @@ export class BridgeServer {
         console.log(`[BridgeServer] BLE connected, sending connected message`);
         ws.send(JSON.stringify({ 
           type: 'connected', 
-          device: transport.getDeviceName() 
+          device: this.transport.getDeviceName() 
         }));
         
         // Handle incoming messages
         ws.on('message', async (message) => {
           try {
             const msg = JSON.parse(message.toString());
-            if (msg.type === 'data' && msg.data) {
-              await transport.sendData(new Uint8Array(msg.data));
+            if (msg.type === 'data' && msg.data && this.transport) {
+              await this.transport.sendData(new Uint8Array(msg.data));
             }
           } catch (error) {
             // Ignore malformed messages
@@ -73,7 +94,7 @@ export class BridgeServer {
         // Clean disconnect on WebSocket close
         ws.on('close', () => {
           console.log('[BridgeServer] WebSocket closed, disconnecting BLE');
-          transport.disconnect();
+          this.transport?.disconnect();
         });
         
       } catch (error: any) {
@@ -83,11 +104,28 @@ export class BridgeServer {
           error: error?.message || error?.toString() || 'Unknown error' 
         }));
         ws.close();
+        // Reset transport state on connection error
+        this.transport = null;
       }
     });
   }
   
   stop() {
+    if (this.zombieCheckInterval) {
+      clearInterval(this.zombieCheckInterval);
+      this.zombieCheckInterval = null;
+    }
     this.wss?.close();
+    this.transport?.disconnect();
+  }
+  
+  private checkForZombieConnections() {
+    // If we have a BLE connection but no WebSocket connections, it's a zombie
+    if (this.transport && 
+        this.transport.getState() !== ConnectionState.DISCONNECTED && 
+        this.wss?.clients.size === 0) {
+      console.log('🧟 [BridgeServer] Found zombie BLE connection - cleaning up');
+      this.transport.disconnect();
+    }
   }
 }

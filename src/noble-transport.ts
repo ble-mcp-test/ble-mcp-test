@@ -12,16 +12,34 @@ interface BLEConfig {
   notifyUuid: string;
 }
 
+export enum ConnectionState {
+  DISCONNECTED = 'disconnected',
+  CONNECTING = 'connecting',
+  CONNECTED = 'connected'
+}
+
 export class NobleTransport {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
   private deviceName = '';
+  private state: ConnectionState = ConnectionState.DISCONNECTED;
+
+  getState(): ConnectionState {
+    return this.state;
+  }
 
   async connect(config: BLEConfig, callbacks: Callbacks): Promise<void> {
-    console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
+    if (this.state !== ConnectionState.DISCONNECTED) {
+      throw new Error(`Cannot connect in state: ${this.state}`);
+    }
     
-    // Ensure Noble is ready
+    this.state = ConnectionState.CONNECTING;
+    
+    try {
+      console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
+      
+      // Ensure Noble is ready
     if (noble.state !== 'poweredOn') {
       console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
       await new Promise<void>((resolve) => {
@@ -115,10 +133,17 @@ export class NobleTransport {
     // Handle unexpected disconnect
     peripheral.once('disconnect', () => {
       console.log('[NobleTransport] Device disconnected');
+      this.state = ConnectionState.DISCONNECTED;
       callbacks.onDisconnected();
     });
     
     console.log('[NobleTransport] Connection complete');
+    this.state = ConnectionState.CONNECTED;
+    } catch (error) {
+      // Reset state on any error
+      this.state = ConnectionState.DISCONNECTED;
+      throw error;
+    }
   }
   
   async sendData(data: Uint8Array): Promise<void> {
@@ -143,6 +168,7 @@ export class NobleTransport {
     this.peripheral = null;
     this.writeChar = null;
     this.notifyChar = null;
+    this.state = ConnectionState.DISCONNECTED;
   }
   
   getDeviceName(): string {
