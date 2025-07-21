@@ -5,9 +5,13 @@ export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
   private zombieCheckInterval: any = null;
+  private logClients: Set<any> = new Set();
 
   start(port = 8080) {
     this.wss = new WebSocketServer({ port });
+    
+    // Hook into console methods for log streaming
+    this.interceptConsole();
     
     // Start zombie connection check every 30 seconds
     this.zombieCheckInterval = setInterval(() => {
@@ -16,6 +20,22 @@ export class BridgeServer {
     
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
+      
+      // Check if this is a log streaming connection
+      if (url.searchParams.get('command') === 'log-stream') {
+        this.logClients.add(ws);
+        ws.send(JSON.stringify({ 
+          type: 'log', 
+          timestamp: new Date().toISOString(),
+          level: 'info',
+          message: 'Connected to log stream' 
+        }));
+        
+        ws.on('close', () => {
+          this.logClients.delete(ws);
+        });
+        return;
+      }
       
       // Parse BLE configuration from URL parameters
       const bleConfig = {
@@ -120,12 +140,53 @@ export class BridgeServer {
   }
   
   private checkForZombieConnections() {
-    // If we have a BLE connection but no WebSocket connections, it's a zombie
+    // If we have a BLE connection but no WebSocket connections (excluding log clients), it's a zombie
+    const activeBleClients = Array.from(this.wss?.clients || []).filter(
+      client => !this.logClients.has(client)
+    ).length;
+    
     if (this.transport && 
         this.transport.getState() !== ConnectionState.DISCONNECTED && 
-        this.wss?.clients.size === 0) {
+        activeBleClients === 0) {
       console.log('🧟 [BridgeServer] Found zombie BLE connection - cleaning up');
       this.transport.disconnect();
     }
+  }
+  
+  private interceptConsole() {
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+    
+    console.log = (...args) => {
+      originalLog.apply(console, args);
+      this.broadcastLog('info', args.join(' '));
+    };
+    
+    console.warn = (...args) => {
+      originalWarn.apply(console, args);
+      this.broadcastLog('warn', args.join(' '));
+    };
+    
+    console.error = (...args) => {
+      originalError.apply(console, args);
+      this.broadcastLog('error', args.join(' '));
+    };
+  }
+  
+  private broadcastLog(level: string, message: string) {
+    const logEvent = {
+      type: 'log',
+      timestamp: new Date().toISOString(),
+      level,
+      message
+    };
+    
+    const json = JSON.stringify(logEvent);
+    this.logClients.forEach(client => {
+      if (client.readyState === 1) { // WebSocket.OPEN
+        client.send(json);
+      }
+    });
   }
 }
