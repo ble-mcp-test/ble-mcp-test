@@ -180,6 +180,28 @@ Example:
 ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901
 ```
 
+## Testing
+
+**Important**: Tests must be run sequentially, not in parallel. The bridge enforces single connection behavior because there's only one physical BLE device. Running tests in parallel will result in connection conflicts, which is the expected and correct behavior.
+
+```bash
+# Run integration tests sequentially (correct)
+pnpm test:run tests/integration/connection.test.ts
+pnpm test:run tests/integration/device-interaction.test.ts
+
+# Running all tests in parallel (will fail)
+pnpm test:run tests/integration/  # ❌ Tests will conflict
+```
+
+### Why Sequential Testing?
+
+The WebSocket-to-BLE bridge maintains a singleton connection to the physical device. This is by design:
+- Only one WebSocket client can control a BLE device at a time
+- Attempting parallel connections will fail with "Another connection is active"
+- This prevents tests from interfering with each other's device state
+- Each test gets exclusive access to the device
+- Future multi-device support would allow parallel testing with different devices
+
 ## How It Works
 
 1. **Bridge Server**: Runs on a machine with BLE hardware, creates WebSocket server
@@ -311,3 +333,7 @@ If you're interested in working on any of the roadmap items, please open an issu
 ## License
 
 MIT
+
+---
+
+**TODO**: Update all examples to use Nordic nRF52 UUIDs once the development board arrives. The nRF52 is a more accessible platform for developers ($40 vs $600+) and will make the examples reproducible for anyone wanting to try the bridge.

@@ -147,3 +147,55 @@ pnpm run logs
 ```
 
 Please share the results in the PR or issue!
+
+## Raspberry Pi Specific Questions
+
+Based on the macOS baseline tests, we need to understand these specific behaviors on Raspberry Pi:
+
+### 1. Unknown Peripheral Error Details
+- **When exactly does it occur?**
+  - During initial connection (`connectAsync()`)?
+  - During service discovery (`discoverServicesAsync()`)?
+  - At a specific point in the discovery process?
+- **Error format:** Is it exactly "unknown peripheral" or includes additional info?
+- **Peripheral ID:** Does the error include the peripheral ID that failed?
+
+### 2. Connection Timing Behavior
+- **Idle timeout measurement:**
+  - If you connect but don't call `discoverServicesAsync()`, how long until disconnect?
+  - If you add a 100ms delay before discovery, does it still fail?
+  - What's the maximum delay that works (0ms, 10ms, 50ms, 100ms)?
+- **Error 8 timing:**
+  - Does error 8 occur immediately on `discoverServicesAsync()` call?
+  - Or after some delay during the discovery process?
+
+### 3. Noble Reset Effectiveness
+- **After "unknown peripheral" error:**
+  - Does the next connection attempt succeed (with Noble reset)?
+  - How many attempts before it works again?
+  - Does `noble.reset()` actually help or is time the key factor?
+
+### 4. Platform Comparison
+- **Bluetooth settings:**
+  - Output of `bluetoothctl show` on the Pi
+  - Are there any power-saving or connection interval settings?
+- **Kernel/driver info:**
+  - Output of `uname -a` and `dmesg | grep -i bluetooth`
+  - BlueZ version: `bluetoothd --version`
+
+### 5. Connection Stability Test
+Once connected, please test:
+```javascript
+// After successful connection, send multiple commands rapidly
+for (let i = 0; i < 5; i++) {
+  await sendCommand(GET_BATTERY_VOLTAGE);
+  await sleep(100); // Does this work or cause disconnect?
+}
+```
+
+### 6. Scanner State
+- **Multiple connection attempts:**
+  - Try connecting 3 times in a row (with 30s between attempts)
+  - Does the pattern change? Better/worse on subsequent attempts?
+- **Fresh boot test:**
+  - Does behavior differ right after Pi reboot vs after running for a while?

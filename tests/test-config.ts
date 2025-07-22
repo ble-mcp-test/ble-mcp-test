@@ -45,7 +45,7 @@ export const WS_URL = getTestConfig().wsUrl;
 // Shared test server setup helper
 // Returns: server instance if we started one (for cleanup), null if using external server
 export async function setupTestServer() {
-  const { default: BridgeServer } = await import('../dist/bridge-server.js');
+  const { BridgeServer } = await import('../dist/bridge-server.js');
   const WebSocket = (await import('ws')).default;
   
   // First, try to connect to the configured URL

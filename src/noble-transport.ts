@@ -1,5 +1,8 @@
 import noble from '@stoprocent/noble';
 
+// Increase max listeners to prevent warnings during rapid connections
+noble.setMaxListeners(20);
+
 interface Callbacks {
   onData: (data: Uint8Array) => void;
   onDisconnected: () => void;
@@ -20,22 +23,44 @@ export enum ConnectionState {
 }
 
 // Platform-aware UUID normalization for Noble.js
-// Noble expects 128-bit UUIDs without dashes (32 hex chars)
+// macOS Noble expects short UUIDs (4 chars)
+// Linux Noble expects long UUIDs without dashes (32 hex chars)
 export function normalizeUuid(uuid: string): string {
-  // Remove dashes and convert to lowercase (Noble's internal format)
+  const isLinux = process.platform === 'linux';
+  
+  // Remove dashes and convert to lowercase
   const cleaned = uuid.toLowerCase().replace(/-/g, '');
   
-  // If already 32 chars (full UUID without dashes), return as-is
-  if (cleaned.length === 32) return cleaned;
-  
-  // If 4-char short UUID, expand to full 128-bit without dashes
-  if (cleaned.length === 4) {
-    return `0000${cleaned}00001000800000805f9b34fb`;
+  if (isLinux) {
+    // Linux: Always convert to full 128-bit UUID without dashes
+    
+    // If already 32 chars (full UUID without dashes), return as-is
+    if (cleaned.length === 32) return cleaned;
+    
+    // If 4-char short UUID, expand to full 128-bit without dashes
+    if (cleaned.length === 4) {
+      return `0000${cleaned}00001000800000805f9b34fb`;
+    }
+    
+    // Handle other lengths by padding and taking last 4 chars
+    const shortId = cleaned.padStart(4, '0').slice(-4);
+    return `0000${shortId}00001000800000805f9b34fb`;
+  } else {
+    // macOS (and others): Always convert to short UUID
+    
+    // If it's a 4-char UUID already, return it
+    if (cleaned.length === 4) return cleaned;
+    
+    // If it's a full UUID (32 chars), extract the short UUID part
+    if (cleaned.length === 32) {
+      // Extract characters 4-8 (the short UUID portion)
+      return cleaned.substring(4, 8);
+    }
+    
+    // For other lengths, try to extract something sensible
+    // Take the last 4 chars, or pad if too short
+    return cleaned.padStart(4, '0').slice(-4);
   }
-  
-  // Handle other lengths by padding and taking last 4 chars
-  const shortId = cleaned.padStart(4, '0').slice(-4);
-  return `0000${shortId}00001000800000805f9b34fb`;
 }
 
 export class NobleTransport {
@@ -49,7 +74,7 @@ export class NobleTransport {
   
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
-  private static SCANNER_RECOVERY_DELAY = 20000; // 20 second buffer
+  private static SCANNER_RECOVERY_DELAY = 1000; // 1 second buffer
   
   // Service discovery timeout
   private static SERVICE_DISCOVERY_TIMEOUT = 60000; // 60 seconds - generous timeout
@@ -59,9 +84,9 @@ export class NobleTransport {
   
   // Timing configuration - start generous, can be tuned down
   private static readonly TIMINGS = {
-    CONNECTION_STABILITY: 0,        // 0ms - CS108 disconnects with any delay
-    PRE_DISCOVERY_DELAY: 0,         // 0s - CS108 needs immediate discovery
-    NOBLE_RESET_DELAY: 5000,        // 5s - time after noble reset
+    CONNECTION_STABILITY: 1000,        // 1s - testing if this helps tests
+    PRE_DISCOVERY_DELAY: 1000,         // 1s - testing if this helps tests
+    NOBLE_RESET_DELAY: 1000,        // 1s - reduced from 5s
     SCAN_TIMEOUT: 60000,            // 60s - max time to find device
     CONNECTION_TIMEOUT: 60000,      // 60s - max time to establish connection
   };
@@ -244,7 +269,8 @@ export class NobleTransport {
       
       for (const srv of allServices) {
         console.log(`[NobleTransport]   Service: ${srv.uuid}`);
-        if (srv.uuid === serviceUuid) {
+        // Normalize both UUIDs for comparison to handle platform differences
+        if (normalizeUuid(srv.uuid) === serviceUuid) {
           targetService = srv;
           console.log(`[NobleTransport]   ^ This is our target service!`);
         }
@@ -265,10 +291,12 @@ export class NobleTransport {
       for (const char of characteristics) {
         const uuid = char.uuid;
         console.log(`[NobleTransport]   Characteristic: ${uuid}`);
-        if (uuid === writeUuid) {
+        // Normalize both UUIDs for comparison to handle platform differences
+        const normalizedCharUuid = normalizeUuid(uuid);
+        if (normalizedCharUuid === writeUuid) {
           this.writeChar = char;
           console.log('[NobleTransport]   -> This is the WRITE characteristic');
-        } else if (uuid === notifyUuid) {
+        } else if (normalizedCharUuid === notifyUuid) {
           this.notifyChar = char;
           console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
         }
@@ -409,6 +437,9 @@ export class NobleTransport {
       // Always stop scanning and clean up generator
       await noble.stopScanningAsync();
       generator.return();
+      
+      // Clean up any scanStop listeners to prevent memory leak warnings
+      noble.removeAllListeners('scanStop');
       
       if (!peripheral) {
         console.log('[NobleTransport] Scan timeout - no matching device found');
