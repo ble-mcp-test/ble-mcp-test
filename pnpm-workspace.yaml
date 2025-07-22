@@ -1,0 +1,6 @@
+onlyBuiltDependencies:
+  - '@serialport/bindings-cpp'
+  - '@stoprocent/bluetooth-hci-socket'
+  - '@stoprocent/noble'
+  - esbuild
+  - usb

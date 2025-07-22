@@ -19,6 +19,25 @@ export enum ConnectionState {
   DISCONNECTING = 'disconnecting'
 }
 
+// Platform-aware UUID normalization for Noble.js
+// Noble expects 128-bit UUIDs without dashes (32 hex chars)
+export function normalizeUuid(uuid: string): string {
+  // Remove dashes and convert to lowercase
+  const cleaned = uuid.toLowerCase().replace(/-/g, '');
+  
+  // If already 32 chars (full UUID without dashes), return as-is
+  if (cleaned.length === 32) return cleaned;
+  
+  // If 4-char short UUID, expand to full 128-bit
+  if (cleaned.length === 4) {
+    return `0000${cleaned}00001000800000805f9b34fb`;
+  }
+  
+  // Handle other lengths by padding and taking last 4 chars
+  const shortId = cleaned.padStart(4, '0').slice(-4);
+  return `0000${shortId}00001000800000805f9b34fb`;
+}
+
 
 // Global Noble reset function for testing
 export async function resetNobleForTesting(): Promise<void> {
@@ -111,14 +130,19 @@ export class NobleTransport {
     await peripheral.connectAsync();
     console.log('[NobleTransport] Connected to BLE device');
     
+    // Normalize UUIDs for Noble.js
+    const serviceUuid = normalizeUuid(config.serviceUuid);
+    const writeUuid = normalizeUuid(config.writeUuid);
+    const notifyUuid = normalizeUuid(config.notifyUuid);
+    
     // Discover services and characteristics
     console.log('[NobleTransport] Discovering services and characteristics...');
-    console.log(`[NobleTransport]   Service UUID: ${config.serviceUuid}`);
-    console.log(`[NobleTransport]   Write UUID: ${config.writeUuid}`);
-    console.log(`[NobleTransport]   Notify UUID: ${config.notifyUuid}`);
+    console.log(`[NobleTransport]   Service UUID: ${config.serviceUuid} -> ${serviceUuid}`);
+    console.log(`[NobleTransport]   Write UUID: ${config.writeUuid} -> ${writeUuid}`);
+    console.log(`[NobleTransport]   Notify UUID: ${config.notifyUuid} -> ${notifyUuid}`);
     const result = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
-      [config.serviceUuid],
-      [config.writeUuid, config.notifyUuid]
+      [serviceUuid],
+      [writeUuid, notifyUuid]
     );
     console.log(`[NobleTransport] Found ${result.services.length} services, ${result.characteristics.length} characteristics`);
     
@@ -126,10 +150,10 @@ export class NobleTransport {
     for (const char of result.characteristics) {
       const uuid = char.uuid;
       console.log(`[NobleTransport]   Characteristic: ${uuid}`);
-      if (uuid === config.writeUuid) {
+      if (uuid === writeUuid) {
         this.writeChar = char;
         console.log('[NobleTransport]   -> This is the WRITE characteristic');
-      } else if (uuid === config.notifyUuid) {
+      } else if (uuid === notifyUuid) {
         this.notifyChar = char;
         console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
       }

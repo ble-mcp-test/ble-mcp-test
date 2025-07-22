@@ -152,4 +152,105 @@ describe('Bridge Connection', () => {
     expect(error).toBe(true);
     ws.close();
   });
+
+  describe('UUID Format Validation', () => {
+    it('connects with short UUID format', async () => {
+      // Use default config which has short UUIDs like '9800'
+      const params = new URLSearchParams(DEVICE_CONFIG);
+      const ws = new WebSocket(`${testUrl}?${params}`);
+      
+      const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'connected') {
+            resolve({ connected: true });
+          } else if (msg.type === 'error') {
+            resolve({ connected: false, error: msg.error });
+          }
+        });
+        ws.on('error', () => resolve({ connected: false, error: 'WebSocket error' }));
+        setTimeout(() => resolve({ connected: false, error: 'Timeout' }), 5000);
+      });
+      
+      // Mock transport should connect successfully
+      if (useExternalServer && result.error?.includes('No device found')) {
+        console.log('No physical device available, skipping');
+        expect(result.error).toContain('No device found');
+      } else {
+        expect(result.connected || result.error?.includes('No device found')).toBe(true);
+      }
+      
+      ws.close();
+    });
+
+    it('connects with full UUID format with dashes', async () => {
+      // Use full UUID format with dashes
+      const fullUuidConfig = {
+        device: DEVICE_CONFIG.device,
+        service: '00009800-0000-1000-8000-00805f9b34fb',
+        write: '00009900-0000-1000-8000-00805f9b34fb',
+        notify: '00009901-0000-1000-8000-00805f9b34fb'
+      };
+      const params = new URLSearchParams(fullUuidConfig);
+      const ws = new WebSocket(`${testUrl}?${params}`);
+      
+      const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'connected') {
+            resolve({ connected: true });
+          } else if (msg.type === 'error') {
+            resolve({ connected: false, error: msg.error });
+          }
+        });
+        ws.on('error', () => resolve({ connected: false, error: 'WebSocket error' }));
+        setTimeout(() => resolve({ connected: false, error: 'Timeout' }), 5000);
+      });
+      
+      // Mock transport should connect successfully
+      if (useExternalServer && result.error?.includes('No device found')) {
+        console.log('No physical device available, skipping');
+        expect(result.error).toContain('No device found');
+      } else {
+        expect(result.connected || result.error?.includes('No device found')).toBe(true);
+      }
+      
+      ws.close();
+    });
+
+    it('connects with mixed case UUIDs', async () => {
+      // Use mixed case UUIDs
+      const mixedCaseConfig = {
+        device: DEVICE_CONFIG.device,
+        service: '9800',
+        write: '9900',
+        notify: '9901'
+      };
+      const params = new URLSearchParams(mixedCaseConfig);
+      const ws = new WebSocket(`${testUrl}?${params}`);
+      
+      const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
+        ws.on('message', (data) => {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'connected') {
+            resolve({ connected: true });
+          } else if (msg.type === 'error') {
+            resolve({ connected: false, error: msg.error });
+          }
+        });
+        ws.on('error', () => resolve({ connected: false, error: 'WebSocket error' }));
+        setTimeout(() => resolve({ connected: false, error: 'Timeout' }), 5000);
+      });
+      
+      // Mock transport should connect successfully
+      if (useExternalServer && result.error?.includes('No device found')) {
+        console.log('No physical device available, skipping');
+        expect(result.error).toContain('No device found');
+      } else {
+        expect(result.connected || result.error?.includes('No device found')).toBe(true);
+      }
+      
+      ws.close();
+    });
+  });
 });

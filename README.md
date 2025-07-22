@@ -143,6 +143,12 @@ bridgeUrl.searchParams.set('notify', '2a20');         // Notify characteristic U
 WebBleMock.injectWebBluetoothMock(bridgeUrl.toString());
 ```
 
+The bridge accepts UUIDs in multiple formats:
+- **Short form**: `180F`, `2A19` (16-bit UUIDs)
+- **Full form with dashes**: `0000180F-0000-1000-8000-00805F9B34FB`
+- **Full form without dashes**: `0000180f00001000800000805f9b34fb`
+- **Case insensitive**: `BEEF`, `BEef`, `beef` all work the same
+
 ### Example 3: Running Bridge on Remote Machine
 
 ```bash
