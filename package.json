@@ -1,14 +1,60 @@
 {
-  "name": "@trakrf/noble-cs108",  // Scoped package
-  "version": "0.1.0",
-  "license": "MIT",
-  "publishConfig": {
-    "access": "public"
+  "name": "@trakrf/web-ble-bridge",
+  "version": "0.1.1",
+  "description": "WebSocket-to-BLE bridge for Web Bluetooth API testing",
+  "keywords": ["bluetooth", "ble", "web-bluetooth", "testing", "mock", "websocket"],
+  "homepage": "https://github.com/trakrf/web-ble-bridge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/trakrf/web-ble-bridge.git"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "browser": "./dist/web-ble-mock.bundle.js",
+  "bin": {
+    "web-ble-bridge": "./dist/start-server.js"
+  },
+  "exports": {
+    ".": "./dist/index.js",
+    "./browser": "./dist/web-ble-mock.bundle.js"
   },
   "files": [
     "dist",
-    "src",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "scripts": {
+    "build": "tsc && pnpm run build:browser",
+    "build:browser": "esbuild src/mock-bluetooth.ts --bundle --format=iife --global-name=WebBleMock --outfile=dist/web-ble-mock.bundle.js",
+    "dev": "tsc --watch",
+    "start": "node dist/start-server.js",
+    "start:bg": "nohup node dist/start-server.js > tmp/bridge-server.log 2>&1 & echo $! > tmp/bridge-server.pid",
+    "stop": "[ -f tmp/bridge-server.pid ] && kill $(cat tmp/bridge-server.pid) && rm tmp/bridge-server.pid || echo 'No server running'",
+    "restart": "pnpm run stop && pnpm run start:bg",
+    "status": "[ -f tmp/bridge-server.pid ] && ps -p $(cat tmp/bridge-server.pid) > /dev/null && echo 'Bridge server running (PID: '$(cat tmp/bridge-server.pid)')' || echo 'Bridge server not running'",
+    "logs": "tail -f tmp/bridge-server.log",
+    "logs:live": "node scripts/log-client.js",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:run"
+  },
+  "dependencies": {
+    "@stoprocent/noble": "^2.3.4",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.37.0",
+    "@typescript-eslint/parser": "^8.37.0",
+    "esbuild": "^0.25.8",
+    "eslint": "^8.56.0",
+    "playwright": "^1.54.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.2.0"
+  }
 }
