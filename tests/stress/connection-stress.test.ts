@@ -61,8 +61,7 @@ describe('Connection Stress Tests', () => {
         // Immediately close
         ws.close();
         
-        // Small delay between cycles
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // No delay needed - server handles all timing internally
         
       } catch (error) {
         results.push(false);

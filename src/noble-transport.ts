@@ -92,14 +92,43 @@ export class NobleTransport {
   // Connection retry management
   private static needsReset = false;
   
-  // Timing configuration - start generous, can be tuned down
-  private static readonly TIMINGS = {
-    CONNECTION_STABILITY: 0,           // 0s - CS108 disconnects with any delay
-    PRE_DISCOVERY_DELAY: 0,            // 0s - CS108 needs immediate discovery
-    NOBLE_RESET_DELAY: 1000,        // 1s - reduced from 5s
-    SCAN_TIMEOUT: 60000,            // 60s - max time to find device
-    CONNECTION_TIMEOUT: 60000,      // 60s - max time to establish connection
-  };
+  // Platform-aware timing configuration
+  private static readonly TIMINGS = (() => {
+    switch (process.platform) {
+      case 'darwin':
+        return {
+          // macOS timings - optimized for faster operations
+          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+          NOBLE_RESET_DELAY: 1000,       // 1s
+          SCAN_TIMEOUT: 15000,           // 15s
+          CONNECTION_TIMEOUT: 15000,     // 15s
+          DISCONNECT_COOLDOWN: 1000,     // 1s - macOS handles BLE cleanup quickly
+        };
+      
+      case 'win32':
+        return {
+          // Windows timings - moderate delays for stability
+          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+          NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
+          SCAN_TIMEOUT: 15000,           // 15s
+          CONNECTION_TIMEOUT: 15000,     // 15s
+          DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
+        };
+      
+      default:  // linux, freebsd, etc.
+        return {
+          // Linux/Pi timings - needs longer delays for stability
+          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+          NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
+          SCAN_TIMEOUT: 15000,           // 15s
+          CONNECTION_TIMEOUT: 15000,     // 15s
+          DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
+        };
+    }
+  })();
 
   getState(): ConnectionState {
     return this.state;
@@ -392,10 +421,17 @@ export class NobleTransport {
     } catch (error) {
       console.log('[NobleTransport] Error during disconnect (expected):', error);
     } finally {
-      // Always reset to disconnected state regardless of errors
+      // Clear references
       this.peripheral = null;
       this.writeChar = null;
       this.notifyChar = null;
+      
+      // Platform-specific cooldown before marking as disconnected
+      const cooldownMs = NobleTransport.TIMINGS.DISCONNECT_COOLDOWN;
+      console.log(`[NobleTransport] Applying ${cooldownMs}ms cooldown for ${process.platform}`);
+      await new Promise(resolve => setTimeout(resolve, cooldownMs));
+      
+      // Now safe to mark as disconnected
       this.state = ConnectionState.DISCONNECTED;
       console.log('[NobleTransport] Disconnection complete');
     }

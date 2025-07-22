@@ -32,7 +32,7 @@ export class ConnectionFactory {
     const {
       maxRetries = 10,
       retryDelay = 1000,
-      timeout = 15000
+      timeout = 20000  // 20s guard timeout - longer than 15s transport timeout
     } = options;
     
     // Clean up any previous connection
@@ -179,11 +179,7 @@ export class ConnectionFactory {
         setTimeout(() => resolve(), 1000);
       });
       
-      // Additional cooldown to ensure BLE disconnection completes
-      // Start with 10s for binary search (CS108 on Linux)
-      const cooldownMs = 10000; // Start high: 10s
-      console.log(`[ConnectionFactory] BLE cooldown: ${cooldownMs/1000}s`);
-      await new Promise(resolve => setTimeout(resolve, cooldownMs));
+      // No cooldown needed - server handles all timing internally
     }
   }
   

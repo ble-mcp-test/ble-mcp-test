@@ -23,11 +23,7 @@ describe.sequential('Device Interaction Tests', () => {
   afterEach(async () => {
     // Ensure proper cleanup between tests
     await connectionFactory.cleanup();
-    // Start with 30s delay for binary search
-    // CS108 on Pi needs more time for full BLE stack recovery
-    const delayMs = 30000; // Start high: 30s
-    console.log(`[Test] Waiting ${delayMs/1000}s for BLE cleanup...`);
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    // No delay needed - server handles all timing internally
   });
   
   it('sends GET_BATTERY_VOLTAGE command and receives response', async () => {

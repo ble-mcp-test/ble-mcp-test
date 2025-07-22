@@ -214,7 +214,9 @@ The WebSocket-to-BLE bridge maintains a singleton connection to the physical dev
 
 ## Architecture Diagram
 
-The following sequence diagram shows the complete data flow from test to device:
+The following sequence diagram shows the complete data flow from test to device.
+
+> **Note**: If you're viewing this on npm and don't see the diagram below, please [view it on GitHub](https://github.com/trakrf/web-ble-bridge#architecture-diagram) for the interactive Mermaid diagram.
 
 ```mermaid
 sequenceDiagram
