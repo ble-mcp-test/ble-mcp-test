@@ -22,13 +22,13 @@ export enum ConnectionState {
 // Platform-aware UUID normalization for Noble.js
 // Noble expects 128-bit UUIDs without dashes (32 hex chars)
 export function normalizeUuid(uuid: string): string {
-  // Remove dashes and convert to lowercase
+  // Remove dashes and convert to lowercase (Noble's internal format)
   const cleaned = uuid.toLowerCase().replace(/-/g, '');
   
   // If already 32 chars (full UUID without dashes), return as-is
   if (cleaned.length === 32) return cleaned;
   
-  // If 4-char short UUID, expand to full 128-bit
+  // If 4-char short UUID, expand to full 128-bit without dashes
   if (cleaned.length === 4) {
     return `0000${cleaned}00001000800000805f9b34fb`;
   }
@@ -38,28 +38,9 @@ export function normalizeUuid(uuid: string): string {
   return `0000${shortId}00001000800000805f9b34fb`;
 }
 
-
-// Global Noble reset function for testing
-export async function resetNobleForTesting(): Promise<void> {
-  try {
-    console.log('[NobleTransport] Resetting Noble for testing...');
-    
-    // Stop any scanning
-    if (noble.state === 'poweredOn') {
-      await noble.stopScanningAsync();
-    }
-    
-    // Remove all event listeners
-    noble.removeAllListeners();
-    
-    console.log('[NobleTransport] Noble reset complete');
-  } catch (error) {
-    console.log('[NobleTransport] Error resetting Noble (expected):', error);
-  }
-}
-
 export class NobleTransport {
   private peripheral: any = null;
+  private peripheralId: string = '';
   private writeChar: any = null;
   private notifyChar: any = null;
   private deviceName = '';
@@ -68,7 +49,22 @@ export class NobleTransport {
   
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
-  private static SCANNER_RECOVERY_DELAY = 1000; // 1 second buffer
+  private static SCANNER_RECOVERY_DELAY = 20000; // 20 second buffer
+  
+  // Service discovery timeout
+  private static SERVICE_DISCOVERY_TIMEOUT = 60000; // 60 seconds - generous timeout
+  
+  // Connection retry management
+  private static needsReset = false;
+  
+  // Timing configuration - start generous, can be tuned down
+  private static readonly TIMINGS = {
+    CONNECTION_STABILITY: 0,        // 0ms - CS108 disconnects with any delay
+    PRE_DISCOVERY_DELAY: 0,         // 0s - CS108 needs immediate discovery
+    NOBLE_RESET_DELAY: 5000,        // 5s - time after noble reset
+    SCAN_TIMEOUT: 60000,            // 60s - max time to find device
+    CONNECTION_TIMEOUT: 60000,      // 60s - max time to establish connection
+  };
 
   getState(): ConnectionState {
     return this.state;
@@ -89,13 +85,20 @@ export class NobleTransport {
       throw new Error(`Invalid state for connect: ${this.state}`);
     }
     
-    // Additional safety check - if Noble is in a bad state, fail fast
-    if (noble.state === 'unknown' || noble.state === 'unsupported') {
-      throw new Error(`Noble is in unusable state: ${noble.state}`);
-    }
-    
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
+      
+      // Reset Noble if needed before starting
+      if (NobleTransport.needsReset) {
+        console.log('[NobleTransport] Performing scheduled Noble reset');
+        try {
+          (noble as any).reset();
+          NobleTransport.needsReset = false;
+          await new Promise(resolve => setTimeout(resolve, NobleTransport.TIMINGS.NOBLE_RESET_DELAY));
+        } catch (err) {
+          console.log('[NobleTransport] Warning: Noble reset failed:', err);
+        }
+      }
       
       // Ensure Noble is ready with timeout
       if (noble.state !== 'poweredOn') {
@@ -116,6 +119,11 @@ export class NobleTransport {
         }
       }
       
+      // Additional safety check - if Noble is in a bad state after waiting, fail fast
+      if (noble.state === 'unsupported') {
+        throw new Error(`Noble is in unusable state: ${noble.state}`);
+      }
+      
       // Scan for device with atomic guard
       const peripheral = await this.scanForDevice(config.devicePrefix);
       if (!peripheral) {
@@ -123,12 +131,44 @@ export class NobleTransport {
       }
     
     this.peripheral = peripheral;
+    this.peripheralId = peripheral.id;
     this.deviceName = peripheral.advertisement.localName || 'Unknown';
     
-    // Connect
+    console.log(`[NobleTransport] Peripheral ID: ${this.peripheralId}`);
+    
+    // Connect with event-based confirmation
     console.log(`[NobleTransport] Connecting to ${this.deviceName}...`);
-    await peripheral.connectAsync();
-    console.log('[NobleTransport] Connected to BLE device');
+    
+    // Set up early disconnect handler to debug
+    peripheral.once('disconnect', () => {
+      console.log('[NobleTransport] EARLY DISCONNECT detected during connection!');
+      console.log(`[NobleTransport] Peripheral state: ${peripheral.state}`);
+    });
+    
+    // Set up connection promise with event listener
+    const connectPromise = new Promise<void>((resolve, reject) => {
+      const connectTimeout = setTimeout(() => {
+        peripheral.removeAllListeners('connect');
+        reject(new Error('Connection timeout'));
+      }, NobleTransport.TIMINGS.CONNECTION_TIMEOUT);
+      
+      peripheral.once('connect', () => {
+        clearTimeout(connectTimeout);
+        console.log('[NobleTransport] Connected event received');
+        resolve();
+      });
+      
+      // Start the connection
+      peripheral.connectAsync().catch((err: any) => {
+        clearTimeout(connectTimeout);
+        peripheral.removeAllListeners('connect');
+        reject(err);
+      });
+    });
+    
+    await connectPromise;
+    console.log('[NobleTransport] Connected to BLE device (confirmed by event)');
+    console.log(`[NobleTransport] Peripheral state after connect: ${peripheral.state}`);
     
     // Normalize UUIDs for Noble.js
     const serviceUuid = normalizeUuid(config.serviceUuid);
@@ -140,23 +180,122 @@ export class NobleTransport {
     console.log(`[NobleTransport]   Service UUID: ${config.serviceUuid} -> ${serviceUuid}`);
     console.log(`[NobleTransport]   Write UUID: ${config.writeUuid} -> ${writeUuid}`);
     console.log(`[NobleTransport]   Notify UUID: ${config.notifyUuid} -> ${notifyUuid}`);
-    const result = await peripheral.discoverSomeServicesAndCharacteristicsAsync(
-      [serviceUuid],
-      [writeUuid, notifyUuid]
-    );
-    console.log(`[NobleTransport] Found ${result.services.length} services, ${result.characteristics.length} characteristics`);
     
-    // Find our characteristics
-    for (const char of result.characteristics) {
-      const uuid = char.uuid;
-      console.log(`[NobleTransport]   Characteristic: ${uuid}`);
-      if (uuid === writeUuid) {
-        this.writeChar = char;
-        console.log('[NobleTransport]   -> This is the WRITE characteristic');
-      } else if (uuid === notifyUuid) {
-        this.notifyChar = char;
-        console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
+    // Wait for connection stability if needed
+    const stabilityDelay = NobleTransport.TIMINGS.CONNECTION_STABILITY;
+    if (stabilityDelay > 0) {
+      console.log(`[NobleTransport] Waiting ${stabilityDelay/1000} seconds for connection stability...`);
+      await new Promise(resolve => setTimeout(resolve, stabilityDelay));
+    } else {
+      console.log('[NobleTransport] Skipping stability delay - proceeding immediately to service discovery');
+    }
+    
+    // Validate peripheral is still connected before service discovery
+    if (peripheral.state !== 'connected') {
+      throw new Error(`Peripheral disconnected during stability wait. State: ${peripheral.state}`);
+    }
+    
+    // Double-check using our stored reference
+    if (this.peripheral.state !== 'connected') {
+      console.log('[NobleTransport] WARNING: Stored peripheral shows disconnected');
+      console.log(`[NobleTransport] Original peripheral state: ${peripheral.state}`);
+      console.log(`[NobleTransport] Stored peripheral state: ${this.peripheral.state}`);
+      // Use the passed peripheral if it's still connected
+      if (peripheral.state === 'connected') {
+        console.log('[NobleTransport] Using passed peripheral reference');
+      } else {
+        throw new Error('Lost peripheral connection before service discovery');
       }
+    }
+    
+    let services;
+    let targetService;
+    
+    // Add service discovery with timeout
+    const serviceDiscoveryWithTimeout = async () => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Service discovery timeout')), NobleTransport.SERVICE_DISCOVERY_TIMEOUT);
+      });
+      
+      return Promise.race([
+        peripheral.discoverServicesAsync(),
+        timeoutPromise
+      ]);
+    };
+    
+    try {
+      console.log('[NobleTransport] Discovering ALL services (no filter)...');
+      console.log(`[NobleTransport] Peripheral state before discovery: ${peripheral.state}`);
+      console.log(`[NobleTransport] Peripheral ID for discovery: ${this.peripheralId}`);
+      console.log(`[NobleTransport] Peripheral address: ${peripheral.address || 'unknown'}`);
+      
+      // One more check before discovery
+      if (peripheral.state !== 'connected') {
+        throw new Error(`Peripheral not connected before service discovery. State: ${peripheral.state}`);
+      }
+      
+      // Additional delay before service discovery
+      const preDiscoveryDelay = NobleTransport.TIMINGS.PRE_DISCOVERY_DELAY;
+      console.log(`[NobleTransport] Waiting ${preDiscoveryDelay/1000} seconds before service discovery...`);
+      await new Promise(resolve => setTimeout(resolve, preDiscoveryDelay));
+      
+      const allServices = await serviceDiscoveryWithTimeout();
+      console.log(`[NobleTransport] Found ${allServices.length} services total`);
+      
+      for (const srv of allServices) {
+        console.log(`[NobleTransport]   Service: ${srv.uuid}`);
+        if (srv.uuid === serviceUuid) {
+          targetService = srv;
+          console.log(`[NobleTransport]   ^ This is our target service!`);
+        }
+      }
+      
+      if (!targetService) {
+        throw new Error(`Service ${serviceUuid} not found among ${allServices.length} services`);
+      }
+      
+      console.log(`[NobleTransport] Using target service: ${targetService.uuid}`);
+      
+      // Discover characteristics for the service
+      console.log('[NobleTransport] Discovering characteristics...');
+      const characteristics = await targetService.discoverCharacteristicsAsync();
+      console.log(`[NobleTransport] Found ${characteristics.length} characteristics`);
+      
+      // Find our characteristics
+      for (const char of characteristics) {
+        const uuid = char.uuid;
+        console.log(`[NobleTransport]   Characteristic: ${uuid}`);
+        if (uuid === writeUuid) {
+          this.writeChar = char;
+          console.log('[NobleTransport]   -> This is the WRITE characteristic');
+        } else if (uuid === notifyUuid) {
+          this.notifyChar = char;
+          console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
+        }
+      }
+    } catch (error: any) {
+      console.log(`[NobleTransport] Service discovery error:`, error);
+      
+      // Check for "unknown peripheral" error in message or stdout
+      const errorStr = error.toString();
+      if (errorStr.toLowerCase().includes('unknown peripheral') || 
+          (error.message && error.message.toLowerCase().includes('unknown peripheral'))) {
+        console.log('[NobleTransport] Unknown peripheral error detected - marking for reset');
+        console.log(`[NobleTransport] Error details: ${errorStr}`);
+        console.log(`[NobleTransport] Peripheral ID was: ${this.peripheralId}`);
+        NobleTransport.needsReset = true;
+        throw new Error('Service discovery failed: Unknown peripheral. Device may have changed address or Noble state is corrupted.');
+      }
+      
+      // Map numeric error codes to meaningful messages
+      if (error.message === '8' || error.toString() === '8' || error === 8) {
+        throw new Error('Service discovery failed: Connection terminated (error 8). This may indicate the device is busy or needs more time.');
+      } else if (error.message === '62' || error.toString() === '62' || error === 62) {
+        throw new Error('Service discovery failed: Connection timeout (error 62). The device may have disconnected.');
+      } else if (error.message && error.message.includes('timeout')) {
+        throw new Error('Service discovery failed: Operation timed out. The device may not be responding.');
+      }
+      throw error;
     }
     
     if (!this.writeChar || !this.notifyChar) {
@@ -224,6 +363,7 @@ export class NobleTransport {
   }
   
   private async scanForDevice(devicePrefix: string): Promise<any> {
+    
     // Atomic guard - only one scan at a time
     if (this.isScanning) {
       console.log('[NobleTransport] Scan already in progress');
@@ -248,7 +388,7 @@ export class NobleTransport {
       console.log('[NobleTransport] Scanning started');
       
       const generator = noble.discoverAsync();
-      const timeout = Date.now() + 10000; // 10 second timeout
+      const timeout = Date.now() + NobleTransport.TIMINGS.SCAN_TIMEOUT;
       let peripheral = null;
       
       while (Date.now() < timeout) {

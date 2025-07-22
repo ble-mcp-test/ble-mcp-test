@@ -42,6 +42,53 @@ export function getDeviceConfig() {
 
 export const WS_URL = getTestConfig().wsUrl;
 
+// Shared test server setup helper
+// Returns: server instance if we started one (for cleanup), null if using external server
+export async function setupTestServer() {
+  const { default: BridgeServer } = await import('../dist/bridge-server.js');
+  const WebSocket = (await import('ws')).default;
+  
+  // First, try to connect to the configured URL
+  const testWs = new WebSocket(WS_URL);
+  
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        testWs.close();
+        reject(new Error('Connection timeout'));
+      }, 2000);
+      
+      testWs.onopen = () => {
+        clearTimeout(timeout);
+        testWs.close();
+        resolve();
+      };
+      
+      testWs.onerror = () => {
+        clearTimeout(timeout);
+        reject(new Error('Connection failed'));
+      };
+    });
+    
+    // Connection successful, use external server
+    console.log(`[Test] Using external bridge server at: ${WS_URL}`);
+    return null; // No local server needed
+  } catch (error) {
+    // Connection failed
+    if (WS_URL.includes('localhost') || WS_URL.includes('127.0.0.1')) {
+      // Local URL - start our own server
+      console.log('[Test] Starting local bridge server...');
+      const server = new BridgeServer();
+      server.start();
+      console.log('[Test] Started local bridge server');
+      return server; // Return server instance for cleanup
+    } else {
+      // External URL - fail the test
+      throw new Error(`Cannot connect to external bridge server at ${WS_URL}. Please ensure the server is running.`);
+    }
+  }
+}
+
 // Usage examples:
 // 
 // 1. Run tests with default CS108 configuration:

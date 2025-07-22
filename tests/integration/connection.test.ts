@@ -1,67 +1,27 @@
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { BridgeServer } from '../../src/index.js';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import WebSocket from 'ws';
-import { WS_URL, getDeviceConfig } from '../test-config.js';
+import { WS_URL, getDeviceConfig, setupTestServer } from '../test-config.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
 
-// Helper to find free port
-async function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = require('net').createServer();
-    server.listen(0, () => {
-      const port = server.address()?.port;
-      server.close(() => resolve(port));
-    });
-    server.on('error', reject);
-  });
-}
 
 describe('Bridge Connection', () => {
-  let server: BridgeServer;
-  let useExternalServer = false;
-  let testPort = 8080;
-  let testUrl = WS_URL;
+  let server: any;
   
   beforeAll(async () => {
-    // If WS_URL is set and not localhost, use external server
-    if (process.env.WS_URL && !process.env.WS_URL.includes('localhost')) {
-      useExternalServer = true;
-      console.log(`Using external WebSocket server at: ${WS_URL}`);
-    } else {
-      // Find free port to avoid conflicts
-      testPort = await findFreePort();
-      testUrl = `ws://localhost:${testPort}`;
-      console.log(`Starting test server on port ${testPort}`);
-      
-      // Start local server for testing with mock transport
-      server = new BridgeServer();
-      server.start(testPort, { useMockTransport: true });
-      
-      // Wait for server to be ready
-      await new Promise(resolve => setTimeout(resolve, 500));
+    server = await setupTestServer();
+  });
+  
+  afterAll(() => {
+    if (server) {
+      server.stop();
     }
   });
   
-  afterAll(async () => {
-    if (!useExternalServer && server) {
-      await server.stop();
-      // Wait for cleanup
-      await new Promise(resolve => setTimeout(resolve, 500));
-    }
-  });
-  
-  beforeEach(async () => {
-    // Reset server state between tests
-    if (!useExternalServer && server) {
-      // Allow some time for previous test cleanup
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-  });
   
   it('connects to CS108 device', async () => {
     const params = new URLSearchParams(DEVICE_CONFIG);
-    const ws = new WebSocket(`${testUrl}?${params}`);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     
     const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
       ws.on('message', (data) => {
@@ -91,7 +51,7 @@ describe('Bridge Connection', () => {
   
   it('sends and receives data', async () => {
     const params = new URLSearchParams(DEVICE_CONFIG);
-    const ws = new WebSocket(`${testUrl}?${params}`);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     let connected = false;
     
     const result = await new Promise<{success: boolean; data?: any}>((resolve) => {
@@ -135,7 +95,7 @@ describe('Bridge Connection', () => {
   it('handles connection errors', async () => {
     const errorConfig = { ...DEVICE_CONFIG, device: 'NONEXISTENT' };
     const params = new URLSearchParams(errorConfig);
-    const ws = new WebSocket(`${testUrl}?${params}`);
+    const ws = new WebSocket(`${WS_URL}?${params}`);
     
     const error = await new Promise<boolean>((resolve) => {
       ws.on('message', (data) => {
@@ -157,7 +117,7 @@ describe('Bridge Connection', () => {
     it('connects with short UUID format', async () => {
       // Use default config which has short UUIDs like '9800'
       const params = new URLSearchParams(DEVICE_CONFIG);
-      const ws = new WebSocket(`${testUrl}?${params}`);
+      const ws = new WebSocket(`${WS_URL}?${params}`);
       
       const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
         ws.on('message', (data) => {
@@ -173,7 +133,7 @@ describe('Bridge Connection', () => {
       });
       
       // Mock transport should connect successfully
-      if (useExternalServer && result.error?.includes('No device found')) {
+      if (!server && result.error?.includes('No device found')) {
         console.log('No physical device available, skipping');
         expect(result.error).toContain('No device found');
       } else {
@@ -192,7 +152,7 @@ describe('Bridge Connection', () => {
         notify: '00009901-0000-1000-8000-00805f9b34fb'
       };
       const params = new URLSearchParams(fullUuidConfig);
-      const ws = new WebSocket(`${testUrl}?${params}`);
+      const ws = new WebSocket(`${WS_URL}?${params}`);
       
       const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
         ws.on('message', (data) => {
@@ -208,7 +168,7 @@ describe('Bridge Connection', () => {
       });
       
       // Mock transport should connect successfully
-      if (useExternalServer && result.error?.includes('No device found')) {
+      if (!server && result.error?.includes('No device found')) {
         console.log('No physical device available, skipping');
         expect(result.error).toContain('No device found');
       } else {
@@ -227,7 +187,7 @@ describe('Bridge Connection', () => {
         notify: '9901'
       };
       const params = new URLSearchParams(mixedCaseConfig);
-      const ws = new WebSocket(`${testUrl}?${params}`);
+      const ws = new WebSocket(`${WS_URL}?${params}`);
       
       const result = await new Promise<{ connected: boolean; error?: string }>((resolve) => {
         ws.on('message', (data) => {
@@ -243,7 +203,7 @@ describe('Bridge Connection', () => {
       });
       
       // Mock transport should connect successfully
-      if (useExternalServer && result.error?.includes('No device found')) {
+      if (!server && result.error?.includes('No device found')) {
         console.log('No physical device available, skipping');
         expect(result.error).toContain('No device found');
       } else {

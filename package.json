@@ -28,13 +28,18 @@
     "build:browser": "esbuild src/mock-bluetooth.ts --bundle --format=iife --global-name=WebBleMock --outfile=dist/web-ble-mock.bundle.js",
     "dev": "tsc --watch",
     "start": "node dist/start-server.js",
+    "start:bg": "nohup node dist/start-server.js > tmp/bridge-server.log 2>&1 & echo $! > tmp/bridge-server.pid",
+    "stop": "[ -f tmp/bridge-server.pid ] && kill $(cat tmp/bridge-server.pid) && rm tmp/bridge-server.pid || echo 'No server running'",
+    "restart": "pnpm run stop && pnpm run start:bg",
+    "status": "[ -f tmp/bridge-server.pid ] && ps -p $(cat tmp/bridge-server.pid) > /dev/null && echo 'Bridge server running (PID: '$(cat tmp/bridge-server.pid)')' || echo 'Bridge server not running'",
+    "logs": "tail -f tmp/bridge-server.log",
+    "logs:live": "node scripts/log-client.js",
     "test": "vitest",
     "test:run": "vitest run",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:run",
-    "logs": "node scripts/log-client.js"
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:run"
   },
   "dependencies": {
     "@stoprocent/noble": "^2.3.4",
