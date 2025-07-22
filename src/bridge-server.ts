@@ -1,13 +1,19 @@
 import { WebSocketServer } from 'ws';
 import { NobleTransport, ConnectionState } from './noble-transport.js';
+import { MockBLETransport } from './mock-transport.js';
+
+// Type for transport that works with both Noble and Mock
+type BLETransport = NobleTransport | MockBLETransport;
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
-  private transport: NobleTransport | null = null;
+  private transport: BLETransport | null = null;
   private zombieCheckInterval: any = null;
   private logClients: Set<any> = new Set();
+  private useMockTransport: boolean = false;
 
-  start(port = 8080) {
+  start(port = 8080, options: { useMockTransport?: boolean } = {}) {
+    this.useMockTransport = options.useMockTransport || process.env.NODE_ENV === 'test';
     this.wss = new WebSocketServer({ port });
     
     // Hook into console methods for log streaming
@@ -63,7 +69,12 @@ export class BridgeServer {
       
       // Create transport if needed
       if (!this.transport) {
-        this.transport = new NobleTransport();
+        if (this.useMockTransport) {
+          console.log('[BridgeServer] Creating new mock BLE transport');
+          this.transport = new MockBLETransport() as BLETransport;
+        } else {
+          this.transport = new NobleTransport();
+        }
       }
       
       // Try to claim the connection atomically
@@ -141,12 +152,35 @@ export class BridgeServer {
   }
   
   async stop() {
+    console.log('[BridgeServer] Stopping server...');
+    
     if (this.zombieCheckInterval) {
       clearInterval(this.zombieCheckInterval);
       this.zombieCheckInterval = null;
     }
-    this.wss?.close();
-    await this.transport?.disconnect();
+    
+    // Close all WebSocket connections
+    if (this.wss) {
+      this.wss.clients.forEach((client) => {
+        client.terminate();
+      });
+      
+      // Properly close the server
+      await new Promise<void>((resolve) => {
+        this.wss!.close(() => {
+          console.log('[BridgeServer] WebSocket server closed');
+          resolve();
+        });
+      });
+    }
+    
+    // Disconnect BLE transport
+    if (this.transport) {
+      await this.transport.disconnect();
+      this.transport = null;
+    }
+    
+    console.log('[BridgeServer] Server stopped');
   }
   
   private checkForZombieConnections() {

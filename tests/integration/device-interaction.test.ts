@@ -5,23 +5,47 @@ import { WS_URL, getDeviceConfig } from '../test-config.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
 
+// Helper to find free port
+async function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = require('net').createServer();
+    server.listen(0, () => {
+      const port = server.address()?.port;
+      server.close(() => resolve(port));
+    });
+    server.on('error', reject);
+  });
+}
+
 describe('Device Interaction Tests', () => {
   let server: BridgeServer;
   let useExternalServer = false;
+  let testPort = 8080;
+  let testUrl = WS_URL;
   
-  beforeAll(() => {
+  beforeAll(async () => {
     if (process.env.WS_URL && !process.env.WS_URL.includes('localhost')) {
       useExternalServer = true;
       console.log(`🔋 Testing device interaction at: ${WS_URL}`);
     } else {
+      // Find free port to avoid conflicts
+      testPort = await findFreePort();
+      testUrl = `ws://localhost:${testPort}`;
+      console.log(`Starting device interaction test server on port ${testPort}`);
+      
       server = new BridgeServer();
-      server.start(8080);
+      server.start(testPort, { useMockTransport: true });
+      
+      // Wait for server to be ready
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   });
   
-  afterAll(() => {
+  afterAll(async () => {
     if (!useExternalServer && server) {
-      server.stop();
+      await server.stop();
+      // Wait for cleanup
+      await new Promise(resolve => setTimeout(resolve, 500));
     }
   });
   
@@ -29,7 +53,7 @@ describe('Device Interaction Tests', () => {
     console.log('🔋 Test: GET_BATTERY_VOLTAGE (0xA000) command');
     
     const params = new URLSearchParams(DEVICE_CONFIG);
-    const ws = new WebSocket(`${WS_URL}?${params}`);
+    const ws = new WebSocket(`${testUrl}?${params}`);
     let deviceConnected = false;
     let batteryVoltage = 0;
     

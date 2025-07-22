@@ -20,6 +20,25 @@ export enum ConnectionState {
 }
 
 
+// Global Noble reset function for testing
+export async function resetNobleForTesting(): Promise<void> {
+  try {
+    console.log('[NobleTransport] Resetting Noble for testing...');
+    
+    // Stop any scanning
+    if (noble.state === 'poweredOn') {
+      await noble.stopScanningAsync();
+    }
+    
+    // Remove all event listeners
+    noble.removeAllListeners();
+    
+    console.log('[NobleTransport] Noble reset complete');
+  } catch (error) {
+    console.log('[NobleTransport] Error resetting Noble (expected):', error);
+  }
+}
+
 export class NobleTransport {
   private peripheral: any = null;
   private writeChar: any = null;
@@ -51,14 +70,31 @@ export class NobleTransport {
       throw new Error(`Invalid state for connect: ${this.state}`);
     }
     
+    // Additional safety check - if Noble is in a bad state, fail fast
+    if (noble.state === 'unknown' || noble.state === 'unsupported') {
+      throw new Error(`Noble is in unusable state: ${noble.state}`);
+    }
+    
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
       
-      // Ensure Noble is ready
+      // Ensure Noble is ready with timeout
       if (noble.state !== 'poweredOn') {
         console.log(`[NobleTransport] Waiting for Bluetooth to power on (current state: ${noble.state})`);
-        await noble.waitForPoweredOnAsync();
-        console.log('[NobleTransport] Bluetooth powered on');
+        
+        // Add timeout to prevent hanging
+        const poweredOnPromise = noble.waitForPoweredOnAsync();
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Timeout waiting for Noble to be powered on')), 10000);
+        });
+        
+        try {
+          await Promise.race([poweredOnPromise, timeoutPromise]);
+          console.log('[NobleTransport] Bluetooth powered on');
+        } catch (error: any) {
+          console.error('[NobleTransport] Error:', error?.message || error);
+          throw error;
+        }
       }
       
       // Scan for device with atomic guard
@@ -135,26 +171,27 @@ export class NobleTransport {
   }
   
   async disconnect(): Promise<void> {
-    if (!this.peripheral) return;
+    console.log(`[NobleTransport] Disconnecting from current state: ${this.state}`);
     
-    // Set state to disconnecting to prevent new connections
+    // Always set state to disconnecting first
     this.state = ConnectionState.DISCONNECTING;
     
     try {
       if (this.notifyChar) {
         await this.notifyChar.unsubscribeAsync();
       }
-      if (this.peripheral.state === 'connected') {
+      if (this.peripheral && this.peripheral.state === 'connected') {
         await this.peripheral.disconnectAsync();
       }
     } catch (error) {
-      // Ignore errors during disconnect
+      console.log('[NobleTransport] Error during disconnect (expected):', error);
     } finally {
-      // Always reset to disconnected state
+      // Always reset to disconnected state regardless of errors
       this.peripheral = null;
       this.writeChar = null;
       this.notifyChar = null;
       this.state = ConnectionState.DISCONNECTED;
+      console.log('[NobleTransport] Disconnection complete');
     }
   }
   

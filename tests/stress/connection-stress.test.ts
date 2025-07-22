@@ -15,7 +15,7 @@ describe('Connection Stress Tests', () => {
       console.log(`🔥 Stress testing external server at: ${WS_URL}`);
     } else {
       server = new BridgeServer();
-      server.start(8080);
+      server.start(8080, { useMockTransport: true });
     }
   });
   
