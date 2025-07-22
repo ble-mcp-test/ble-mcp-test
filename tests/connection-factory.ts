@@ -180,7 +180,10 @@ export class ConnectionFactory {
       });
       
       // Additional cooldown to ensure BLE disconnection completes
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Start with 10s for binary search (CS108 on Linux)
+      const cooldownMs = 10000; // Start high: 10s
+      console.log(`[ConnectionFactory] BLE cooldown: ${cooldownMs/1000}s`);
+      await new Promise(resolve => setTimeout(resolve, cooldownMs));
     }
   }
   

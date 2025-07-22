@@ -63,6 +63,16 @@ export function normalizeUuid(uuid: string): string {
   }
 }
 
+// Extract short UUID from a normalized long UUID for comparison
+function extractShortUuid(uuid: string): string {
+  const cleaned = uuid.toLowerCase().replace(/-/g, '');
+  if (cleaned.length === 32) {
+    // Extract the 4-char short UUID from positions 4-8
+    return cleaned.substring(4, 8);
+  }
+  return cleaned.padStart(4, '0').slice(-4);
+}
+
 export class NobleTransport {
   private peripheral: any = null;
   private peripheralId: string = '';
@@ -84,8 +94,8 @@ export class NobleTransport {
   
   // Timing configuration - start generous, can be tuned down
   private static readonly TIMINGS = {
-    CONNECTION_STABILITY: 1000,        // 1s - testing if this helps tests
-    PRE_DISCOVERY_DELAY: 1000,         // 1s - testing if this helps tests
+    CONNECTION_STABILITY: 0,           // 0s - CS108 disconnects with any delay
+    PRE_DISCOVERY_DELAY: 0,            // 0s - CS108 needs immediate discovery
     NOBLE_RESET_DELAY: 1000,        // 1s - reduced from 5s
     SCAN_TIMEOUT: 60000,            // 60s - max time to find device
     CONNECTION_TIMEOUT: 60000,      // 60s - max time to establish connection
@@ -269,8 +279,10 @@ export class NobleTransport {
       
       for (const srv of allServices) {
         console.log(`[NobleTransport]   Service: ${srv.uuid}`);
-        // Normalize both UUIDs for comparison to handle platform differences
-        if (normalizeUuid(srv.uuid) === serviceUuid) {
+        // On Linux, Noble returns short UUIDs from discovery
+        // Compare the raw UUID with the short version of our target
+        const shortServiceUuid = extractShortUuid(serviceUuid);
+        if (srv.uuid === shortServiceUuid || srv.uuid === serviceUuid) {
           targetService = srv;
           console.log(`[NobleTransport]   ^ This is our target service!`);
         }
@@ -291,12 +303,15 @@ export class NobleTransport {
       for (const char of characteristics) {
         const uuid = char.uuid;
         console.log(`[NobleTransport]   Characteristic: ${uuid}`);
-        // Normalize both UUIDs for comparison to handle platform differences
-        const normalizedCharUuid = normalizeUuid(uuid);
-        if (normalizedCharUuid === writeUuid) {
+        // On Linux, Noble returns short UUIDs from discovery
+        // Compare with both short and long versions
+        const shortWriteUuid = extractShortUuid(writeUuid);
+        const shortNotifyUuid = extractShortUuid(notifyUuid);
+        
+        if (uuid === shortWriteUuid || uuid === writeUuid) {
           this.writeChar = char;
           console.log('[NobleTransport]   -> This is the WRITE characteristic');
-        } else if (normalizedCharUuid === notifyUuid) {
+        } else if (uuid === shortNotifyUuid || uuid === notifyUuid) {
           this.notifyChar = char;
           console.log('[NobleTransport]   -> This is the NOTIFY characteristic');
         }
