@@ -642,10 +642,6 @@ export class NobleTransport {
         if (this.logLevel === 'debug') {
           console.log(`[NobleTransport]   Details: Noble=${nobleListeners}, HCI=${bindingsListeners}, scanStop=${scanStopListeners}`);
         }
-      } else if (this.logLevel === 'debug') {
-        console.log(`[NobleTransport] Disconnect cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms, listeners: ${totalListeners})`);
-      } else {
-        console.log(`[NobleTransport] Applying ${dynamicCooldown}ms cooldown`);
       }
       
       await new Promise(resolve => setTimeout(resolve, dynamicCooldown));
@@ -672,7 +668,9 @@ export class NobleTransport {
     const timeSinceLastDestroy = Date.now() - NobleTransport.lastScannerDestroyTime;
     if (timeSinceLastDestroy < NobleTransport.SCANNER_RECOVERY_DELAY) {
       const waitTime = NobleTransport.SCANNER_RECOVERY_DELAY - timeSinceLastDestroy;
-      console.log(`[NobleTransport] Waiting ${waitTime}ms for GC recovery before new scan`);
+      if (this.logLevel === 'debug') {
+        console.log(`[NobleTransport] Waiting ${waitTime}ms for GC recovery before new scan`);
+      }
       await new Promise(resolve => setTimeout(resolve, waitTime));
     }
     
@@ -727,7 +725,9 @@ export class NobleTransport {
       NobleTransport.activeScanners--; // Decrement scanner count
       // Mark when scanner cleanup completes to enforce GC delay
       NobleTransport.lastScannerDestroyTime = Date.now();
-      console.log('[NobleTransport] Scanner cleanup complete, GC recovery timer started');
+      if (this.logLevel === 'debug') {
+        console.log('[NobleTransport] Scanner cleanup complete');
+      }
     }
   }
   
