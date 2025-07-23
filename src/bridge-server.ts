@@ -25,6 +25,9 @@ export class BridgeServer {
       this.checkForZombieConnections();
     }, 5000);
     
+    // Log BLE timing configuration to eliminate uncertainty
+    this.logBleTimingConfig();
+    
     // Perform startup BLE scan to verify functionality
     await this.performStartupScan();
     
@@ -155,7 +158,8 @@ export class BridgeServer {
         if (this.transport) {
           await this.transport.disconnect();
         }
-        this.transport = null;
+        // NOTE: We're keeping the transport instance to allow pressure accumulation
+        // this.transport = null;
       }
     });
   }
@@ -290,5 +294,21 @@ export class BridgeServer {
       console.error('[BridgeServer]   - Node.js has Bluetooth permissions');
       console.error('[BridgeServer]   - No other process is using Bluetooth');
     }
+  }
+  
+  private logBleTimingConfig() {
+    console.log('[BridgeServer] BLE Timing Configuration:');
+    console.log(`[BridgeServer]   Platform: ${process.platform}`);
+    
+    // Get actual timing configuration from NobleTransport
+    const timings = NobleTransport.getTimingConfig();
+    
+    // Check which values are from environment overrides
+    console.log(`[BridgeServer]   CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_CONNECTION_STABILITY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
   }
 }

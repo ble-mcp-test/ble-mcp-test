@@ -1,8 +1,8 @@
 import noble from '@stoprocent/noble';
 import { LogLevel } from './utils.js';
 
-// Increase max listeners to prevent warnings during rapid connections
-noble.setMaxListeners(50);
+// Increase max listeners to prevent warnings during rapid connections and stress testing
+noble.setMaxListeners(100);
 
 // Global cleanup to ensure Noble doesn't keep process alive
 export async function cleanupNoble(): Promise<void> {
@@ -133,9 +133,57 @@ export class NobleTransport {
     this.logLevel = logLevel;
   }
   
+  // Public method to check current pressure levels
+  static checkPressure(): { [key: string]: number } {
+    const eventNames = noble.eventNames();
+    let nobleListeners = 0;
+    eventNames.forEach(event => {
+      nobleListeners += noble.listenerCount(event as string | symbol);
+    });
+    
+    let bindingsListeners = 0;
+    const bindings = (noble as any)._bindings;
+    if (bindings && bindings.eventNames) {
+      const bindingEvents = bindings.eventNames();
+      bindingEvents.forEach((event: any) => {
+        bindingsListeners += bindings.listenerCount(event);
+      });
+    }
+    
+    const peripherals = (noble as any)._peripherals || {};
+    const peripheralCount = Object.keys(peripherals).length;
+    let peripheralListeners = 0;
+    Object.values(peripherals).forEach((p: any) => {
+      if (p.eventNames) {
+        p.eventNames().forEach((event: any) => {
+          peripheralListeners += p.listenerCount(event);
+        });
+      }
+    });
+    
+    return {
+      nobleListeners,
+      bindingsListeners,
+      peripheralListeners,
+      totalListeners: nobleListeners + bindingsListeners + peripheralListeners,
+      peripheralCount,
+      activeScanners: NobleTransport.activeScanners,
+      scanStopListeners: noble.listenerCount('scanStop'),
+      discoverListeners: noble.listenerCount('discover')
+    };
+  }
+  
+  // Expose timing configuration for logging
+  static getTimingConfig() {
+    return NobleTransport.TIMINGS;
+  }
+  
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
   private static SCANNER_RECOVERY_DELAY = 1000; // 1 second buffer
+  
+  // Track active scanner instances for pressure detection
+  private static activeScanners = 0;
   
   // Service discovery timeout
   private static SERVICE_DISCOVERY_TIMEOUT = 60000; // 60 seconds - generous timeout
@@ -156,7 +204,7 @@ export class NobleTransport {
             NOBLE_RESET_DELAY: 1000,       // 1s
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 2000,     // 2s - Protects both BLE stack and device
+            DISCONNECT_COOLDOWN: 200,      // 200ms base - Dynamic scaling based on listener pressure
           };
         
         case 'win32':
@@ -167,7 +215,7 @@ export class NobleTransport {
             NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
+            DISCONNECT_COOLDOWN: 500,      // 500ms base - Windows (dynamic scaling applies)
           };
         
         default:  // linux, freebsd, etc.
@@ -178,7 +226,7 @@ export class NobleTransport {
             NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
+            DISCONNECT_COOLDOWN: 1000,     // 1s base - Linux/Pi (dynamic scaling applies)
           };
       }
     })();
@@ -213,6 +261,16 @@ export class NobleTransport {
     if (this.state !== ConnectionState.CONNECTING) {
       throw new Error(`Invalid state for connect: ${this.state}`);
     }
+    
+    let peripheral: any = null;
+    
+    // Helper to clean up ALL peripheral listeners
+    const cleanupPeripheralListeners = () => {
+      if (peripheral) {
+        peripheral.removeAllListeners('connect');
+        peripheral.removeAllListeners('disconnect');
+      }
+    };
     
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${config.devicePrefix}`);
@@ -254,7 +312,7 @@ export class NobleTransport {
       }
       
       // Scan for device with atomic guard
-      const peripheral = await this.scanForDevice(config.devicePrefix);
+      peripheral = await this.scanForDevice(config.devicePrefix);
       if (!peripheral) {
         throw new Error(`No device found with prefix: ${config.devicePrefix}`);
       }
@@ -277,7 +335,7 @@ export class NobleTransport {
     // Set up connection promise with event listener
     const connectPromise = new Promise<void>((resolve, reject) => {
       const connectTimeout = setTimeout(() => {
-        peripheral.removeAllListeners('connect');
+        cleanupPeripheralListeners();
         reject(new Error('Connection timeout'));
       }, NobleTransport.TIMINGS.CONNECTION_TIMEOUT);
       
@@ -290,7 +348,7 @@ export class NobleTransport {
       // Start the connection
       peripheral.connectAsync().catch((err: any) => {
         clearTimeout(connectTimeout);
-        peripheral.removeAllListeners('connect');
+        cleanupPeripheralListeners();
         reject(err);
       });
     });
@@ -459,7 +517,10 @@ export class NobleTransport {
     console.log('[NobleTransport] Connection complete');
     this.state = ConnectionState.CONNECTED;
     } catch (error) {
-      // CRITICAL: Always reset state on ANY connection error
+      // CRITICAL: Clean up all listeners on ANY error
+      cleanupPeripheralListeners();
+      
+      // Always reset state on ANY connection error
       this.state = ConnectionState.DISCONNECTED;
       
       // If we have a peripheral reference, try to disconnect it
@@ -514,10 +575,86 @@ export class NobleTransport {
       this.writeChar = null;
       this.notifyChar = null;
       
-      // Platform-specific cooldown before marking as disconnected
-      const cooldownMs = NobleTransport.TIMINGS.DISCONNECT_COOLDOWN;
-      console.log(`[NobleTransport] Applying ${cooldownMs}ms cooldown for ${process.platform}`);
-      await new Promise(resolve => setTimeout(resolve, cooldownMs));
+      // Calculate dynamic cooldown based on listener pressure
+      const baseCooldown = NobleTransport.TIMINGS.DISCONNECT_COOLDOWN;
+      
+      // Track multiple pressure indicators for a complete picture
+      
+      // 1. Noble event listeners (your current approach)
+      const eventNames = noble.eventNames();
+      let nobleListeners = 0;
+      eventNames.forEach(event => {
+        nobleListeners += noble.listenerCount(event as string | symbol);
+      });
+      
+      // 2. HCI bindings listeners (where the real pressure builds)
+      let bindingsListeners = 0;
+      const bindings = (noble as any)._bindings;
+      if (bindings && bindings.eventNames) {
+        const bindingEvents = bindings.eventNames();
+        bindingEvents.forEach((event: any) => {
+          bindingsListeners += bindings.listenerCount(event);
+        });
+      }
+      
+      // 3. Peripheral count and their listeners
+      const peripherals = (noble as any)._peripherals || {};
+      const peripheralCount = Object.keys(peripherals).length;
+      let peripheralListeners = 0;
+      Object.values(peripherals).forEach((p: any) => {
+        if (p.eventNames) {
+          p.eventNames().forEach((event: any) => {
+            peripheralListeners += p.listenerCount(event);
+          });
+        }
+      });
+      
+      // 4. Track active scanner count (class-level)
+      const activeScanners = NobleTransport.activeScanners;
+      
+      // 5. Check for specific high-pressure indicators
+      const scanStopListeners = noble.listenerCount('scanStop');
+      const discoverListeners = noble.listenerCount('discover');
+      
+      // Calculate total pressure from all sources
+      const totalListeners = nobleListeners + bindingsListeners + peripheralListeners;
+      
+      // Use multiple pressure calculations
+      const listenerPressure = Math.floor(totalListeners / 10); // Every 10 listeners = 1 pressure unit
+      const peripheralPressure = Math.floor(peripheralCount / 3); // Every 3 peripherals = 1 pressure unit
+      const scannerPressure = Math.floor(activeScanners / 2); // Every 2 active scanners = 1 pressure unit
+      const criticalPressure = scanStopListeners > 10 ? Math.floor(scanStopListeners / 10) : 0; // Critical indicator
+      
+      // Use the highest pressure indicator
+      const pressureMultiplier = Math.max(
+        listenerPressure, 
+        peripheralPressure, 
+        scannerPressure,
+        criticalPressure
+      );
+      
+      // Dynamic cooldown: increase by 500ms per pressure unit
+      const dynamicCooldown = baseCooldown + (pressureMultiplier * 500);
+      
+      if (totalListeners > 10 || peripheralCount > 5 || pressureMultiplier > 0) {
+        console.log(`[NobleTransport] Resource pressure detected:`);
+        console.log(`[NobleTransport]   Noble listeners: ${nobleListeners}`);
+        console.log(`[NobleTransport]   HCI bindings listeners: ${bindingsListeners}`);
+        console.log(`[NobleTransport]   Peripheral listeners: ${peripheralListeners}`);
+        console.log(`[NobleTransport]   Total listeners: ${totalListeners}`);
+        console.log(`[NobleTransport]   Tracked peripherals: ${peripheralCount}`);
+        console.log(`[NobleTransport]   Active scanners: ${activeScanners}`);
+        console.log(`[NobleTransport]   scanStop listeners: ${scanStopListeners}`);
+        console.log(`[NobleTransport]   discover listeners: ${discoverListeners}`);
+        console.log(`[NobleTransport]   Pressure multiplier: ${pressureMultiplier}`);
+        console.log(`[NobleTransport]   Dynamic cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms + pressure: ${dynamicCooldown - baseCooldown}ms)`);
+      } else if (this.logLevel === 'debug') {
+        console.log(`[NobleTransport] Disconnect cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms, noble: ${nobleListeners}, bindings: ${bindingsListeners}, peripherals: ${peripheralCount})`);
+      } else {
+        console.log(`[NobleTransport] Applying ${dynamicCooldown}ms cooldown for ${process.platform}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, dynamicCooldown));
       
       // Now safe to mark as disconnected
       this.state = ConnectionState.DISCONNECTED;
@@ -546,6 +683,7 @@ export class NobleTransport {
     }
     
     this.isScanning = true;
+    NobleTransport.activeScanners++; // Track scanner instance
     
     try {
       console.log(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
@@ -579,8 +717,10 @@ export class NobleTransport {
       await noble.stopScanningAsync();
       generator.return();
       
-      // Clean up any scanStop listeners to prevent memory leak warnings
-      noble.removeAllListeners('scanStop');
+      // NOTE: We're intentionally NOT removing scanStop listeners here
+      // to allow pressure detection. The global cleanup will handle this
+      // when the process exits or when cleanupNoble() is called.
+      // noble.removeAllListeners('scanStop');
       
       if (!peripheral) {
         console.log('[NobleTransport] Scan timeout - no matching device found');
@@ -590,6 +730,7 @@ export class NobleTransport {
       return peripheral;
     } finally {
       this.isScanning = false;
+      NobleTransport.activeScanners--; // Decrement scanner count
       // Mark when scanner cleanup completes to enforce GC delay
       NobleTransport.lastScannerDestroyTime = Date.now();
       console.log('[NobleTransport] Scanner cleanup complete, GC recovery timer started');
