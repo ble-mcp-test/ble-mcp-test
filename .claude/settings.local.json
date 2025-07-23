@@ -19,7 +19,9 @@
       "WebFetch(domain:docs.anthropic.com)",
       "Bash(pnpm test:*)",
       "Bash(pnpm exec vitest:*)",
-      "Bash(pnpm run:*)"
+      "Bash(pnpm run:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.philschmid.de)"
     ],
     "deny": []
   }

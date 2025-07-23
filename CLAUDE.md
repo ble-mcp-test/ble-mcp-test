@@ -1,5 +1,8 @@
 # Instructions for Claude Code
 
+## Glossary
+- **PRP**: Product Requirements Prompt - Document defining project requirements and specifications
+
 ## ⚠️ MANDATORY: Package Manager Rules
 1. This project uses pnpm EXCLUSIVELY
 2. NEVER use npm or npx - use pnpm instead
