@@ -1,11 +1,17 @@
 import { WebSocketServer } from 'ws';
 import { NobleTransport, ConnectionState } from './noble-transport.js';
+import { LogLevel, formatHex } from './utils.js';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
   private zombieCheckInterval: any = null;
   private logClients: Set<any> = new Set();
+  private logLevel: LogLevel;
+  
+  constructor(logLevel: LogLevel = 'debug') {
+    this.logLevel = logLevel;
+  }
   start(port = 8080) {
     this.wss = new WebSocketServer({ port });
     
@@ -62,7 +68,7 @@ export class BridgeServer {
       
       // Create transport if needed
       if (!this.transport) {
-        this.transport = new NobleTransport();
+        this.transport = new NobleTransport(this.logLevel);
       }
       
       // Try to claim the connection atomically
@@ -86,6 +92,9 @@ export class BridgeServer {
         await this.transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
+            if (this.logLevel === 'debug') {
+              console.log(`[RX] ${formatHex(data)}`);
+            }
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
@@ -109,7 +118,11 @@ export class BridgeServer {
           try {
             const msg = JSON.parse(message.toString());
             if (msg.type === 'data' && msg.data && this.transport) {
-              await this.transport.sendData(new Uint8Array(msg.data));
+              const dataArray = new Uint8Array(msg.data);
+              if (this.logLevel === 'debug') {
+                console.log(`[TX] ${formatHex(dataArray)}`);
+              }
+              await this.transport.sendData(dataArray);
             }
           } catch (error) {
             // Ignore malformed messages

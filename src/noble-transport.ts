@@ -1,4 +1,5 @@
 import noble from '@stoprocent/noble';
+import { LogLevel } from './utils.js';
 
 // Increase max listeners to prevent warnings during rapid connections
 noble.setMaxListeners(20);
@@ -81,6 +82,11 @@ export class NobleTransport {
   private deviceName = '';
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
+  private logLevel: LogLevel;
+  
+  constructor(logLevel: LogLevel = 'debug') {
+    this.logLevel = logLevel;
+  }
   
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
@@ -476,7 +482,9 @@ export class NobleTransport {
         if (done) break;
         
         const name = device.advertisement.localName || '';
-        console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+        if (this.logLevel === 'debug') {
+          console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+        }
         
         if (name.startsWith(devicePrefix)) {
           console.log(`[NobleTransport] Found matching device: ${name}`);
