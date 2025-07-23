@@ -110,3 +110,6 @@ tests/level-3/test-results/
 
 # Turbo
 .turbo
+
+# Claude local settings
+.claude/settings.local.json
