@@ -12,8 +12,10 @@ export class BridgeServer {
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
   }
-  start(port = 8080) {
-    this.wss = new WebSocketServer({ port });
+  async start(port?: number) {
+    // Use provided port, or fall back to env var, or default to 8080
+    const actualPort = port ?? parseInt(process.env.WS_PORT || '8080', 10);
+    this.wss = new WebSocketServer({ port: actualPort });
     
     // Hook into console methods for log streaming
     this.interceptConsole();
@@ -22,6 +24,9 @@ export class BridgeServer {
     this.zombieCheckInterval = setInterval(() => {
       this.checkForZombieConnections();
     }, 30000);
+    
+    // Perform startup BLE scan to verify functionality
+    await this.performStartupScan();
     
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
@@ -236,5 +241,38 @@ export class BridgeServer {
         client.send(json);
       }
     });
+  }
+  
+  private async performStartupScan() {
+    console.log('[BridgeServer] Performing startup BLE scan to verify functionality...');
+    
+    try {
+      // Create a temporary transport just for scanning
+      const scanTransport = new NobleTransport(this.logLevel);
+      
+      // Scan for 2 seconds to discover devices
+      const devices = await scanTransport.performQuickScan(2000);
+      
+      if (devices.length > 0) {
+        console.log(`[BridgeServer] BLE is functional. Found ${devices.length} device(s):`);
+        if (this.logLevel === 'debug') {
+          devices.forEach(device => {
+            console.log(`[BridgeServer]   - ${device.name || 'Unknown'} (${device.id})`);
+          });
+        }
+      } else {
+        console.log('[BridgeServer] BLE is functional. No devices found in range.');
+      }
+      
+      // Clean up the temporary transport
+      await scanTransport.disconnect();
+    } catch (error) {
+      console.error('[BridgeServer] BLE functionality check failed:', error);
+      console.error('[BridgeServer] The bridge server will start but BLE operations may fail.');
+      console.error('[BridgeServer] Please ensure:');
+      console.error('[BridgeServer]   - Bluetooth is enabled on this system');
+      console.error('[BridgeServer]   - Node.js has Bluetooth permissions');
+      console.error('[BridgeServer]   - No other process is using Bluetooth');
+    }
   }
 }

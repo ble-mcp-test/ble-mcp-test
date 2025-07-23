@@ -1,5 +1,6 @@
 import { defineConfig } from '@playwright/test';
 
+// Playwright tests ALWAYS run once and exit - no watch mode
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60000,

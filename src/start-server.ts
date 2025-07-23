@@ -15,7 +15,12 @@ console.log('   Device-agnostic - UUIDs provided by client');
 console.log('   Press Ctrl+C to stop\n');
 
 const server = new BridgeServer(logLevel);
-server.start(port);
+
+// Start server and handle startup errors
+server.start(port).catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
 
 // Graceful shutdown
 process.on('SIGINT', () => {

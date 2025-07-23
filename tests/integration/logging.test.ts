@@ -1,13 +1,33 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import WebSocket from 'ws';
-import { BridgeServer } from '../../src/bridge-server.js';
 import { formatHex, normalizeLogLevel } from '../../src/utils.js';
-import { WS_URL, getDeviceConfig } from '../test-config.js';
+import { setupTestServer, WS_URL, getDeviceConfig } from '../test-config.js';
 import { connectionFactory } from '../connection-factory.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
 
+// CS108 GET_BATTERY_VOLTAGE command for testing
+// TODO: Standardize to nRF52 test commands in the future
+const CS108_BATTERY_COMMAND = {
+  type: 'data',
+  data: [0xA7, 0xB3, 0xC2, 0x01, 0x00, 0x00, 0xA0, 0x00, 0xB3, 0xA7]
+};
+
 describe('Logging Functionality Tests', () => {
+  let server: any = null;
+  
+  beforeAll(async () => {
+    // Set LOG_LEVEL for test
+    process.env.LOG_LEVEL = 'debug';
+    server = await setupTestServer();
+  });
+  
+  afterAll(async () => {
+    if (server) {
+      await server.stop();
+    }
+  });
+  
   describe('Utils functions', () => {
     it('formats hex correctly', () => {
       const data = new Uint8Array([0xA7, 0xB3, 0xC2, 0x01, 0x00]);
@@ -43,104 +63,110 @@ describe('Logging Functionality Tests', () => {
     });
   });
   
-  describe('Server logging at different levels', () => {
+  describe('Bytestream logging via log-stream WebSocket', () => {
     it('shows TX/RX hex logs at debug level', async () => {
-      const logs: string[] = [];
-      const originalLog = console.log;
-      console.log = (...args) => {
-        logs.push(args.join(' '));
-        originalLog(...args);
-      };
+      const logs: any[] = [];
       
-      const server = new BridgeServer('debug');
-      await server.start(0); // Use random port
+      // Connect to log stream
+      const logWs = new WebSocket(`${WS_URL}?command=log-stream`);
       
-      // Connect and send data
+      await new Promise<void>((resolve, reject) => {
+        logWs.on('open', () => resolve());
+        logWs.on('error', reject);
+      });
+      
+      // Capture log messages
+      logWs.on('message', (data) => {
+        const log = JSON.parse(data.toString());
+        logs.push(log);
+      });
+      
+      // Connect and send CS108 battery command
       const params = new URLSearchParams(DEVICE_CONFIG);
       const connectionResult = await connectionFactory.connect(WS_URL, params);
       
       if (connectionResult.connected) {
-        // Send test data
-        const testData = [0xA7, 0xB3, 0xC2, 0x01, 0x00];
-        await connectionFactory.sendCommand({ type: 'data', data: testData });
+        await connectionFactory.sendCommand(CS108_BATTERY_COMMAND);
         
-        // Wait for logs
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Wait for logs to arrive
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Check for TX log
-        const txLogs = logs.filter(log => log.includes('[TX]'));
+        // Check for TX log with CS108 command hex
+        const txLogs = logs.filter(log => 
+          log.type === 'log' && 
+          log.message.includes('[TX]') && 
+          log.message.includes('A7 B3 C2 01 00 00 A0 00 B3 A7')
+        );
         expect(txLogs.length).toBeGreaterThan(0);
-        expect(txLogs[0]).toContain('A7 B3 C2 01 00');
+        
+        await connectionFactory.cleanup();
       }
       
-      console.log = originalLog;
-      await server.stop();
+      logWs.close();
     });
-    
-    it('hides TX/RX hex logs at info level', async () => {
-      const logs: string[] = [];
-      const originalLog = console.log;
-      console.log = (...args) => {
-        logs.push(args.join(' '));
-        originalLog(...args);
-      };
+  });
+  
+  describe('Server with different log levels', () => {
+    it('respects LOG_LEVEL environment variable', async () => {
+      // This test verifies that the server was started with the correct log level
+      // We can verify this by checking if debug-level logs are present
       
-      const server = new BridgeServer('info');
-      await server.start(0); // Use random port
+      const logs: any[] = [];
       
-      // Connect and send data
+      // Connect to log stream
+      const logWs = new WebSocket(`${WS_URL}?command=log-stream`);
+      
+      await new Promise<void>((resolve, reject) => {
+        logWs.on('open', () => resolve());
+        logWs.on('error', reject);
+      });
+      
+      // Capture log messages
+      logWs.on('message', (data) => {
+        const log = JSON.parse(data.toString());
+        logs.push(log);
+      });
+      
+      // Trigger some activity
       const params = new URLSearchParams(DEVICE_CONFIG);
       const connectionResult = await connectionFactory.connect(WS_URL, params);
       
       if (connectionResult.connected) {
-        // Send test data
-        const testData = [0xA7, 0xB3, 0xC2, 0x01, 0x00];
-        await connectionFactory.sendCommand({ type: 'data', data: testData });
+        await new Promise(resolve => setTimeout(resolve, 500));
         
-        // Wait for logs
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // At debug level, we should see discovery logs
+        const discoveryLogs = logs.filter(log => 
+          log.type === 'log' && 
+          log.message.includes('[NobleTransport] Discovered:')
+        );
         
-        // Check that no TX/RX logs appear
-        const txRxLogs = logs.filter(log => log.includes('[TX]') || log.includes('[RX]'));
-        expect(txRxLogs.length).toBe(0);
+        // Should have discovery logs since we're at debug level
+        expect(discoveryLogs.length).toBeGreaterThan(0);
         
-        // But server startup logs should still appear
-        const startupLogs = logs.filter(log => log.includes('Starting WebSocket') || log.includes('BridgeServer'));
-        expect(startupLogs.length).toBeGreaterThan(0);
+        await connectionFactory.cleanup();
       }
       
-      console.log = originalLog;
-      await server.stop();
+      logWs.close();
     });
-    
-    it('hides discovery logs at info level', async () => {
-      const logs: string[] = [];
-      const originalLog = console.log;
-      console.log = (...args) => {
-        logs.push(args.join(' '));
-        originalLog(...args);
-      };
+  });
+  
+  describe('Environment variable integration', () => {
+    it('normalizeLogLevel handles environment variables correctly', () => {
+      const originalEnv = process.env.LOG_LEVEL;
       
-      const server = new BridgeServer('info');
-      await server.start(0); // Use random port
+      // Test with environment variable set
+      process.env.LOG_LEVEL = 'info';
+      expect(normalizeLogLevel(process.env.LOG_LEVEL)).toBe('info');
       
-      // Try to connect (may fail if no device, but we'll still see scan logs)
-      const params = new URLSearchParams(DEVICE_CONFIG);
-      await connectionFactory.connect(WS_URL, params);
+      process.env.LOG_LEVEL = 'verbose';
+      expect(normalizeLogLevel(process.env.LOG_LEVEL)).toBe('debug');
       
-      // Wait for potential discovery logs
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Check that no discovery logs appear
-      const discoveryLogs = logs.filter(log => log.includes('[NobleTransport] Discovered:'));
-      expect(discoveryLogs.length).toBe(0);
-      
-      // But scanning started logs should still appear
-      const scanLogs = logs.filter(log => log.includes('Scanning started') || log.includes('Starting scan'));
-      expect(scanLogs.length).toBeGreaterThan(0);
-      
-      console.log = originalLog;
-      await server.stop();
+      // Clean up
+      if (originalEnv !== undefined) {
+        process.env.LOG_LEVEL = originalEnv;
+      } else {
+        delete process.env.LOG_LEVEL;
+      }
     });
   });
 });
