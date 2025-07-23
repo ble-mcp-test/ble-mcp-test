@@ -128,6 +128,13 @@ export class NobleTransport {
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
   private logLevel: LogLevel;
+  private lastDisconnectTime: number = 0;
+  
+  // BLE device recovery delay - configurable via env var
+  private static readonly DEVICE_RECOVERY_DELAY = parseInt(
+    process.env.BLE_RECOVERY_DELAY || '1000', 
+    10
+  );
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
@@ -190,6 +197,15 @@ export class NobleTransport {
     if (this.state !== ConnectionState.DISCONNECTED) {
       return false;
     }
+    
+    // Check if we're still in device recovery period
+    const timeSinceDisconnect = Date.now() - this.lastDisconnectTime;
+    if (timeSinceDisconnect < NobleTransport.DEVICE_RECOVERY_DELAY) {
+      const timeRemaining = NobleTransport.DEVICE_RECOVERY_DELAY - timeSinceDisconnect;
+      console.log(`[NobleTransport] Device in recovery period, ${timeRemaining}ms remaining`);
+      return false;
+    }
+    
     this.state = ConnectionState.CONNECTING;
     return true;
   }
@@ -507,7 +523,12 @@ export class NobleTransport {
       
       // Now safe to mark as disconnected
       this.state = ConnectionState.DISCONNECTED;
+      this.lastDisconnectTime = Date.now();
       console.log('[NobleTransport] Disconnection complete');
+      
+      if (NobleTransport.DEVICE_RECOVERY_DELAY > 0) {
+        console.log(`[NobleTransport] Device recovery period: ${NobleTransport.DEVICE_RECOVERY_DELAY}ms`);
+      }
     }
   }
   

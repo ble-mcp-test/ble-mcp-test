@@ -11,6 +11,7 @@ console.log('🚀 Starting WebSocket-to-BLE Bridge Server');
 console.log(`   Port: ${port}`);
 console.log(`   Host: ${host}`);
 console.log(`   Log level: ${logLevel}`);
+console.log(`   BLE recovery delay: ${process.env.BLE_RECOVERY_DELAY || '1000'}ms`);
 console.log('   Device-agnostic - UUIDs provided by client');
 console.log('   Press Ctrl+C to stop\n');
 

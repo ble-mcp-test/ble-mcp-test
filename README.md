@@ -66,6 +66,11 @@ WS_HOST=127.0.0.1 npx @trakrf/web-ble-bridge
 # Options: debug, info, warn, error
 # Also supports: verbose, trace (maps to debug), warning (maps to info)
 LOG_LEVEL=info npx @trakrf/web-ble-bridge
+
+# Set BLE device recovery delay in milliseconds (default: 1000)
+# Time to wait after disconnect before allowing new connections
+# Protects devices from rapid reconnection attempts
+BLE_RECOVERY_DELAY=2000 npx @trakrf/web-ble-bridge
 ```
 
 **Log Levels:**
