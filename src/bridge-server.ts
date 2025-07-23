@@ -5,7 +5,6 @@ import { LogLevel, formatHex } from './utils.js';
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
-  private zombieCheckInterval: any = null;
   private logClients: Set<any> = new Set();
   private logLevel: LogLevel;
   
@@ -19,11 +18,6 @@ export class BridgeServer {
     
     // Hook into console methods for log streaming
     this.interceptConsole();
-    
-    // Start zombie connection check every 5 seconds (for debugging)
-    this.zombieCheckInterval = setInterval(() => {
-      this.checkForZombieConnections();
-    }, 5000);
     
     // Log BLE timing configuration to eliminate uncertainty
     this.logBleTimingConfig();
@@ -167,11 +161,6 @@ export class BridgeServer {
   async stop() {
     console.log('[BridgeServer] Stopping server...');
     
-    if (this.zombieCheckInterval) {
-      clearInterval(this.zombieCheckInterval);
-      this.zombieCheckInterval = null;
-    }
-    
     // Close all WebSocket connections
     if (this.wss) {
       this.wss.clients.forEach((client) => {
@@ -194,36 +183,6 @@ export class BridgeServer {
     }
     
     console.log('[BridgeServer] Server stopped');
-  }
-  
-  private async checkForZombieConnections() {
-    // If we have a BLE connection but no WebSocket connections (excluding log clients), it's a zombie
-    const activeBleClients = Array.from(this.wss?.clients || []).filter(
-      client => !this.logClients.has(client)
-    ).length;
-    
-    const transportState = this.transport?.getState();
-    
-    if (this.transport && 
-        transportState !== ConnectionState.DISCONNECTED && 
-        activeBleClients === 0) {
-      
-      console.error('🧟 [BridgeServer] ZOMBIE DETECTED!');
-      console.error(`  Transport state: ${transportState}`);
-      console.error(`  Device name: ${this.transport.getDeviceName() || 'none'}`);
-      console.error(`  Total WS clients: ${this.wss?.clients.size || 0}`);
-      console.error(`  Log clients: ${this.logClients.size}`);
-      
-      // Force disconnect
-      try {
-        await this.transport.disconnect();
-        console.error('  ✅ Zombie terminated');
-      } catch (err) {
-        console.error('  ❌ Failed to kill zombie:', err);
-        // Nuclear option - null out the transport
-        this.transport = null;
-      }
-    }
   }
   
   private interceptConsole() {

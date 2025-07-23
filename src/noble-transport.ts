@@ -636,22 +636,16 @@ export class NobleTransport {
       // Dynamic cooldown: increase by 500ms per pressure unit
       const dynamicCooldown = baseCooldown + (pressureMultiplier * 500);
       
-      if (totalListeners > 10 || peripheralCount > 5 || pressureMultiplier > 0) {
-        console.log(`[NobleTransport] Resource pressure detected:`);
-        console.log(`[NobleTransport]   Noble listeners: ${nobleListeners}`);
-        console.log(`[NobleTransport]   HCI bindings listeners: ${bindingsListeners}`);
-        console.log(`[NobleTransport]   Peripheral listeners: ${peripheralListeners}`);
-        console.log(`[NobleTransport]   Total listeners: ${totalListeners}`);
-        console.log(`[NobleTransport]   Tracked peripherals: ${peripheralCount}`);
-        console.log(`[NobleTransport]   Active scanners: ${activeScanners}`);
-        console.log(`[NobleTransport]   scanStop listeners: ${scanStopListeners}`);
-        console.log(`[NobleTransport]   discover listeners: ${discoverListeners}`);
-        console.log(`[NobleTransport]   Pressure multiplier: ${pressureMultiplier}`);
-        console.log(`[NobleTransport]   Dynamic cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms + pressure: ${dynamicCooldown - baseCooldown}ms)`);
+      if (pressureMultiplier > 0) {
+        console.log(`[NobleTransport] Resource pressure detected (listeners: ${totalListeners}, peripherals: ${peripheralCount})`);
+        console.log(`[NobleTransport] Dynamic cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms + pressure: ${dynamicCooldown - baseCooldown}ms)`);
+        if (this.logLevel === 'debug') {
+          console.log(`[NobleTransport]   Details: Noble=${nobleListeners}, HCI=${bindingsListeners}, scanStop=${scanStopListeners}`);
+        }
       } else if (this.logLevel === 'debug') {
-        console.log(`[NobleTransport] Disconnect cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms, noble: ${nobleListeners}, bindings: ${bindingsListeners}, peripherals: ${peripheralCount})`);
+        console.log(`[NobleTransport] Disconnect cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms, listeners: ${totalListeners})`);
       } else {
-        console.log(`[NobleTransport] Applying ${dynamicCooldown}ms cooldown for ${process.platform}`);
+        console.log(`[NobleTransport] Applying ${dynamicCooldown}ms cooldown`);
       }
       
       await new Promise(resolve => setTimeout(resolve, dynamicCooldown));
