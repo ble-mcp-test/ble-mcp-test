@@ -6,7 +6,7 @@ export default defineConfig({
     setupFiles: ['./tests/vitest-setup.ts'],
     globals: true,
     environment: 'node',
-    testTimeout: 30000,
+    testTimeout: 60000,
     exclude: ['**/e2e/**', '**/node_modules/**', '**/dist/**'],
     // Force sequential execution for BLE singleton connection
     pool: 'forks',

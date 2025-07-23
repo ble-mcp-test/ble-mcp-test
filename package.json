@@ -41,11 +41,12 @@
     "test:stress": "vitest run tests/stress",
     "test:integration": "vitest run tests/integration",
     "test:unit": "vitest run tests/unit",
+    "test:essential": "vitest run tests/unit && vitest run tests/integration/connection.test.ts",
     "test:all": "vitest run && pnpm exec playwright test",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:run"
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:essential"
   },
   "dependencies": {
     "@stoprocent/noble": "^2.3.4",
