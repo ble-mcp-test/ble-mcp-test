@@ -2,7 +2,7 @@ import noble from '@stoprocent/noble';
 import { LogLevel } from './utils.js';
 
 // Increase max listeners to prevent warnings during rapid connections
-noble.setMaxListeners(20);
+noble.setMaxListeners(50);
 
 // Global cleanup to ensure Noble doesn't keep process alive
 export async function cleanupNoble(): Promise<void> {
