@@ -1,6 +1,6 @@
 {
   "name": "@trakrf/web-ble-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "WebSocket-to-BLE bridge for Web Bluetooth API testing",
   "keywords": ["bluetooth", "ble", "web-bluetooth", "testing", "mock", "websocket"],
   "homepage": "https://github.com/trakrf/web-ble-bridge",

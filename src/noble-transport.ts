@@ -671,6 +671,7 @@ export class NobleTransport {
       // Dynamic cooldown: increase by 500ms per pressure unit
       const dynamicCooldown = baseCooldown + (pressureMultiplier * 500);
       
+      
       if (pressureMultiplier > 0) {
         console.log(`[NobleTransport] Resource pressure detected (listeners: ${totalListeners}, peripherals: ${peripheralCount})`);
         console.log(`[NobleTransport] Dynamic cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms + pressure: ${dynamicCooldown - baseCooldown}ms)`);
@@ -738,16 +739,33 @@ export class NobleTransport {
           peripheral = device;
           break;
         }
+        
+        // Clean up excessive scanStop listeners during long scans
+        // Noble's discoverAsync adds 3 listeners per next() call
+        const scanStopCount = noble.listenerCount('scanStop');
+        if (scanStopCount > 90) {
+          if (this.logLevel === 'debug') {
+            console.log(`[NobleTransport] Mid-scan cleanup of ${scanStopCount} scanStop listeners`);
+          }
+          noble.removeAllListeners('scanStop');
+        }
       }
       
       // Always stop scanning and clean up generator
       await noble.stopScanningAsync();
       generator.return();
       
-      // NOTE: We're intentionally NOT removing scanStop listeners here
-      // to allow pressure detection. The global cleanup will handle this
-      // when the process exits or when cleanupNoble() is called.
-      // noble.removeAllListeners('scanStop');
+      // Clean up scanStop listeners that discoverAsync() adds
+      // Each call to generator.next() adds 3 scanStop listeners that aren't removed
+      // This is a Noble bug - the async generator leaks event listeners
+      // We clean them up after each scan to prevent accumulation
+      const scanStopCount = noble.listenerCount('scanStop');
+      if (scanStopCount > 0) {
+        if (this.logLevel === 'debug') {
+          console.log(`[NobleTransport] Cleaning up ${scanStopCount} scanStop listeners from discoverAsync`);
+        }
+        noble.removeAllListeners('scanStop');
+      }
       
       if (!peripheral) {
         console.log('[NobleTransport] Scan timeout - no matching device found');
@@ -827,6 +845,12 @@ export class NobleTransport {
       // Stop scanning
       await noble.stopScanningAsync();
       generator.return();
+      
+      // Clean up scanStop listeners from discoverAsync (Noble bug)
+      const scanStopCount = noble.listenerCount('scanStop');
+      if (scanStopCount > 0) {
+        noble.removeAllListeners('scanStop');
+      }
       
     } catch (error) {
       // Stop scanning on error
