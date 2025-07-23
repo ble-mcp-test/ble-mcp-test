@@ -2,7 +2,7 @@ import noble from '@stoprocent/noble';
 import { LogLevel } from './utils.js';
 
 // Increase max listeners to prevent warnings during rapid connections
-noble.setMaxListeners(20);
+noble.setMaxListeners(50);
 
 // Global cleanup to ensure Noble doesn't keep process alive
 export async function cleanupNoble(): Promise<void> {
@@ -143,42 +143,55 @@ export class NobleTransport {
   // Connection retry management
   private static needsReset = false;
   
-  // Platform-aware timing configuration
+  // Platform-aware timing configuration with environment variable overrides
   private static readonly TIMINGS = (() => {
-    switch (process.platform) {
-      case 'darwin':
-        return {
-          // macOS timings - optimized for faster operations
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 1000,       // 1s
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 1000,     // 1s - macOS handles BLE cleanup quickly
-        };
-      
-      case 'win32':
-        return {
-          // Windows timings - moderate delays for stability
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
-        };
-      
-      default:  // linux, freebsd, etc.
-        return {
-          // Linux/Pi timings - needs longer delays for stability
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
-        };
-    }
+    // Platform defaults
+    const defaults = (() => {
+      switch (process.platform) {
+        case 'darwin':
+          return {
+            // macOS timings - optimized for faster operations
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 1000,       // 1s
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 2000,     // 2s - Protects both BLE stack and device
+          };
+        
+        case 'win32':
+          return {
+            // Windows timings - moderate delays for stability
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
+          };
+        
+        default:  // linux, freebsd, etc.
+          return {
+            // Linux/Pi timings - needs longer delays for stability
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
+          };
+      }
+    })();
+    
+    // Allow environment variable overrides
+    return {
+      CONNECTION_STABILITY: parseInt(process.env.BLE_CONNECTION_STABILITY || String(defaults.CONNECTION_STABILITY), 10),
+      PRE_DISCOVERY_DELAY: parseInt(process.env.BLE_PRE_DISCOVERY_DELAY || String(defaults.PRE_DISCOVERY_DELAY), 10),
+      NOBLE_RESET_DELAY: parseInt(process.env.BLE_NOBLE_RESET_DELAY || String(defaults.NOBLE_RESET_DELAY), 10),
+      SCAN_TIMEOUT: parseInt(process.env.BLE_SCAN_TIMEOUT || String(defaults.SCAN_TIMEOUT), 10),
+      CONNECTION_TIMEOUT: parseInt(process.env.BLE_CONNECTION_TIMEOUT || String(defaults.CONNECTION_TIMEOUT), 10),
+      DISCONNECT_COOLDOWN: parseInt(process.env.BLE_DISCONNECT_COOLDOWN || String(defaults.DISCONNECT_COOLDOWN), 10),
+    };
   })();
 
   getState(): ConnectionState {
@@ -190,6 +203,7 @@ export class NobleTransport {
     if (this.state !== ConnectionState.DISCONNECTED) {
       return false;
     }
+    
     this.state = ConnectionState.CONNECTING;
     return true;
   }
@@ -445,8 +459,24 @@ export class NobleTransport {
     console.log('[NobleTransport] Connection complete');
     this.state = ConnectionState.CONNECTED;
     } catch (error) {
-      // Reset state on any error
+      // CRITICAL: Always reset state on ANY connection error
       this.state = ConnectionState.DISCONNECTED;
+      
+      // If we have a peripheral reference, try to disconnect it
+      if (this.peripheral) {
+        try {
+          await this.peripheral.disconnectAsync();
+        } catch (e) {
+          // Ignore disconnect errors
+          console.log('[NobleTransport] Error disconnecting peripheral during cleanup:', e);
+        }
+        this.peripheral = null;
+      }
+      
+      // Clear any other references
+      this.writeChar = null;
+      this.notifyChar = null;
+      
       throw error;
     }
   }
@@ -459,7 +489,14 @@ export class NobleTransport {
   async disconnect(): Promise<void> {
     console.log(`[NobleTransport] Disconnecting from current state: ${this.state}`);
     
-    // Always set state to disconnecting first
+    // If already disconnected or disconnecting, return early
+    if (this.state === ConnectionState.DISCONNECTED || 
+        this.state === ConnectionState.DISCONNECTING) {
+      console.log('[NobleTransport] Already disconnected/disconnecting, skipping');
+      return;
+    }
+    
+    // Set state to disconnecting
     this.state = ConnectionState.DISCONNECTING;
     
     try {

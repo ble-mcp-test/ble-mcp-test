@@ -66,6 +66,16 @@ WS_HOST=127.0.0.1 npx @trakrf/web-ble-bridge
 # Options: debug, info, warn, error
 # Also supports: verbose, trace (maps to debug), warning (maps to info)
 LOG_LEVEL=info npx @trakrf/web-ble-bridge
+
+# Advanced BLE timing configuration (milliseconds)
+# Override platform-specific defaults for your hardware
+# Note: Default values vary by platform (macOS/Windows/Linux)
+BLE_CONNECTION_STABILITY=0      # Delay after connection before service discovery
+BLE_PRE_DISCOVERY_DELAY=0       # Additional delay before service discovery
+BLE_NOBLE_RESET_DELAY=1000      # Delay after Noble reset before operations
+BLE_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
+BLE_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
+BLE_DISCONNECT_COOLDOWN=2000    # Recovery time after disconnect (critical for device health)
 ```
 
 **Log Levels:**

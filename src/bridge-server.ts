@@ -20,10 +20,10 @@ export class BridgeServer {
     // Hook into console methods for log streaming
     this.interceptConsole();
     
-    // Start zombie connection check every 30 seconds
+    // Start zombie connection check every 5 seconds (for debugging)
     this.zombieCheckInterval = setInterval(() => {
       this.checkForZombieConnections();
-    }, 30000);
+    }, 5000);
     
     // Perform startup BLE scan to verify functionality
     await this.performStartupScan();
@@ -192,17 +192,33 @@ export class BridgeServer {
     console.log('[BridgeServer] Server stopped');
   }
   
-  private checkForZombieConnections() {
+  private async checkForZombieConnections() {
     // If we have a BLE connection but no WebSocket connections (excluding log clients), it's a zombie
     const activeBleClients = Array.from(this.wss?.clients || []).filter(
       client => !this.logClients.has(client)
     ).length;
     
+    const transportState = this.transport?.getState();
+    
     if (this.transport && 
-        this.transport.getState() !== ConnectionState.DISCONNECTED && 
+        transportState !== ConnectionState.DISCONNECTED && 
         activeBleClients === 0) {
-      console.log('🧟 [BridgeServer] Found zombie BLE connection - cleaning up');
-      this.transport.disconnect();
+      
+      console.error('🧟 [BridgeServer] ZOMBIE DETECTED!');
+      console.error(`  Transport state: ${transportState}`);
+      console.error(`  Device name: ${this.transport.getDeviceName() || 'none'}`);
+      console.error(`  Total WS clients: ${this.wss?.clients.size || 0}`);
+      console.error(`  Log clients: ${this.logClients.size}`);
+      
+      // Force disconnect
+      try {
+        await this.transport.disconnect();
+        console.error('  ✅ Zombie terminated');
+      } catch (err) {
+        console.error('  ❌ Failed to kill zombie:', err);
+        // Nuclear option - null out the transport
+        this.transport = null;
+      }
     }
   }
   
