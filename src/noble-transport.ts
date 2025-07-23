@@ -445,8 +445,24 @@ export class NobleTransport {
     console.log('[NobleTransport] Connection complete');
     this.state = ConnectionState.CONNECTED;
     } catch (error) {
-      // Reset state on any error
+      // CRITICAL: Always reset state on ANY connection error
       this.state = ConnectionState.DISCONNECTED;
+      
+      // If we have a peripheral reference, try to disconnect it
+      if (this.peripheral) {
+        try {
+          await this.peripheral.disconnectAsync();
+        } catch (e) {
+          // Ignore disconnect errors
+          console.log('[NobleTransport] Error disconnecting peripheral during cleanup:', e);
+        }
+        this.peripheral = null;
+      }
+      
+      // Clear any other references
+      this.writeChar = null;
+      this.notifyChar = null;
+      
       throw error;
     }
   }
@@ -459,7 +475,14 @@ export class NobleTransport {
   async disconnect(): Promise<void> {
     console.log(`[NobleTransport] Disconnecting from current state: ${this.state}`);
     
-    // Always set state to disconnecting first
+    // If already disconnected or disconnecting, return early
+    if (this.state === ConnectionState.DISCONNECTED || 
+        this.state === ConnectionState.DISCONNECTING) {
+      console.log('[NobleTransport] Already disconnected/disconnecting, skipping');
+      return;
+    }
+    
+    // Set state to disconnecting
     this.state = ConnectionState.DISCONNECTING;
     
     try {
