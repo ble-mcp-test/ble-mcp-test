@@ -4,14 +4,47 @@ import { LogLevel } from './utils.js';
 // Increase max listeners to prevent warnings during rapid connections and stress testing
 noble.setMaxListeners(100);
 
+// Track cleanup state to prevent concurrent cleanups
+let cleanupInProgress = false;
+let cleanupComplete = false;
+
 // Global cleanup to ensure Noble doesn't keep process alive
 export async function cleanupNoble(): Promise<void> {
+  // If cleanup is already complete, return immediately
+  if (cleanupComplete) {
+    return;
+  }
+  
+  // If cleanup is in progress, wait for it
+  if (cleanupInProgress) {
+    while (cleanupInProgress) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return;
+  }
+  
+  cleanupInProgress = true;
   try {
-    // Stop any ongoing scanning
-    try {
-      await noble.stopScanningAsync();
-    } catch (e) {
-      // Ignore errors if not scanning
+    // Check if Noble is even initialized
+    const nobleState = noble.state;
+    const nobleBindings = (noble as any)._bindings;
+    const isInitialized = nobleBindings && typeof nobleBindings.init === 'function';
+    
+    // Only try to stop scanning if Noble is actually initialized
+    if (isInitialized && nobleState !== 'unknown' && nobleState !== 'unsupported') {
+      // Check if we even have any active scanners
+      const activeScanners = (NobleTransport as any).activeScanners || 0;
+      
+      if (activeScanners > 0) {
+        try {
+          await noble.stopScanningAsync();
+        } catch (e: any) {
+          // Ignore stop scanning errors
+        }
+      }
+    } else {
+      cleanupComplete = true;
+      return; // Skip all cleanup if Noble was never initialized
     }
     
     // Remove all event listeners from Noble and its internal components
@@ -43,9 +76,11 @@ export async function cleanupNoble(): Promise<void> {
       });
     }
     
-    console.log('[NobleTransport] Global Noble cleanup complete');
+    cleanupComplete = true;
   } catch (error) {
     console.error('[NobleTransport] Error during global cleanup:', error);
+  } finally {
+    cleanupInProgress = false;
   }
 }
 
