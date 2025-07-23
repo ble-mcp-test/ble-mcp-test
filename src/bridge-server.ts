@@ -1,13 +1,21 @@
 import { WebSocketServer } from 'ws';
 import { NobleTransport, ConnectionState } from './noble-transport.js';
+import { LogLevel, formatHex } from './utils.js';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
   private zombieCheckInterval: any = null;
   private logClients: Set<any> = new Set();
-  start(port = 8080) {
-    this.wss = new WebSocketServer({ port });
+  private logLevel: LogLevel;
+  
+  constructor(logLevel: LogLevel = 'debug') {
+    this.logLevel = logLevel;
+  }
+  async start(port?: number) {
+    // Use provided port, or fall back to env var, or default to 8080
+    const actualPort = port ?? parseInt(process.env.WS_PORT || '8080', 10);
+    this.wss = new WebSocketServer({ port: actualPort });
     
     // Hook into console methods for log streaming
     this.interceptConsole();
@@ -16,6 +24,9 @@ export class BridgeServer {
     this.zombieCheckInterval = setInterval(() => {
       this.checkForZombieConnections();
     }, 30000);
+    
+    // Perform startup BLE scan to verify functionality
+    await this.performStartupScan();
     
     this.wss.on('connection', async (ws, req) => {
       const url = new URL(req.url!, `http://localhost`);
@@ -62,7 +73,7 @@ export class BridgeServer {
       
       // Create transport if needed
       if (!this.transport) {
-        this.transport = new NobleTransport();
+        this.transport = new NobleTransport(this.logLevel);
       }
       
       // Try to claim the connection atomically
@@ -86,6 +97,9 @@ export class BridgeServer {
         await this.transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
+            if (this.logLevel === 'debug') {
+              console.log(`[RX] ${formatHex(data)}`);
+            }
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
@@ -109,7 +123,11 @@ export class BridgeServer {
           try {
             const msg = JSON.parse(message.toString());
             if (msg.type === 'data' && msg.data && this.transport) {
-              await this.transport.sendData(new Uint8Array(msg.data));
+              const dataArray = new Uint8Array(msg.data);
+              if (this.logLevel === 'debug') {
+                console.log(`[TX] ${formatHex(dataArray)}`);
+              }
+              await this.transport.sendData(dataArray);
             }
           } catch (error) {
             // Ignore malformed messages
@@ -223,5 +241,38 @@ export class BridgeServer {
         client.send(json);
       }
     });
+  }
+  
+  private async performStartupScan() {
+    console.log('[BridgeServer] Performing startup BLE scan to verify functionality...');
+    
+    try {
+      // Create a temporary transport just for scanning
+      const scanTransport = new NobleTransport(this.logLevel);
+      
+      // Scan for 2 seconds to discover devices
+      const devices = await scanTransport.performQuickScan(2000);
+      
+      if (devices.length > 0) {
+        console.log(`[BridgeServer] BLE is functional. Found ${devices.length} device(s):`);
+        if (this.logLevel === 'debug') {
+          devices.forEach(device => {
+            console.log(`[BridgeServer]   - ${device.name || 'Unknown'} (${device.id})`);
+          });
+        }
+      } else {
+        console.log('[BridgeServer] BLE is functional. No devices found in range.');
+      }
+      
+      // Clean up the temporary transport
+      await scanTransport.disconnect();
+    } catch (error) {
+      console.error('[BridgeServer] BLE functionality check failed:', error);
+      console.error('[BridgeServer] The bridge server will start but BLE operations may fail.');
+      console.error('[BridgeServer] Please ensure:');
+      console.error('[BridgeServer]   - Bluetooth is enabled on this system');
+      console.error('[BridgeServer]   - Node.js has Bluetooth permissions');
+      console.error('[BridgeServer]   - No other process is using Bluetooth');
+    }
   }
 }

@@ -1,18 +1,26 @@
 #!/usr/bin/env node
 
 import { BridgeServer } from './bridge-server.js';
+import { normalizeLogLevel } from './utils.js';
 
 const port = parseInt(process.env.WS_PORT || '8080', 10);
 const host = process.env.WS_HOST || '0.0.0.0';
+const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
 
 console.log('🚀 Starting WebSocket-to-BLE Bridge Server');
 console.log(`   Port: ${port}`);
 console.log(`   Host: ${host}`);
+console.log(`   Log level: ${logLevel}`);
 console.log('   Device-agnostic - UUIDs provided by client');
 console.log('   Press Ctrl+C to stop\n');
 
-const server = new BridgeServer();
-server.start(port);
+const server = new BridgeServer(logLevel);
+
+// Start server and handle startup errors
+server.start(port).catch(error => {
+  console.error('Failed to start server:', error);
+  process.exit(1);
+});
 
 // Graceful shutdown
 process.on('SIGINT', () => {

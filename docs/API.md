@@ -193,3 +193,61 @@ test('communicate with BLE device', async ({ page }) => {
   await page.waitForSelector('#connected-status');
 });
 ```
+
+## Utility Functions
+
+The bridge server exports several utility functions for working with BLE data and logging:
+
+### formatHex(data: Uint8Array | Buffer): string
+
+Formats binary data as uppercase hexadecimal with space separation.
+
+```typescript
+import { formatHex } from '@trakrf/web-ble-bridge';
+
+const data = new Uint8Array([0xA7, 0xB3, 0xC2, 0x01]);
+console.log(formatHex(data)); // "A7 B3 C2 01"
+
+const buffer = Buffer.from([0x12, 0x34, 0x56, 0x78]);
+console.log(formatHex(buffer)); // "12 34 56 78"
+```
+
+### normalizeLogLevel(level?: string): LogLevel
+
+Normalizes log level strings to a valid LogLevel type, with support for common aliases.
+
+```typescript
+import { normalizeLogLevel } from '@trakrf/web-ble-bridge';
+
+normalizeLogLevel('debug');    // 'debug'
+normalizeLogLevel('verbose');  // 'debug' (alias)
+normalizeLogLevel('trace');    // 'debug' (alias)
+normalizeLogLevel('info');     // 'info'
+normalizeLogLevel('warn');     // 'info' (mapped to info)
+normalizeLogLevel('warning');  // 'info' (alias)
+normalizeLogLevel('error');    // 'error'
+normalizeLogLevel(undefined);  // 'debug' (default)
+normalizeLogLevel('invalid');  // 'debug' (with console warning)
+```
+
+### LogLevel Type
+
+Type definition for valid log levels:
+
+```typescript
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+```
+
+### Usage Example
+
+```typescript
+import { BridgeServer, normalizeLogLevel } from '@trakrf/web-ble-bridge';
+
+const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
+const server = new BridgeServer(logLevel);
+await server.start();
+
+// At debug level, you'll see [TX]/[RX] bytestream logs:
+// [TX] A7 B3 C2 01 00 00 A0 00 B3 A7
+// [RX] B3 A7 C2 01 00 00 00 00 A7 B3
+```

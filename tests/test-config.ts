@@ -46,7 +46,13 @@ export const WS_URL = getTestConfig().wsUrl;
 // Returns: server instance if we started one (for cleanup), null if using external server
 export async function setupTestServer() {
   const { BridgeServer } = await import('../dist/bridge-server.js');
+  const { normalizeLogLevel } = await import('../dist/utils.js');
   const WebSocket = (await import('ws')).default;
+  
+  // Parse the URL to get host and port
+  const url = new URL(WS_URL);
+  const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
+  const port = parseInt(url.port || '8080', 10);
   
   // First, try to connect to the configured URL
   const testWs = new WebSocket(WS_URL);
@@ -75,12 +81,17 @@ export async function setupTestServer() {
     return null; // No local server needed
   } catch (error) {
     // Connection failed
-    if (WS_URL.includes('localhost') || WS_URL.includes('127.0.0.1')) {
-      // Local URL - start our own server
-      console.log('[Test] Starting local bridge server...');
-      const server = new BridgeServer();
-      server.start();
-      console.log('[Test] Started local bridge server');
+    if (isLocalhost) {
+      // Local URL - start our own server on the port from WS_URL
+      console.log(`[Test] Starting local bridge server on port ${port}...`);
+      const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
+      const server = new BridgeServer(logLevel);
+      await server.start(port); // Use port from WS_URL, not WS_PORT
+      console.log(`[Test] Started local bridge server on port ${port}`);
+      
+      // Give server a moment to fully initialize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       return server; // Return server instance for cleanup
     } else {
       // External URL - fail the test

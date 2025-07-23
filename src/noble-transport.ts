@@ -1,7 +1,53 @@
 import noble from '@stoprocent/noble';
+import { LogLevel } from './utils.js';
 
 // Increase max listeners to prevent warnings during rapid connections
 noble.setMaxListeners(20);
+
+// Global cleanup to ensure Noble doesn't keep process alive
+export async function cleanupNoble(): Promise<void> {
+  try {
+    // Stop any ongoing scanning
+    try {
+      await noble.stopScanningAsync();
+    } catch (e) {
+      // Ignore errors if not scanning
+    }
+    
+    // Remove all event listeners from Noble and its internal components
+    noble.removeAllListeners();
+    
+    // Access internal bindings to remove their listeners too
+    const bindings = (noble as any)._bindings;
+    if (bindings) {
+      bindings.removeAllListeners?.();
+      
+      // For HCI socket bindings, close the socket
+      if (bindings._hci) {
+        bindings._hci.removeAllListeners?.();
+        bindings._hci._socket?.close?.();
+      }
+      
+      // Clear any internal timers
+      if (bindings._scanTimer) {
+        clearTimeout(bindings._scanTimer);
+        bindings._scanTimer = null;
+      }
+    }
+    
+    // Clear any peripherals
+    const peripherals = (noble as any)._peripherals;
+    if (peripherals) {
+      Object.values(peripherals).forEach((peripheral: any) => {
+        peripheral.removeAllListeners?.();
+      });
+    }
+    
+    console.log('[NobleTransport] Global Noble cleanup complete');
+  } catch (error) {
+    console.error('[NobleTransport] Error during global cleanup:', error);
+  }
+}
 
 interface Callbacks {
   onData: (data: Uint8Array) => void;
@@ -81,6 +127,11 @@ export class NobleTransport {
   private deviceName = '';
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
+  private logLevel: LogLevel;
+  
+  constructor(logLevel: LogLevel = 'debug') {
+    this.logLevel = logLevel;
+  }
   
   // Scanner recovery delay management
   private static lastScannerDestroyTime = 0;
@@ -476,7 +527,9 @@ export class NobleTransport {
         if (done) break;
         
         const name = device.advertisement.localName || '';
-        console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+        if (this.logLevel === 'debug') {
+          console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+        }
         
         if (name.startsWith(devicePrefix)) {
           console.log(`[NobleTransport] Found matching device: ${name}`);
@@ -504,5 +557,79 @@ export class NobleTransport {
       NobleTransport.lastScannerDestroyTime = Date.now();
       console.log('[NobleTransport] Scanner cleanup complete, GC recovery timer started');
     }
+  }
+  
+  async performQuickScan(duration: number): Promise<Array<{id: string, name?: string}>> {
+    const devices: Array<{id: string, name?: string}> = [];
+    
+    try {
+      // Ensure noble is ready
+      if (noble.state !== 'poweredOn') {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Bluetooth not powered on'));
+          }, 5000);
+          
+          noble.once('stateChange', (state) => {
+            clearTimeout(timeout);
+            if (state === 'poweredOn') {
+              resolve();
+            } else {
+              reject(new Error(`Bluetooth state: ${state}`));
+            }
+          });
+          
+          // Check current state
+          if (noble.state === 'poweredOn') {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+      }
+      
+      // Start scanning
+      await noble.startScanningAsync([], false);
+      
+      // Collect devices for the specified duration
+      const generator = noble.discoverAsync();
+      const endTime = Date.now() + duration;
+      
+      while (Date.now() < endTime) {
+        const timeLeft = endTime - Date.now();
+        if (timeLeft <= 0) break;
+        
+        // Use race to timeout the generator
+        const result = await Promise.race([
+          generator.next(),
+          new Promise<{done: boolean, value?: any}>(resolve => 
+            setTimeout(() => resolve({ done: true }), timeLeft)
+          )
+        ]);
+        
+        if (result.done) break;
+        
+        const device = result.value;
+        const name = device.advertisement.localName || '';
+        
+        // Add to list if not already present
+        if (!devices.some(d => d.id === device.id)) {
+          devices.push({ id: device.id, name });
+        }
+      }
+      
+      // Stop scanning
+      await noble.stopScanningAsync();
+      generator.return();
+      
+    } catch (error) {
+      // Stop scanning on error
+      try {
+        await noble.stopScanningAsync();
+      } catch {} // Ignore cleanup errors
+      
+      throw error;
+    }
+    
+    return devices;
   }
 }
