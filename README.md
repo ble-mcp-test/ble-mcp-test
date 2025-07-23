@@ -51,6 +51,28 @@ web-ble-bridge
 
 The server will start on `ws://localhost:8080` by default.
 
+### Configuration
+
+The bridge server can be configured using environment variables:
+
+```bash
+# Set WebSocket port (default: 8080)
+WS_PORT=3000 npx @trakrf/web-ble-bridge
+
+# Set host interface (default: 0.0.0.0)
+WS_HOST=127.0.0.1 npx @trakrf/web-ble-bridge
+
+# Set log level (default: debug)
+# Options: debug, info, warn, error
+# Also supports: verbose, trace (maps to debug), warning (maps to info)
+LOG_LEVEL=info npx @trakrf/web-ble-bridge
+```
+
+**Log Levels:**
+- `debug` - Shows all logs including [TX]/[RX] bytestream traffic and device discovery
+- `info` - Shows server startup, connections, state changes, and errors (hides bytestream and discovery logs)
+- `warn`/`error` - Shows warnings and errors only
+
 ### Monitoring Server Logs
 
 The bridge server supports real-time log streaming via WebSocket:
@@ -293,7 +315,7 @@ The bridge uses a simple JSON protocol over WebSocket:
 ### Bridge server crashes
 - Ensure Node.js 24.x is installed (not 22.x or 26.x)
 - Check for other processes using the same port
-- Run with debug logging: `DEBUG=* npx @trakrf/web-ble-bridge`
+- Run with debug logging: `LOG_LEVEL=debug npx @trakrf/web-ble-bridge`
 
 ## Documentation
 
