@@ -128,13 +128,6 @@ export class NobleTransport {
   private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
   private logLevel: LogLevel;
-  private lastDisconnectTime: number = 0;
-  
-  // BLE device recovery delay - configurable via env var
-  private static readonly DEVICE_RECOVERY_DELAY = parseInt(
-    process.env.BLE_RECOVERY_DELAY || '1000', 
-    10
-  );
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
@@ -150,42 +143,55 @@ export class NobleTransport {
   // Connection retry management
   private static needsReset = false;
   
-  // Platform-aware timing configuration
+  // Platform-aware timing configuration with environment variable overrides
   private static readonly TIMINGS = (() => {
-    switch (process.platform) {
-      case 'darwin':
-        return {
-          // macOS timings - optimized for faster operations
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 1000,       // 1s
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 1000,     // 1s - macOS handles BLE cleanup quickly
-        };
-      
-      case 'win32':
-        return {
-          // Windows timings - moderate delays for stability
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
-        };
-      
-      default:  // linux, freebsd, etc.
-        return {
-          // Linux/Pi timings - needs longer delays for stability
-          CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-          PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-          NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
-          SCAN_TIMEOUT: 15000,           // 15s
-          CONNECTION_TIMEOUT: 15000,     // 15s
-          DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
-        };
-    }
+    // Platform defaults
+    const defaults = (() => {
+      switch (process.platform) {
+        case 'darwin':
+          return {
+            // macOS timings - optimized for faster operations
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 1000,       // 1s
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 2000,     // 2s - Protects both BLE stack and device
+          };
+        
+        case 'win32':
+          return {
+            // Windows timings - moderate delays for stability
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 3000,     // 3s - Windows needs some cooldown
+          };
+        
+        default:  // linux, freebsd, etc.
+          return {
+            // Linux/Pi timings - needs longer delays for stability
+            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
+            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
+            NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
+            SCAN_TIMEOUT: 15000,           // 15s
+            CONNECTION_TIMEOUT: 15000,     // 15s
+            DISCONNECT_COOLDOWN: 10000,    // 10s - Linux BLE stack needs longer cooldown
+          };
+      }
+    })();
+    
+    // Allow environment variable overrides
+    return {
+      CONNECTION_STABILITY: parseInt(process.env.BLE_CONNECTION_STABILITY || String(defaults.CONNECTION_STABILITY), 10),
+      PRE_DISCOVERY_DELAY: parseInt(process.env.BLE_PRE_DISCOVERY_DELAY || String(defaults.PRE_DISCOVERY_DELAY), 10),
+      NOBLE_RESET_DELAY: parseInt(process.env.BLE_NOBLE_RESET_DELAY || String(defaults.NOBLE_RESET_DELAY), 10),
+      SCAN_TIMEOUT: parseInt(process.env.BLE_SCAN_TIMEOUT || String(defaults.SCAN_TIMEOUT), 10),
+      CONNECTION_TIMEOUT: parseInt(process.env.BLE_CONNECTION_TIMEOUT || String(defaults.CONNECTION_TIMEOUT), 10),
+      DISCONNECT_COOLDOWN: parseInt(process.env.BLE_DISCONNECT_COOLDOWN || String(defaults.DISCONNECT_COOLDOWN), 10),
+    };
   })();
 
   getState(): ConnectionState {
@@ -195,14 +201,6 @@ export class NobleTransport {
   // Atomically check and claim connection
   tryClaimConnection(): boolean {
     if (this.state !== ConnectionState.DISCONNECTED) {
-      return false;
-    }
-    
-    // Check if we're still in device recovery period
-    const timeSinceDisconnect = Date.now() - this.lastDisconnectTime;
-    if (timeSinceDisconnect < NobleTransport.DEVICE_RECOVERY_DELAY) {
-      const timeRemaining = NobleTransport.DEVICE_RECOVERY_DELAY - timeSinceDisconnect;
-      console.log(`[NobleTransport] Device in recovery period, ${timeRemaining}ms remaining`);
       return false;
     }
     
@@ -523,12 +521,7 @@ export class NobleTransport {
       
       // Now safe to mark as disconnected
       this.state = ConnectionState.DISCONNECTED;
-      this.lastDisconnectTime = Date.now();
       console.log('[NobleTransport] Disconnection complete');
-      
-      if (NobleTransport.DEVICE_RECOVERY_DELAY > 0) {
-        console.log(`[NobleTransport] Device recovery period: ${NobleTransport.DEVICE_RECOVERY_DELAY}ms`);
-      }
     }
   }
   

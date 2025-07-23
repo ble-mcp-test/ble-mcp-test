@@ -11,8 +11,25 @@ console.log('🚀 Starting WebSocket-to-BLE Bridge Server');
 console.log(`   Port: ${port}`);
 console.log(`   Host: ${host}`);
 console.log(`   Log level: ${logLevel}`);
-console.log(`   BLE recovery delay: ${process.env.BLE_RECOVERY_DELAY || '1000'}ms`);
 console.log('   Device-agnostic - UUIDs provided by client');
+
+// Show any BLE timing overrides
+const bleOverrides = [
+  'BLE_CONNECTION_STABILITY',
+  'BLE_PRE_DISCOVERY_DELAY', 
+  'BLE_NOBLE_RESET_DELAY',
+  'BLE_SCAN_TIMEOUT',
+  'BLE_CONNECTION_TIMEOUT',
+  'BLE_DISCONNECT_COOLDOWN'
+].filter(key => process.env[key]);
+
+if (bleOverrides.length > 0) {
+  console.log('   BLE timing overrides:');
+  bleOverrides.forEach(key => {
+    console.log(`     ${key}: ${process.env[key]}ms`);
+  });
+}
+
 console.log('   Press Ctrl+C to stop\n');
 
 const server = new BridgeServer(logLevel);
