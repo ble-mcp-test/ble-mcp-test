@@ -71,4 +71,23 @@ Save as: `prp/prompt/{feature-name}.md`
 
 Score the PRP on a scale of 1-10 (confidence level to succeed in one-pass implementation using claude codes)
 
+## Git Workflow (Final Step)
+After successfully generating the PRP:
+1. Check current git branch
+2. Branch handling:
+   - If on main/master branch:
+     - Extract feature name from spec filename (e.g., `prp/spec/add-auth.md` → `feature/add-auth`)
+     - Create and checkout feature branch: `git checkout -b feature/{name}`
+   - If on an unrelated feature branch:
+     - Ask the user: "You're currently on branch '{current-branch}'. Should I:
+       a) Create a new branch for this PRP
+       b) Commit to the current branch
+       c) Skip the git commit"
+3. Stage and commit both spec and PRP files (unless user chose to skip):
+   ```bash
+   git add prp/spec/{feature}.md prp/prompt/{feature}.md
+   git commit -m "docs: add spec and PRP for {feature}"
+   ```
+4. This preserves planning artifacts and creates a clear implementation trail in git history
+
 Remember: The goal is one-pass implementation success through comprehensive context.
