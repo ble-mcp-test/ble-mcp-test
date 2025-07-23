@@ -5,7 +5,6 @@ import { LogLevel, formatHex } from './utils.js';
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
-  private zombieCheckInterval: any = null;
   private logClients: Set<any> = new Set();
   private logLevel: LogLevel;
   
@@ -20,10 +19,8 @@ export class BridgeServer {
     // Hook into console methods for log streaming
     this.interceptConsole();
     
-    // Start zombie connection check every 5 seconds (for debugging)
-    this.zombieCheckInterval = setInterval(() => {
-      this.checkForZombieConnections();
-    }, 5000);
+    // Log BLE timing configuration to eliminate uncertainty
+    this.logBleTimingConfig();
     
     // Perform startup BLE scan to verify functionality
     await this.performStartupScan();
@@ -155,18 +152,14 @@ export class BridgeServer {
         if (this.transport) {
           await this.transport.disconnect();
         }
-        this.transport = null;
+        // NOTE: We're keeping the transport instance to allow pressure accumulation
+        // this.transport = null;
       }
     });
   }
   
   async stop() {
     console.log('[BridgeServer] Stopping server...');
-    
-    if (this.zombieCheckInterval) {
-      clearInterval(this.zombieCheckInterval);
-      this.zombieCheckInterval = null;
-    }
     
     // Close all WebSocket connections
     if (this.wss) {
@@ -190,36 +183,6 @@ export class BridgeServer {
     }
     
     console.log('[BridgeServer] Server stopped');
-  }
-  
-  private async checkForZombieConnections() {
-    // If we have a BLE connection but no WebSocket connections (excluding log clients), it's a zombie
-    const activeBleClients = Array.from(this.wss?.clients || []).filter(
-      client => !this.logClients.has(client)
-    ).length;
-    
-    const transportState = this.transport?.getState();
-    
-    if (this.transport && 
-        transportState !== ConnectionState.DISCONNECTED && 
-        activeBleClients === 0) {
-      
-      console.error('🧟 [BridgeServer] ZOMBIE DETECTED!');
-      console.error(`  Transport state: ${transportState}`);
-      console.error(`  Device name: ${this.transport.getDeviceName() || 'none'}`);
-      console.error(`  Total WS clients: ${this.wss?.clients.size || 0}`);
-      console.error(`  Log clients: ${this.logClients.size}`);
-      
-      // Force disconnect
-      try {
-        await this.transport.disconnect();
-        console.error('  ✅ Zombie terminated');
-      } catch (err) {
-        console.error('  ❌ Failed to kill zombie:', err);
-        // Nuclear option - null out the transport
-        this.transport = null;
-      }
-    }
   }
   
   private interceptConsole() {
@@ -290,5 +253,21 @@ export class BridgeServer {
       console.error('[BridgeServer]   - Node.js has Bluetooth permissions');
       console.error('[BridgeServer]   - No other process is using Bluetooth');
     }
+  }
+  
+  private logBleTimingConfig() {
+    console.log('[BridgeServer] BLE Timing Configuration:');
+    console.log(`[BridgeServer]   Platform: ${process.platform}`);
+    
+    // Get actual timing configuration from NobleTransport
+    const timings = NobleTransport.getTimingConfig();
+    
+    // Check which values are from environment overrides
+    console.log(`[BridgeServer]   CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_CONNECTION_STABILITY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
+    console.log(`[BridgeServer]   DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
   }
 }

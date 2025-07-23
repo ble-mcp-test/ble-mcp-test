@@ -34,19 +34,18 @@
     "status": "[ -f tmp/bridge-server.pid ] && ps -p $(cat tmp/bridge-server.pid) > /dev/null && echo 'Bridge server running (PID: '$(cat tmp/bridge-server.pid)')' || echo 'Bridge server not running'",
     "logs": "tail -f tmp/bridge-server.log",
     "logs:live": "node scripts/log-client.js",
-    "test": "vitest run",
+    "test": "vitest run tests/unit tests/integration",
     "test:run": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "pnpm exec playwright test",
     "test:stress": "vitest run tests/stress",
     "test:integration": "vitest run tests/integration",
     "test:unit": "vitest run tests/unit",
-    "test:essential": "vitest run tests/unit && vitest run tests/integration/connection.test.ts",
     "test:all": "vitest run && pnpm exec playwright test",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test:essential"
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run test"
   },
   "dependencies": {
     "@stoprocent/noble": "^2.3.4",

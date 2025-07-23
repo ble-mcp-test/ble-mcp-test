@@ -75,7 +75,7 @@ BLE_PRE_DISCOVERY_DELAY=0       # Additional delay before service discovery
 BLE_NOBLE_RESET_DELAY=1000      # Delay after Noble reset before operations
 BLE_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
 BLE_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
-BLE_DISCONNECT_COOLDOWN=2000    # Recovery time after disconnect (critical for device health)
+BLE_DISCONNECT_COOLDOWN=200     # Recovery time after disconnect (dynamically scales with load)
 ```
 
 **Log Levels:**
