@@ -49,6 +49,8 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 - [ ] Integration tests pass with mock data
 - [ ] Version 0.3.0 published to npm
 - [ ] MCP registry submission ready
+- [ ] All documentation updated (README, API, MIGRATION, DEPLOYMENT, etc.)
+- [ ] Railway deployment continues to work (WebSocket only)
 
 ## All Needed Context
 
@@ -190,7 +192,7 @@ const GetLogsSchema = z.object({
 });
 ```
 
-### List of tasks to be completed in order
+### List of tasks to be completed in order (15 total)
 
 ```yaml
 Task 1: Create log buffer implementation
@@ -249,17 +251,54 @@ CREATE docs/MCP-SERVER.md:
   - mcp-cli usage examples
   - Environment variables (LOG_BUFFER_SIZE)
 
-Task 9: Update architecture documentation
+Task 9: Update main README
+MODIFY README.md:
+  - Add MCP Server section after Quick Start
+  - Document dual-protocol architecture
+  - Add MCP tools overview
+  - Include Claude Code setup example
+  - Add debugging with MCP section
+
+Task 10: Update API documentation
+MODIFY docs/API.md:
+  - Add MCP Tools API section
+  - Document all 5 tool schemas
+  - Include request/response examples
+  - Add error codes documentation
+
+Task 11: Update migration guide
+MODIFY docs/MIGRATION.md:
+  - Add "Migrating to v0.3.0" section
+  - Note: No breaking changes for WebSocket
+  - Benefits of MCP integration
+  - Example: Moving from console logs to MCP
+
+Task 12: Update Claude.md instructions
+MODIFY CLAUDE.md:
+  - Add MCP tools availability note
+  - Document how to use MCP for debugging
+  - Update testing approach to use tools
+
+Task 13: Update architecture documentation
 MODIFY docs/ARCHITECTURE.md:
   - Add MCP Server section
   - Update system diagram
   - Document unified architecture
+  - Add sequence diagrams for MCP flow
 
-Task 10: Update changelog
+Task 14: Create deployment documentation
+CREATE docs/DEPLOYMENT.md:
+  - Railway deployment notes
+  - MCP limitations in cloud environments
+  - Docker considerations
+  - Environment variable configuration
+
+Task 15: Update changelog
 MODIFY CHANGELOG.md:
   - Add version 0.3.0 section
   - List new MCP server features
   - Document breaking changes (none)
+  - Note LOG_BUFFER_SIZE configuration
 ```
 
 ### Per task pseudocode
@@ -353,8 +392,9 @@ BRIDGE_SERVER:
   
 START_SCRIPT:
   - Default: Both WebSocket + MCP stdio
-  - --no-mcp flag: WebSocket only (backward compat)
-  - Environment: WS_PORT, LOG_LEVEL
+  - --no-mcp flag: WebSocket only (for cloud/Docker)
+  - Auto-detect: Disable MCP if no TTY (Railway/Docker)
+  - Environment: WS_PORT, LOG_LEVEL, LOG_BUFFER_SIZE
   
 PACKAGE.JSON:
   - script: "start": "node dist/start-server.js"
@@ -470,19 +510,130 @@ mcp shell node dist/start-server.js
 # Tools should be available for debugging BLE communication
 ```
 
+### Documentation Examples
+
+```markdown
+# README.md - MCP Server Section
+## MCP Server Integration
+
+web-ble-bridge now includes an integrated MCP (Model Context Protocol) server, 
+enabling powerful debugging capabilities through standardized tools.
+
+### Available MCP Tools
+
+1. **get_logs** - Retrieve recent BLE communication logs
+2. **search_packets** - Search for hex patterns in packets
+3. **get_connection_state** - Monitor connection status
+4. **status** - Get bridge server status
+5. **scan_devices** - Scan for nearby BLE devices
+
+### Using with Claude Code
+
+Add to your Claude Code settings.json:
+\`\`\`json
+{
+  "mcpServers": {
+    "web-ble-bridge": {
+      "command": "node",
+      "args": ["/path/to/node_modules/@trakrf/web-ble-bridge/dist/start-server.js"]
+    }
+  }
+}
+\`\`\`
+
+# docs/API.md - MCP Tools Section
+## MCP Tools API
+
+### get_logs
+
+Retrieve recent BLE communication logs with filtering options.
+
+**Schema:**
+\`\`\`typescript
+{
+  since?: string;    // ISO timestamp, 'last', or duration ('30s', '5m', '1h')
+  filter?: string;   // Filter by 'TX', 'RX', or hex pattern
+  limit?: number;    // Max entries (default: 100, max: 1000)
+}
+\`\`\`
+
+**Example Response:**
+\`\`\`json
+{
+  "logs": [{
+    "id": 1234,
+    "timestamp": "2024-01-15T10:23:45.123Z",
+    "direction": "TX",
+    "hex": "A7 B3 01 00",
+    "size": 4
+  }],
+  "count": 1,
+  "truncated": false
+}
+\`\`\`
+
+# docs/DEPLOYMENT.md - New file
+## Deployment Guide
+
+### Railway Deployment
+
+The WebSocket bridge server continues to work perfectly on Railway. 
+However, MCP features are **not available** in cloud deployments because:
+
+- MCP uses stdio (standard input/output) for communication
+- Cloud platforms like Railway only expose HTTP/WebSocket ports
+- MCP is designed for local development and debugging
+
+**What works on Railway:**
+- ✅ WebSocket bridge server (port 8080)
+- ✅ Web Bluetooth mock for browser testing
+- ✅ All existing v0.2.x functionality
+- ✅ LOG_BUFFER_SIZE configuration (logs stored but only viewable via WebSocket)
+
+**What doesn't work on Railway:**
+- ❌ MCP tools (get_logs, search_packets, etc.)
+- ❌ Claude Code integration
+- ❌ mcp-cli access
+
+### Local Development
+
+For full MCP functionality, run the bridge server locally:
+
+\`\`\`bash
+# Full functionality with MCP
+pnpm start
+
+# WebSocket only (like Railway)
+pnpm start --no-mcp
+\`\`\`
+
+### Docker Deployment
+
+When using Docker, MCP requires special handling:
+
+\`\`\`dockerfile
+# MCP not available in container by default
+CMD ["node", "dist/start-server.js", "--no-mcp"]
+
+# To enable MCP in Docker (advanced):
+# Requires stdin/stdout mapping
+\`\`\`
+```
+
 ## Final Validation Checklist
 - [ ] All tests pass: `pnpm run test`
 - [ ] No linting errors: `pnpm run lint`
 - [ ] No type errors: `pnpm run typecheck`
 - [ ] Build succeeds: `pnpm run build`
-- [ ] MCP tools work with mcp-cli
-- [ ] Circular buffer stays at 10k entries
+- [ ] MCP tools work with mcp-cli locally
+- [ ] --no-mcp flag disables MCP properly
+- [ ] Auto-detects non-TTY environments
+- [ ] Circular buffer respects configured size
 - [ ] Client position tracking works
 - [ ] Scan-while-connected returns proper error
 - [ ] Version updated to 0.3.0
-- [ ] CHANGELOG.md updated
-- [ ] Architecture docs updated
-- [ ] MCP server documentation complete
+- [ ] All documentation updated (7 files)
+- [ ] Railway deployment still works (WebSocket only)
 
 ---
 
