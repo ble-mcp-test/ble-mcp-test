@@ -16,12 +16,13 @@ Implement a minimal MCP (Model Context Protocol) server that exposes BLE bridge 
 ## Goal
 Integrate MCP server directly into the bridge server to create a unified, MCP-first architecture:
 - Bridge server exposes BOTH WebSocket AND MCP protocols simultaneously
-- Shared circular log buffer of last 10,000 TX/RX packets
+- Shared circular log buffer (configurable size, default 10,000 TX/RX packets)
 - 5 debugging tools available via MCP protocol
 - Per-client position tracking for "since: last" queries
 - Raw hex data without interpretation
 - Version bump to 0.3.0 with documentation updates
 - Future CLI will be built as MCP client (not part of this phase)
+- Target: ~1000 LOC total (up from original 500 due to dual protocol)
 
 ## Why
 - **Debugging**: Real-time visibility into BLE communication for trakrf-handheld testing
@@ -41,7 +42,7 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 
 ### Success Criteria
 - [ ] All 5 MCP tools working with mcp-cli
-- [ ] Circular buffer maintains exactly 10k entries
+- [ ] Circular buffer respects configured size (default 10k)
 - [ ] Per-client position tracking for "last" queries
 - [ ] Hex pattern search with TX/RX correlation
 - [ ] Proper error handling for scan-while-connected
@@ -492,7 +493,7 @@ mcp shell node dist/start-server.js
 - ❌ Don't use npm/npx - always use pnpm
 - ❌ Don't mix callbacks and promises in Noble
 - ❌ Don't hardcode WebSocket URLs - use config
-- ❌ Don't exceed 10k log entries
+- ❌ Don't exceed configured buffer size (LOG_BUFFER_SIZE)
 - ❌ Don't forget client position tracking
 
 ## Timeline Estimate
