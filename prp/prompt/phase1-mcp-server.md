@@ -15,14 +15,16 @@ Implement a minimal MCP (Model Context Protocol) server that exposes BLE bridge 
 
 ## Goal
 Integrate MCP server directly into the bridge server to create a unified, MCP-first architecture:
-- Bridge server exposes BOTH WebSocket AND MCP protocols simultaneously
+- Bridge server exposes WebSocket, MCP stdio, AND MCP HTTP/SSE protocols
+- MCP supports both local (stdio) and network (HTTP) clients simultaneously
 - Shared circular log buffer (configurable size, default 10,000 TX/RX packets)
 - 5 debugging tools available via MCP protocol
 - Per-client position tracking for "since: last" queries
 - Raw hex data without interpretation
+- Simple bearer token authentication for HTTP transport
 - Version bump to 0.3.0 with documentation updates
 - Future CLI will be built as MCP client (not part of this phase)
-- Target: ~1000 LOC total (up from original 500 due to dual protocol)
+- Target: ~1200 LOC total (triple protocol support adds complexity)
 
 ## Why
 - **Debugging**: Real-time visibility into BLE communication for trakrf-handheld testing
@@ -38,10 +40,16 @@ The bridge server with integrated MCP protocol support, exposing via MCP:
 4. Bridge server status
 5. BLE device scanning (with conflict protection)
 
-The same bridge server process handles both WebSocket clients AND MCP clients.
+The same bridge server process handles:
+- WebSocket clients (port 8080)
+- MCP stdio clients (local development)
+- MCP HTTP/SSE clients (port 3000, network access from VMs)
 
 ### Success Criteria
-- [ ] All 5 MCP tools working with mcp-cli
+- [ ] All 5 MCP tools working via stdio transport
+- [ ] All 5 MCP tools working via HTTP transport
+- [ ] Bearer token authentication for HTTP transport
+- [ ] Cross-machine testing (VM → Mac/Pi)
 - [ ] Circular buffer respects configured size (default 10k)
 - [ ] Per-client position tracking for "last" queries
 - [ ] Hex pattern search with TX/RX correlation
@@ -49,7 +57,7 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 - [ ] Integration tests pass with mock data
 - [ ] Version 0.3.0 published to npm
 - [ ] MCP registry submission ready
-- [ ] All documentation updated (README, API, MIGRATION, DEPLOYMENT, etc.)
+- [ ] All documentation updated with network examples
 - [ ] Cloud deployments continue to work (WebSocket only)
 
 ## All Needed Context
@@ -60,14 +68,17 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 - url: https://github.com/modelcontextprotocol/typescript-sdk
   why: Official TypeScript SDK for creating MCP servers
   
-- url: https://modelcontextprotocol.io/docs
-  why: MCP protocol specification and tool schema requirements
+- url: https://modelcontextprotocol.io/docs/concepts/transports#server-sent-events-sse
+  why: HTTP/SSE transport documentation for network access
   
 - url: https://github.com/modelcontextprotocol/servers/tree/main/src/memory
   why: Reference implementation for in-memory storage pattern
   
 - url: https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem
   why: Tool registration and error handling patterns
+  
+- url: https://github.com/modelcontextprotocol/typescript-sdk#http-transport
+  why: HTTP transport implementation examples
   
 - file: src/bridge-server.ts
   why: Understand WebSocket server structure and log streaming
@@ -133,7 +144,11 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 // CRITICAL: Log streaming uses command=log-stream query param
 // CRITICAL: formatHex from utils.ts for consistent hex display
 // CRITICAL: BLE adapter conflicts if scanning while connected
+// SECURITY: HTTP transport uses bearer token for basic auth
+// NETWORK: Designed for local network use (VMs, containers, devices)
 // CONFIG: LOG_BUFFER_SIZE env var (default 10000, min 100, max 1M)
+// CONFIG: MCP_TOKEN env var optional (recommended for HTTP transport)
+// CONFIG: MCP_PORT env var (default 3000) for HTTP transport
 ```
 
 ## Implementation Blueprint
@@ -192,7 +207,7 @@ const GetLogsSchema = z.object({
 });
 ```
 
-### List of tasks to be completed in order (15 total)
+### List of tasks to be completed in order (17 total)
 
 ```yaml
 Task 1: Create log buffer implementation
@@ -209,96 +224,116 @@ CREATE src/mcp-tools.ts:
   - Create tool metadata objects
   - Export tool registration helper
 
-Task 3: Integrate MCP into bridge server
+Task 3: Create HTTP transport handler
+CREATE src/mcp-http-transport.ts:
+  - Implement HTTPServerTransport setup
+  - Add bearer token authentication middleware
+  - Configure CORS if needed
+  - Handle SSE connections
+
+Task 4: Integrate MCP into bridge server
 MODIFY src/bridge-server.ts:
   - Add logBuffer instance to class
   - Initialize McpServer in constructor
   - Register all 5 MCP tools
   - Update TX/RX logging to use shared buffer
+  - Add both stdio and HTTP transports
   - Add MCP server start/stop lifecycle
 
-Task 4: Update server startup for MCP
+Task 5: Update server startup for MCP
 MODIFY src/start-server.ts:
-  - Add StdioServerTransport for MCP
-  - Handle stdio transport alongside WebSocket
-  - Update CLI to support MCP mode
+  - Add StdioServerTransport for local MCP
+  - Add HTTPServerTransport for network MCP
+  - Check for MCP_TOKEN env var
+  - Handle both transports simultaneously
+  - Update CLI to support --no-mcp flag
 
-Task 5: Add unit tests for log buffer
+Task 6: Add unit tests for log buffer
 CREATE tests/unit/log-buffer.test.ts:
   - Test circular buffer rotation
   - Test time parsing ('30s', '5m', 'last', ISO)
   - Test hex pattern search
   - Test client position tracking
 
-Task 6: Add integration tests for MCP tools
+Task 7: Add integration tests for MCP tools
 CREATE tests/integration/mcp-tools.test.ts:
   - Test tool registration
   - Test tool calls with mock data
   - Test error handling scenarios
-  - Test WebSocket + MCP coexistence
+  - Test both stdio and HTTP transports
 
-Task 7: Update package.json and build
+Task 8: Add HTTP transport tests
+CREATE tests/integration/mcp-http.test.ts:
+  - Test bearer token authentication
+  - Test cross-origin requests
+  - Test SSE streaming
+  - Test network error handling
+
+Task 9: Update package.json and build
 MODIFY package.json:
   - Add "@modelcontextprotocol/sdk" dependency
   - Update version to 0.3.0
   - Update start script for MCP support
 
-Task 8: Create MCP server documentation
+Task 10: Create MCP server documentation
 CREATE docs/MCP-SERVER.md:
   - Installation instructions
   - Tool descriptions and examples
-  - Claude Code configuration
+  - Claude Code configuration (both local and network)
   - mcp-cli usage examples
-  - Environment variables (LOG_BUFFER_SIZE)
+  - Environment variables (LOG_BUFFER_SIZE, MCP_TOKEN, MCP_PORT)
+  - Network setup guide for VM → Mac/Pi
 
-Task 9: Update main README
+Task 11: Update main README
 MODIFY README.md:
   - Add MCP Server section after Quick Start
-  - Document dual-protocol architecture
+  - Document triple-protocol architecture
   - Add MCP tools overview
-  - Include Claude Code setup example
+  - Include Claude Code setup examples (local + network)
   - Add debugging with MCP section
 
-Task 10: Update API documentation
+Task 12: Update API documentation
 MODIFY docs/API.md:
   - Add MCP Tools API section
   - Document all 5 tool schemas
   - Include request/response examples
+  - Add HTTP transport authentication
   - Add error codes documentation
 
-Task 11: Update migration guide
+Task 13: Update migration guide
 MODIFY docs/MIGRATION.md:
   - Add "Migrating to v0.3.0" section
   - Note: No breaking changes for WebSocket
   - Benefits of MCP integration
   - Example: Moving from console logs to MCP
 
-Task 12: Update Claude.md instructions
+Task 14: Update Claude.md instructions
 MODIFY CLAUDE.md:
   - Add MCP tools availability note
   - Document how to use MCP for debugging
   - Update testing approach to use tools
 
-Task 13: Update architecture documentation
+Task 15: Update architecture documentation
 MODIFY docs/ARCHITECTURE.md:
   - Add MCP Server section
-  - Update system diagram
+  - Update system diagram with HTTP transport
   - Document unified architecture
   - Add sequence diagrams for MCP flow
 
-Task 14: Create deployment documentation
+Task 16: Create deployment documentation
 CREATE docs/DEPLOYMENT.md:
   - MCP limitations in cloud environments
   - Docker considerations
+  - Security best practices for HTTP transport
   - Environment variable configuration
   - TTY detection and --no-mcp flag
 
-Task 15: Update changelog
+Task 17: Update changelog
 MODIFY CHANGELOG.md:
   - Add version 0.3.0 section
   - List new MCP server features
   - Document breaking changes (none)
-  - Note LOG_BUFFER_SIZE configuration
+  - Note configuration options
 ```
 
 ### Per task pseudocode
@@ -332,10 +367,38 @@ class LogBuffer {
   }
 }
 
-// Task 3: Integrate MCP into BridgeServer
+// Task 3: HTTP Transport Handler
+import { HTTPServerTransport } from '@modelcontextprotocol/sdk/transport/http';
+
+export function createHttpTransport(token?: string): HTTPServerTransport {
+  return new HTTPServerTransport({
+    port: parseInt(process.env.MCP_PORT || '3000'),
+    path: '/mcp',
+    
+    // Optional authentication for local network
+    authHandler: token ? (req) => {
+      const authHeader = req.headers.authorization;
+      if (!authHeader || authHeader !== `Bearer ${token}`) {
+        return { authenticated: false };
+      }
+      return { authenticated: true };
+    } : undefined,
+    
+    // Permissive CORS for local network usage
+    corsOptions: {
+      origin: '*', // Allow all origins on local network
+      credentials: true,
+      methods: ['GET', 'POST', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Authorization']
+    }
+  });
+}
+
+// Task 4: Integrate MCP into BridgeServer
 class BridgeServer {
   private logBuffer: LogBuffer;
   private mcpServer: McpServer;
+  private httpTransport?: HTTPServerTransport;
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
@@ -385,16 +448,22 @@ class BridgeServer {
 ### Integration Points
 ```yaml
 BRIDGE_SERVER:
-  - Single process serves both protocols
-  - WebSocket: ws://localhost:8080 (existing clients)
-  - MCP: stdio transport (for MCP clients/CLI)
-  - Shared log buffer between both protocols
+  - Single process serves three protocols
+  - WebSocket: ws://[host]:8080 (existing clients)
+  - MCP stdio: Local development
+  - MCP HTTP: http://[host]:3000/mcp (network clients)
+  - Shared log buffer between all protocols
   
 START_SCRIPT:
-  - Default: Both WebSocket + MCP stdio
+  - Default: All protocols enabled
   - --no-mcp flag: WebSocket only (for cloud/Docker)
   - Auto-detect: Disable MCP if no TTY (cloud/Docker)
-  - Environment: WS_PORT, LOG_LEVEL, LOG_BUFFER_SIZE
+  - Environment: WS_PORT, LOG_LEVEL, LOG_BUFFER_SIZE, MCP_PORT, MCP_TOKEN
+  
+NETWORK_ACCESS:
+  - VMs: http://macbook.local:3000/mcp
+  - Containers: http://host.docker.internal:3000/mcp
+  - Mobile devices: http://192.168.1.x:3000/mcp
   
 PACKAGE.JSON:
   - script: "start": "node dist/start-server.js"
@@ -519,6 +588,10 @@ mcp shell node dist/start-server.js
 web-ble-bridge now includes an integrated MCP (Model Context Protocol) server, 
 enabling powerful debugging capabilities through standardized tools.
 
+> ⚠️ **Security Note**: The MCP HTTP transport is designed for local network 
+> use only. Do not expose port 3000 to the public internet as authentication 
+> is minimal.
+
 ### Available MCP Tools
 
 1. **get_logs** - Retrieve recent BLE communication logs
@@ -529,13 +602,28 @@ enabling powerful debugging capabilities through standardized tools.
 
 ### Using with Claude Code
 
-Add to your Claude Code settings.json:
+For local development (same machine):
 \`\`\`json
 {
   "mcpServers": {
     "web-ble-bridge": {
       "command": "node",
       "args": ["/path/to/node_modules/@trakrf/web-ble-bridge/dist/start-server.js"]
+    }
+  }
+}
+\`\`\`
+
+For network access (VM → Mac/Pi):
+\`\`\`json
+{
+  "mcpServers": {
+    "web-ble-bridge": {
+      "transport": "http",
+      "url": "http://macbook.local:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-optional-token"
+      }
     }
   }
 }
@@ -574,6 +662,20 @@ Retrieve recent BLE communication logs with filtering options.
 
 # docs/DEPLOYMENT.md - New file
 ## Deployment Guide
+
+### ⚠️ SECURITY WARNING
+
+**DO NOT EXPOSE TO PUBLIC INTERNET**
+
+The MCP HTTP transport has minimal authentication (optional bearer token) 
+designed for local network use only. Exposing this service to the internet
+would allow anyone to:
+- Read all BLE communication logs
+- Scan for nearby BLE devices
+- Access device connection states
+
+This tool is designed for trusted local networks only (VMs, containers, 
+development devices on the same network).
 
 ### MCP Limitations
 
@@ -615,9 +717,20 @@ CMD ["node", "dist/start-server.js", "--no-mcp"]
 ### Environment Variables
 
 \`\`\`bash
+# Core configuration
 WS_PORT=8080              # WebSocket server port
 LOG_LEVEL=debug           # Logging verbosity
 LOG_BUFFER_SIZE=50000     # Circular buffer size
+
+# MCP HTTP configuration
+MCP_PORT=3000             # MCP HTTP port (default: 3000)
+MCP_TOKEN=secret123       # Optional bearer token for HTTP auth
+
+# Running without authentication (local network only!)
+pnpm start
+
+# Running with authentication
+MCP_TOKEN=secret123 pnpm start
 \`\`\`
 ```
 
@@ -626,15 +739,18 @@ LOG_BUFFER_SIZE=50000     # Circular buffer size
 - [ ] No linting errors: `pnpm run lint`
 - [ ] No type errors: `pnpm run typecheck`
 - [ ] Build succeeds: `pnpm run build`
-- [ ] MCP tools work with mcp-cli locally
+- [ ] MCP tools work via stdio transport
+- [ ] MCP tools work via HTTP transport
+- [ ] Cross-machine access works (VM → Mac/Pi)
+- [ ] Optional auth token works when set
 - [ ] --no-mcp flag disables MCP properly
 - [ ] Auto-detects non-TTY environments
 - [ ] Circular buffer respects configured size
 - [ ] Client position tracking works
 - [ ] Scan-while-connected returns proper error
 - [ ] Version updated to 0.3.0
-- [ ] All documentation updated (7 files)
-- [ ] WebSocket-only mode works properly
+- [ ] All documentation updated (8 files)
+- [ ] Security warnings prominently displayed
 
 ---
 
@@ -649,15 +765,16 @@ LOG_BUFFER_SIZE=50000     # Circular buffer size
 - ❌ Don't forget client position tracking
 
 ## Timeline Estimate
-- Implementation: 2 hours
-- Testing: 1 hour  
-- Documentation: 0.5 hours
-- Total: ~3.5 hours
+- Implementation: 3 hours (added HTTP transport)
+- Testing: 1.5 hours (cross-machine testing)
+- Documentation: 1 hour (8 files to update)
+- Total: ~5.5 hours
 
 ## Confidence Score: 9/10
 High confidence due to:
 - Clear requirements and examples
 - Existing WebSocket log streaming
-- Well-documented MCP SDK
+- Well-documented MCP SDK with HTTP examples
 - Simple in-memory storage pattern
 - Reference implementations available
+- Local network focus simplifies security
