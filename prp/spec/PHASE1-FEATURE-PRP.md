@@ -4,7 +4,7 @@
 Implement a minimal MCP (Model Context Protocol) server that exposes BLE bridge debugging capabilities. The server will be protocol-agnostic, focusing on raw data transmission and connection management.
 
 ### Core Functionality:
-1. **Circular log buffer** - Store last 10,000 TX/RX packets with global sequence numbering
+1. **Circular log buffer** - Store last N TX/RX packets (configurable, default 10,000) with global sequence numbering
 2. **5 MCP tools** to expose:
    - `get_logs` - Retrieve recent BLE communication logs with filtering
    - `search_packets` - Search for hex patterns and correlate TX/RX packets
@@ -157,7 +157,7 @@ mcp shell node dist/mcp-server.js
 - **Architecture principle**: Transport layer only - NO protocol interpretation
 - **Separation of concerns**: Device-specific logic belongs at test/application layer
 - **Scan conflict**: Must refuse BLE scanning while connected (adapter limitation)
-- **Performance**: Circular buffer limited to 10k entries to prevent memory issues
+- **Performance**: Circular buffer configurable (default 10k) via LOG_BUFFER_SIZE env var
 - **Client tracking**: Each MCP client gets tracked position for "since: last" queries
 - **Distribution strategy**: 
   - Publish to npm as `@trakrf/web-ble-bridge`

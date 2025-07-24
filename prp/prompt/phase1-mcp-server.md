@@ -130,6 +130,7 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 // CRITICAL: Log streaming uses command=log-stream query param
 // CRITICAL: formatHex from utils.ts for consistent hex display
 // CRITICAL: BLE adapter conflicts if scanning while connected
+// CONFIG: LOG_BUFFER_SIZE env var (default 10000, min 100, max 1M)
 ```
 
 ## Implementation Blueprint
@@ -148,9 +149,20 @@ interface LogEntry {
 
 class LogBuffer {
   private buffer: LogEntry[] = [];
-  private maxSize = 10000;
+  private maxSize: number;
   private sequenceCounter = 0;
   private clientPositions = new Map<string, number>(); // client_id -> last_seen_id
+  
+  constructor(maxSize?: number) {
+    // Default 10k, configurable via env var or constructor
+    this.maxSize = maxSize || parseInt(process.env.LOG_BUFFER_SIZE || '10000', 10);
+    
+    // Validate reasonable bounds (100 to 1M entries)
+    if (this.maxSize < 100) this.maxSize = 100;
+    if (this.maxSize > 1000000) this.maxSize = 1000000;
+    
+    console.log(`[LogBuffer] Initialized with max size: ${this.maxSize} entries`);
+  }
   
   push(direction: 'TX' | 'RX', data: Uint8Array): void
   getLogsSince(since: string | number, limit: number): LogEntry[]
@@ -234,6 +246,7 @@ CREATE docs/MCP-SERVER.md:
   - Tool descriptions and examples
   - Claude Code configuration
   - mcp-cli usage examples
+  - Environment variables (LOG_BUFFER_SIZE)
 
 Task 9: Update architecture documentation
 MODIFY docs/ARCHITECTURE.md:
@@ -367,12 +380,31 @@ pnpm run typecheck         # TypeScript type checking
 ```typescript
 // tests/unit/log-buffer.test.ts
 describe('LogBuffer', () => {
-  it('should maintain max 10k entries', () => {
+  it('should maintain max 10k entries by default', () => {
     const buffer = new LogBuffer();
     for (let i = 0; i < 11000; i++) {
       buffer.push('TX', new Uint8Array([i & 0xFF]));
     }
     expect(buffer.getLogsSince('0', 20000).length).toBe(10000);
+  });
+  
+  it('should respect custom buffer size', () => {
+    const buffer = new LogBuffer(5000);
+    for (let i = 0; i < 6000; i++) {
+      buffer.push('TX', new Uint8Array([i & 0xFF]));
+    }
+    expect(buffer.getLogsSince('0', 10000).length).toBe(5000);
+  });
+  
+  it('should respect LOG_BUFFER_SIZE env var', () => {
+    process.env.LOG_BUFFER_SIZE = '2000';
+    const buffer = new LogBuffer();
+    delete process.env.LOG_BUFFER_SIZE;
+    
+    for (let i = 0; i < 3000; i++) {
+      buffer.push('TX', new Uint8Array([i & 0xFF]));
+    }
+    expect(buffer.getLogsSince('0', 5000).length).toBe(2000);
   });
   
   it('should parse duration strings correctly', () => {
