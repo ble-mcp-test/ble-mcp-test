@@ -14,13 +14,14 @@ Implement a minimal MCP (Model Context Protocol) server that exposes BLE bridge 
 ---
 
 ## Goal
-Create an MCP server (`src/mcp-server.ts`) that:
-- Connects to the existing bridge server at localhost:8080
-- Maintains a circular log buffer of last 10,000 TX/RX packets
-- Exposes 5 debugging tools via MCP protocol
-- Tracks per-client positions for "since: last" queries
-- Provides raw hex data without interpretation
+Integrate MCP server directly into the bridge server to create a unified, MCP-first architecture:
+- Bridge server exposes BOTH WebSocket AND MCP protocols simultaneously
+- Shared circular log buffer of last 10,000 TX/RX packets
+- 5 debugging tools available via MCP protocol
+- Per-client position tracking for "since: last" queries
+- Raw hex data without interpretation
 - Version bump to 0.3.0 with documentation updates
+- Future CLI will be built as MCP client (not part of this phase)
 
 ## Why
 - **Debugging**: Real-time visibility into BLE communication for trakrf-handheld testing
@@ -29,12 +30,14 @@ Create an MCP server (`src/mcp-server.ts`) that:
 - **Observability**: Connection state monitoring without modifying bridge core
 
 ## What
-An MCP server that acts as a debugging sidecar to the web-ble-bridge, exposing:
-1. Recent communication logs with filtering
+The bridge server with integrated MCP protocol support, exposing via MCP:
+1. Recent communication logs with filtering (shared buffer)
 2. Hex pattern search across packets
 3. Connection state and activity monitoring
 4. Bridge server status
 5. BLE device scanning (with conflict protection)
+
+The same bridge server process handles both WebSocket clients AND MCP clients.
 
 ### Success Criteria
 - [ ] All 5 MCP tools working with mcp-cli
@@ -100,15 +103,16 @@ An MCP server that acts as a debugging sidecar to the web-ble-bridge, exposing:
 ```bash
 /home/mike/web-ble-bridge/
 ├── src/
-│   ├── mcp-server.ts     # NEW: MCP server implementation (~350 lines)
+│   ├── bridge-server.ts  # MODIFY: Integrate MCP server (~450 lines total)
 │   ├── mcp-tools.ts      # NEW: Tool definitions & handlers (~200 lines)
 │   ├── log-buffer.ts     # NEW: Circular buffer implementation (~100 lines)
+│   ├── start-server.ts   # MODIFY: Add MCP stdio transport
 │   └── [existing files]
 ├── tests/
 │   ├── unit/
 │   │   └── log-buffer.test.ts    # NEW: Buffer tests
 │   └── integration/
-│       └── mcp-server.test.ts     # NEW: MCP integration tests
+│       └── mcp-tools.test.ts      # NEW: MCP tools integration tests
 ├── docs/
 │   ├── MCP-SERVER.md     # NEW: MCP server documentation
 │   └── ARCHITECTURE.md   # UPDATE: Add MCP server section
@@ -190,48 +194,54 @@ CREATE src/mcp-tools.ts:
   - Create tool metadata objects
   - Export tool registration helper
 
-Task 3: Implement MCP server core
-CREATE src/mcp-server.ts:
-  - Initialize McpServer instance
-  - Connect to bridge WebSocket for log streaming
-  - Register all 5 tools with handlers
-  - Implement client tracking for positions
-  - Handle connection state management
+Task 3: Integrate MCP into bridge server
+MODIFY src/bridge-server.ts:
+  - Add logBuffer instance to class
+  - Initialize McpServer in constructor
+  - Register all 5 MCP tools
+  - Update TX/RX logging to use shared buffer
+  - Add MCP server start/stop lifecycle
 
-Task 4: Add unit tests for log buffer
+Task 4: Update server startup for MCP
+MODIFY src/start-server.ts:
+  - Add StdioServerTransport for MCP
+  - Handle stdio transport alongside WebSocket
+  - Update CLI to support MCP mode
+
+Task 5: Add unit tests for log buffer
 CREATE tests/unit/log-buffer.test.ts:
   - Test circular buffer rotation
   - Test time parsing ('30s', '5m', 'last', ISO)
   - Test hex pattern search
   - Test client position tracking
 
-Task 5: Add integration tests for MCP server
-CREATE tests/integration/mcp-server.test.ts:
+Task 6: Add integration tests for MCP tools
+CREATE tests/integration/mcp-tools.test.ts:
   - Test tool registration
   - Test tool calls with mock data
   - Test error handling scenarios
-  - Test client position persistence
+  - Test WebSocket + MCP coexistence
 
-Task 6: Update package.json and build
+Task 7: Update package.json and build
 MODIFY package.json:
   - Add "@modelcontextprotocol/sdk" dependency
   - Update version to 0.3.0
-  - Add mcp:server script
+  - Update start script for MCP support
 
-Task 7: Create MCP server documentation
+Task 8: Create MCP server documentation
 CREATE docs/MCP-SERVER.md:
   - Installation instructions
   - Tool descriptions and examples
   - Claude Code configuration
   - mcp-cli usage examples
 
-Task 8: Update architecture documentation
+Task 9: Update architecture documentation
 MODIFY docs/ARCHITECTURE.md:
   - Add MCP Server section
   - Update system diagram
-  - Document debugging workflow
+  - Document unified architecture
 
-Task 9: Update changelog
+Task 10: Update changelog
 MODIFY CHANGELOG.md:
   - Add version 0.3.0 section
   - List new MCP server features
@@ -269,55 +279,72 @@ class LogBuffer {
   }
 }
 
-// Task 3: MCP Server WebSocket Connection
-class MCPBridgeServer {
-  private async connectToBridge() {
-    // Connect to log stream endpoint
-    this.ws = new WebSocket('ws://localhost:8080?command=log-stream');
+// Task 3: Integrate MCP into BridgeServer
+class BridgeServer {
+  private logBuffer: LogBuffer;
+  private mcpServer: McpServer;
+  
+  constructor(logLevel: LogLevel = 'debug') {
+    this.logLevel = logLevel;
+    this.logBuffer = new LogBuffer();
     
-    this.ws.on('message', (data) => {
-      const msg = JSON.parse(data.toString());
-      
-      // Parse TX/RX from log messages using regex
-      const txMatch = msg.message.match(/\[TX\] ([0-9A-F\s]+)/);
-      const rxMatch = msg.message.match(/\[RX\] ([0-9A-F\s]+)/);
-      
-      if (txMatch) {
-        this.logBuffer.push('TX', this.hexToBytes(txMatch[1]));
-      } else if (rxMatch) {
-        this.logBuffer.push('RX', this.hexToBytes(rxMatch[1]));
-      }
-      
-      // Update connection state from messages
-      if (msg.message.includes('BLE connected')) {
-        this.connectionState.connected = true;
-        this.connectionState.connectedAt = msg.timestamp;
-      }
+    // Initialize MCP server
+    this.mcpServer = new McpServer({
+      name: '@trakrf/web-ble-bridge',
+      version: '0.3.0'
     });
+    
+    // Register all MCP tools
+    registerMcpTools(this.mcpServer, this);
   }
   
-  private async handleScanDevices() {
+  // Update existing methods to use shared buffer
+  private async handleBleData(direction: 'TX' | 'RX', data: Uint8Array) {
+    // Add to shared log buffer
+    this.logBuffer.push(direction, data);
+    
+    // Existing console.log for backward compatibility
+    if (this.logLevel === 'debug') {
+      console.log(`[${direction}] ${formatHex(data)}`);
+    }
+  }
+  
+  // MCP tool handler for scan_devices
+  async scanDevices(): Promise<DeviceInfo[]> {
     // CRITICAL: Check connection state first
-    if (this.connectionState.connected) {
+    if (this.transport?.getState() === 'connected') {
       throw new Error('Cannot scan while connected to a device. Please disconnect first.');
     }
     
-    // Perform scan using a separate WebSocket connection
-    // Parse discovered devices from log stream
+    // Use existing transport or create temporary one
+    const scanTransport = this.transport || new NobleTransport(this.logLevel);
+    const devices = await scanTransport.performQuickScan(5000);
+    
+    return devices.map(d => ({
+      id: d.id,
+      name: d.name || 'Unknown',
+      rssi: d.rssi
+    }));
   }
 }
 ```
 
 ### Integration Points
 ```yaml
-WEBSOCKET:
-  - Connect to: ws://localhost:8080?command=log-stream
-  - Parse: [TX] and [RX] log patterns
-  - Monitor: Connection state changes
+BRIDGE_SERVER:
+  - Single process serves both protocols
+  - WebSocket: ws://localhost:8080 (existing clients)
+  - MCP: stdio transport (for MCP clients/CLI)
+  - Shared log buffer between both protocols
+  
+START_SCRIPT:
+  - Default: Both WebSocket + MCP stdio
+  - --no-mcp flag: WebSocket only (backward compat)
+  - Environment: WS_PORT, LOG_LEVEL
   
 PACKAGE.JSON:
-  - script: "mcp:server": "node dist/mcp-server.js"
-  - bin: "web-ble-bridge-mcp": "./dist/mcp-server.js"
+  - script: "start": "node dist/start-server.js"
+  - bin: "web-ble-bridge": "./dist/start-server.js"
   
 MCP_REGISTRATION:
   - Name: "@trakrf/web-ble-bridge"
@@ -371,31 +398,43 @@ pnpm run test log-buffer.test.ts
 
 ### Level 3: Integration Test
 ```bash
-# Start the bridge server
+# Build the project
+pnpm run build
+
+# Start the unified server (WebSocket + MCP)
 pnpm run start
 
-# In another terminal, test MCP server
-pnpm run build
-node dist/mcp-server.js
+# In another terminal, test MCP tools
+mcp call get_logs node dist/start-server.js
+mcp call search_packets --params '{"hex_pattern":"A7B3"}' node dist/start-server.js
+mcp call get_connection_state node dist/start-server.js
 
-# Test with mcp-cli
-mcp call get_logs
-mcp call search_packets --params '{"hex_pattern":"A7B3"}'
-mcp call get_connection_state
+# Or use interactive shell
+mcp shell node dist/start-server.js
+> get_logs since=1m
+> status
 
 # Expected: Valid JSON responses
 ```
 
 ### Level 4: Manual MCP Client Test
 ```bash
-# Test with MCP Tools
-mcp shell node dist/mcp-server.js
-> get_logs since=1m
-> search_packets hex_pattern=0201
-> status
-
 # Configure Claude Code settings.json
+{
+  "mcpServers": {
+    "web-ble-bridge": {
+      "command": "node",
+      "args": ["/path/to/dist/start-server.js"],
+      "env": {
+        "WS_PORT": "8080",
+        "LOG_LEVEL": "debug"
+      }
+    }
+  }
+}
+
 # Then verify tools appear in Claude Code
+# Tools should be available for debugging BLE communication
 ```
 
 ## Final Validation Checklist
