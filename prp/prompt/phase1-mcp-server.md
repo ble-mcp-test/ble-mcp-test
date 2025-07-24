@@ -50,7 +50,7 @@ The same bridge server process handles both WebSocket clients AND MCP clients.
 - [ ] Version 0.3.0 published to npm
 - [ ] MCP registry submission ready
 - [ ] All documentation updated (README, API, MIGRATION, DEPLOYMENT, etc.)
-- [ ] Railway deployment continues to work (WebSocket only)
+- [ ] Cloud deployments continue to work (WebSocket only)
 
 ## All Needed Context
 
@@ -288,10 +288,10 @@ MODIFY docs/ARCHITECTURE.md:
 
 Task 14: Create deployment documentation
 CREATE docs/DEPLOYMENT.md:
-  - Railway deployment notes
   - MCP limitations in cloud environments
   - Docker considerations
   - Environment variable configuration
+  - TTY detection and --no-mcp flag
 
 Task 15: Update changelog
 MODIFY CHANGELOG.md:
@@ -393,7 +393,7 @@ BRIDGE_SERVER:
 START_SCRIPT:
   - Default: Both WebSocket + MCP stdio
   - --no-mcp flag: WebSocket only (for cloud/Docker)
-  - Auto-detect: Disable MCP if no TTY (Railway/Docker)
+  - Auto-detect: Disable MCP if no TTY (cloud/Docker)
   - Environment: WS_PORT, LOG_LEVEL, LOG_BUFFER_SIZE
   
 PACKAGE.JSON:
@@ -575,48 +575,49 @@ Retrieve recent BLE communication logs with filtering options.
 # docs/DEPLOYMENT.md - New file
 ## Deployment Guide
 
-### Railway Deployment
+### MCP Limitations
 
-The WebSocket bridge server continues to work perfectly on Railway. 
-However, MCP features are **not available** in cloud deployments because:
+MCP features are designed for local development and debugging. They are 
+**not available** in typical cloud deployments because:
 
 - MCP uses stdio (standard input/output) for communication
-- Cloud platforms like Railway only expose HTTP/WebSocket ports
-- MCP is designed for local development and debugging
+- Cloud platforms typically only expose HTTP/WebSocket ports
+- No TTY available in most cloud/container environments
 
-**What works on Railway:**
-- ✅ WebSocket bridge server (port 8080)
-- ✅ Web Bluetooth mock for browser testing
-- ✅ All existing v0.2.x functionality
-- ✅ LOG_BUFFER_SIZE configuration (logs stored but only viewable via WebSocket)
-
-**What doesn't work on Railway:**
-- ❌ MCP tools (get_logs, search_packets, etc.)
-- ❌ Claude Code integration
-- ❌ mcp-cli access
-
-### Local Development
-
-For full MCP functionality, run the bridge server locally:
+### Running Modes
 
 \`\`\`bash
-# Full functionality with MCP
+# Full functionality with MCP (local development)
 pnpm start
 
-# WebSocket only (like Railway)
+# WebSocket only (for cloud/Docker deployments)
 pnpm start --no-mcp
+
+# Auto-detection: MCP disabled if no TTY detected
 \`\`\`
 
 ### Docker Deployment
 
-When using Docker, MCP requires special handling:
+When using Docker, MCP is automatically disabled unless you specifically
+map stdin/stdout:
 
 \`\`\`dockerfile
-# MCP not available in container by default
+# Default: WebSocket only
+CMD ["node", "dist/start-server.js"]
+
+# Force WebSocket only
 CMD ["node", "dist/start-server.js", "--no-mcp"]
 
-# To enable MCP in Docker (advanced):
-# Requires stdin/stdout mapping
+# Enable MCP in Docker (advanced users only):
+# docker run -it --init your-image
+\`\`\`
+
+### Environment Variables
+
+\`\`\`bash
+WS_PORT=8080              # WebSocket server port
+LOG_LEVEL=debug           # Logging verbosity
+LOG_BUFFER_SIZE=50000     # Circular buffer size
 \`\`\`
 ```
 
@@ -633,7 +634,7 @@ CMD ["node", "dist/start-server.js", "--no-mcp"]
 - [ ] Scan-while-connected returns proper error
 - [ ] Version updated to 0.3.0
 - [ ] All documentation updated (7 files)
-- [ ] Railway deployment still works (WebSocket only)
+- [ ] WebSocket-only mode works properly
 
 ---
 
