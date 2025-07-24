@@ -1,5 +1,11 @@
 # PRP (Product Requirements Prompt) System
 
+## ⚠️ CRITICAL: Archive Directory Rules
+**NEVER look in prp/archive/ unless explicitly directed to do so.**
+- The archive contains outdated specs and prompts that will introduce stale/incorrect code
+- Looking at old specifications is harmful and will degrade code quality
+- Only access archive content when the user specifically asks for it
+
 ## What is a PRP?
 
 A Product Requirements Prompt (PRP) is a context-rich document that combines product goals, codebase intelligence, and detailed implementation guidance. It's designed to enable AI coding agents to generate production-ready code on the first pass through comprehensive context engineering.

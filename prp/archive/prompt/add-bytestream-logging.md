@@ -14,13 +14,14 @@ Add byte-level traffic logging to the WebSocket-BLE bridge server to enable test
 ---
 
 ## Goal
-Enhance bridge server logging to display all BLE traffic as hex-formatted byte streams with clear [TX]/[RX] prefixes, while supporting standard log levels to control verbosity.
+Enhance bridge server logging to display all BLE traffic as hex-formatted byte streams with clear [TX]/[RX] prefixes, while supporting standard log levels to control verbosity. Document changes in a new CHANGELOG.md file.
 
 ## Why
 - **Test Debugging**: E2E tests need to verify exact byte sequences sent to CS108 devices
 - **Protocol Analysis**: Developers need visibility into actual BLE communication
 - **Troubleshooting**: Hex logs help identify data corruption or formatting issues
 - **Performance**: Higher log levels prevent verbose output in production
+- **Version Tracking**: CHANGELOG.md provides clear release history for users
 
 ## What
 Add byte stream logging to show all BLE traffic with:
@@ -31,6 +32,9 @@ Add byte stream logging to show all BLE traffic with:
 - Support common log level aliases (verbose→debug, trace→debug, warn→info)
 - At debug level: Show bytestream traffic and device discovery logs
 - At info level: Show server startup, state changes, connections, and errors (hide bytestream and discovery)
+- Bump package version to 0.2.0
+- Update README.md with LOG_LEVEL documentation
+- Create CHANGELOG.md with release history
 
 ### Success Criteria
 - [ ] All BLE data transmission shows hex-formatted bytes with [TX] prefix at debug level
@@ -38,7 +42,10 @@ Add byte stream logging to show all BLE traffic with:
 - [ ] Bytestream and device discovery logs hidden at info level or higher
 - [ ] Server startup, connections, and errors shown at all levels
 - [ ] Common log level aliases mapped correctly
-- [ ] Total implementation adds <100 lines of code (including new utils.ts)
+- [ ] Package version bumped to 0.2.0
+- [ ] README.md updated with LOG_LEVEL documentation
+- [ ] CHANGELOG.md created with proper format and content
+- [ ] Total implementation adds <120 lines of code (including utils.ts and CHANGELOG.md)
 
 ## All Needed Context
 
@@ -46,14 +53,18 @@ Add byte stream logging to show all BLE traffic with:
 ```yaml
 # Node.js Buffer documentation
 - url: https://nodejs.org/api/buffer.html#buftostringencoding-start-end
-  why: Buffer toString('hex') method for hex conversion
+  why: Buffer toString('hex') method for hex conversion - produces lowercase, no spaces
+  
+# Changelog best practices
+- url: https://keepachangelog.com/en/1.1.0/
+  why: Standard format for CHANGELOG.md - humans first, specific sections, reverse chronological
   
 # Current logging implementation  
 - file: src/bridge-server.ts
-  why: Lines 87-89 show BLE→WS data forwarding, lines 111-113 show WS→BLE
+  why: Line 88 shows BLE→WS data forwarding, line 112 shows WS→BLE
   
 - file: src/noble-transport.ts
-  why: Lines 466-467 scanning logs, 479 device discovery logs
+  why: Line 467 scanning logs, 479 device discovery logs
   
 # Test hex formatting pattern
 - file: tests/integration/device-interaction.test.ts
@@ -61,22 +72,35 @@ Add byte stream logging to show all BLE traffic with:
 
 # Environment variable pattern
 - file: src/start-server.ts
-  why: Shows how WS_PORT and WS_HOST env vars are read
+  why: Lines 5-6 show how WS_PORT and WS_HOST env vars are read
+
+# Package version location
+- file: package.json
+  why: Line 3 contains version "0.1.1" to update to "0.2.0"
+
+# README environment variables section
+- file: README.md
+  why: Lines 166-168 show where to add LOG_LEVEL documentation
 
 # Clarifications from spec
 - file: prp/spec/add-bytestream-logging.md
-  why: Lines 66-95 contain important clarifications about implementation
+  why: Lines 72-100 contain important clarifications about implementation
 ```
 
 ### Current Codebase tree
 ```bash
 src/
 ├── bridge-server.ts      # WebSocket server, handles data forwarding
-├── index.ts             # Exports only
+├── index.ts             # Exports only (5 lines)
 ├── mock-bluetooth.ts    # Browser mock (no changes needed)
 ├── noble-transport.ts   # BLE communication layer
 ├── start-server.ts      # Server startup, reads env vars
 └── ws-transport.ts      # WebSocket client (no changes needed)
+
+./                       # Root directory
+├── package.json         # Version needs update
+├── README.md           # Needs LOG_LEVEL docs
+└── (no CHANGELOG.md)   # Needs to be created
 ```
 
 ### Desired Codebase tree with files to be added
@@ -89,6 +113,11 @@ src/
 ├── start-server.ts      # MODIFY: Read LOG_LEVEL env var, map aliases
 ├── utils.ts             # NEW: formatHex function and LogLevel type
 └── ws-transport.ts      # No changes
+
+./                       # Root directory
+├── CHANGELOG.md        # NEW: Release history following Keep a Changelog
+├── package.json        # MODIFY: Version bump to 0.2.0
+└── README.md          # MODIFY: Add LOG_LEVEL documentation
 ```
 
 ### Known Gotchas & Library Quirks
@@ -106,6 +135,14 @@ src/
 // PATTERN: Log level normalization
 // Map common aliases: verbose→debug, trace→debug, warn→info
 // Unknown levels default to debug with a warning
+
+// GOTCHA: Buffer.toString('hex') produces lowercase without spaces
+// Must use .toUpperCase() and regex to add spaces between byte pairs
+
+// PATTERN: Changelog format
+// - Reverse chronological order (newest first)
+// - Use standard sections: Added, Changed, Fixed, etc.
+// - Date format: YYYY-MM-DD
 ```
 
 ### Clarified Requirements
@@ -115,6 +152,7 @@ Based on spec clarifications:
 3. **Scan log specificity**: Only "Discovered: devicename" logs, NOT "Scanning started/stopped"
 4. **No code duplication**: Type definitions and utilities in single location
 5. **Log level mapping**: Support common aliases with best-effort mapping
+6. **Changelog format**: Follow Keep a Changelog standard with proper sections
 
 ## Implementation Blueprint
 
@@ -165,33 +203,56 @@ CREATE src/utils.ts:
 Task 2:
 MODIFY src/index.ts:
   - ADD: Export utilities from utils.ts for external use
+  - AFTER: export { normalizeUuid } from './noble-transport.js';
 
 Task 3:
 MODIFY src/start-server.ts:
   - IMPORT: normalizeLogLevel from utils.ts
-  - FIND: Environment variable reading section (after WS_HOST)
-  - ADD: const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
-  - MODIFY: Pass logLevel to BridgeServer constructor
+  - FIND: const host = process.env.WS_HOST || '0.0.0.0'; (line 6)
+  - ADD AFTER: const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
+  - FIND: console.log(`   Host: ${host}`); (line 10)
+  - ADD AFTER: console.log(`   Log level: ${logLevel}`);
+  - MODIFY: const server = new BridgeServer(); to new BridgeServer(logLevel);
 
 Task 4:
 MODIFY src/bridge-server.ts:
-  - IMPORT: LogLevel, formatHex from utils.ts
-  - ADD: logLevel parameter to constructor
-  - MODIFY: NobleTransport instantiation to pass logLevel
-  - FIND: "Forwarding ${data.length} bytes to WebSocket" (line ~88)
-  - ADD: if (this.logLevel === 'debug') console.log(`[RX] ${formatHex(data)}`);
-  - FIND: "await this.transport.sendData" (line ~112)  
-  - ADD: if (this.logLevel === 'debug') console.log(`[TX] ${formatHex(new Uint8Array(msg.data))}`);
+  - IMPORT: LogLevel, formatHex from utils.ts (after line 2)
+  - ADD: private logLevel: LogLevel; in class properties (after line 8)
+  - ADD: constructor(logLevel: LogLevel = 'debug') { this.logLevel = logLevel; }
+  - MODIFY: this.transport = new NobleTransport(); to new NobleTransport(this.logLevel); (line 65)
+  - FIND: console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`); (line 88)
+  - ADD AFTER: if (this.logLevel === 'debug') console.log(`[RX] ${formatHex(data)}`);
+  - FIND: await this.transport.sendData(new Uint8Array(msg.data)); (line 112)  
+  - ADD BEFORE: if (this.logLevel === 'debug') console.log(`[TX] ${formatHex(new Uint8Array(msg.data))}`);
 
 Task 5:
 MODIFY src/noble-transport.ts:
-  - IMPORT: LogLevel from utils.ts
-  - ADD: logLevel parameter to constructor and store as property
-  - FIND: console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`); (line ~479)
-  - WRAP: if (this.logLevel === 'debug') around discovery log
+  - IMPORT: LogLevel from utils.ts (after line 1)
+  - ADD: private logLevel: LogLevel; in class properties (after line 83)
+  - ADD: constructor(logLevel: LogLevel = 'debug') { this.logLevel = logLevel; }
+  - FIND: console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`); (line 479)
+  - WRAP: if (this.logLevel === 'debug') { ... } around discovery log
   - NOTE: Keep "Scanning started", "Noble state", connection logs at all levels
-  
+
 Task 6:
+MODIFY package.json:
+  - FIND: "version": "0.1.1", (line 3)
+  - CHANGE TO: "version": "0.2.0",
+
+Task 7:
+MODIFY README.md:
+  - FIND: Environment variables: section (line 166)
+  - ADD AFTER WS_PORT line: - `LOG_LEVEL` - Logging verbosity: debug|info|warn|error (default: `debug`)
+  - ADD NOTE: Supports aliases: verbose/trace→debug, warn/warning→info
+
+Task 8:
+CREATE CHANGELOG.md:
+  - Follow Keep a Changelog format
+  - Add entry for v0.2.0 with all new features
+  - Add entry for v0.1.1 and v0.1.0 as initial releases
+  - Use standard sections: Added, Changed, Fixed, etc.
+  
+Task 9:
 TEST manually:
   - Run without LOG_LEVEL: Verify [TX]/[RX] and discovery logs appear
   - Run with LOG_LEVEL=info: Verify no [TX]/[RX] or discovery logs
@@ -232,91 +293,44 @@ export function normalizeLogLevel(level: string | undefined): LogLevel {
   }
 }
 
-// Task 2 - index.ts
-export { BridgeServer } from './bridge-server.js';
-export { NobleTransport } from './noble-transport.js';
-export { WebSocketTransport } from './ws-transport.js';
-export { formatHex, normalizeLogLevel, type LogLevel } from './utils.js';  // ADD THIS
+// Task 8 - CHANGELOG.md (NEW FILE)
+# Changelog
 
-// Task 3 - start-server.ts
-import { BridgeServer } from './bridge-server.js';
-import { normalizeLogLevel } from './utils.js';  // ADD THIS
+All notable changes to this project will be documented in this file.
 
-const port = parseInt(process.env.WS_PORT || '8080', 10);
-const host = process.env.WS_HOST || '0.0.0.0';
-const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);  // ADD THIS
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-console.log('🚀 Starting WebSocket-to-BLE Bridge Server');
-console.log(`   Port: ${port}`);
-console.log(`   Host: ${host}`);
-console.log(`   Log level: ${logLevel}`);  // ADD THIS
-console.log('   Device-agnostic - UUIDs provided by client');
-console.log('   Press Ctrl+C to stop\n');
+## [Unreleased]
 
-const server = new BridgeServer(logLevel);  // PASS LOG LEVEL
+## [0.2.0] - 2025-07-23
 
-// Task 4 - bridge-server.ts
-import { WebSocketServer } from 'ws';
-import { NobleTransport, ConnectionState } from './noble-transport.js';
-import { LogLevel, formatHex } from './utils.js';  // ADD THIS
+### Added
+- Byte-level traffic logging with [TX]/[RX] prefixes showing all BLE communication
+- Hex-formatted output for better readability (uppercase with space separation)
+- `LOG_LEVEL` environment variable to control logging verbosity (debug|info|warn|error)
+- Support for common log level aliases (verbose/trace→debug, warn/warning→info)
+- Utility functions for hex formatting and log level normalization
+- This CHANGELOG file to track version history
 
-export class BridgeServer {
-  private wss: WebSocketServer | null = null;
-  private transport: NobleTransport | null = null;
-  private zombieCheckInterval: any = null;
-  private logClients: Set<any> = new Set();
-  private logLevel: LogLevel;  // ADD THIS
-  
-  constructor(logLevel: LogLevel = 'debug') {  // ADD PARAMETER
-    this.logLevel = logLevel;
-  }
-  
-  // In transport creation
-  if (!this.transport) {
-    this.transport = new NobleTransport(this.logLevel);  // PASS LOG LEVEL
-  }
-  
-  // In data handler
-  onData: (data) => {
-    console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
-    if (this.logLevel === 'debug') {
-      console.log(`[RX] ${formatHex(data)}`);  // ADD THIS
-    }
-    ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
-  }
-  
-  // In message handler
-  if (msg.type === 'data' && msg.data && this.transport) {
-    const dataArray = new Uint8Array(msg.data);
-    if (this.logLevel === 'debug') {
-      console.log(`[TX] ${formatHex(dataArray)}`);  // ADD THIS
-    }
-    await this.transport.sendData(dataArray);
-  }
-}
+### Changed
+- Default logging now shows byte-level BLE traffic (can be suppressed with LOG_LEVEL=info)
+- Bridge server and Noble transport now accept log level configuration
 
-// Task 5 - noble-transport.ts
-import noble from '@stoprocent/noble';
-import { LogLevel } from './utils.js';  // ADD THIS
+## [0.1.1] - 2025-07-XX
 
-export class NobleTransport {
-  private logLevel: LogLevel;  // ADD THIS
-  
-  constructor(logLevel: LogLevel = 'debug') {  // ADD PARAMETER
-    this.logLevel = logLevel;
-  }
-  
-  // In discovery handler (around line 479)
-  if (this.logLevel === 'debug') {  // WRAP discovery log
-    console.log(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
-  }
-  
-  // Keep these logs at all levels:
-  // - console.log('[NobleTransport] Scanning started');
-  // - console.log('[NobleTransport] Bluetooth powered on');
-  // - console.log(`[NobleTransport] Connecting to ${this.deviceName}...`);
-  // - All error messages
-}
+### Fixed
+- Minor bug fixes and improvements
+
+## [0.1.0] - 2025-07-XX
+
+### Added
+- Initial release
+- WebSocket-to-BLE bridge server
+- Web Bluetooth API mock for testing
+- Support for CS108 RFID readers and other BLE devices
+- Cross-platform compatibility (macOS, Linux, Raspberry Pi)
+- Basic connection management and data forwarding
 ```
 
 ### Integration Points
@@ -326,8 +340,8 @@ ENVIRONMENT:
   - document: "LOG_LEVEL=debug|info|warn|error (also supports verbose, trace)"
   
 STARTUP SCRIPT:
-  - file: scripts/start-ws-bridge-macos.sh (if exists)
-  - add: LOG_LEVEL="${LOG_LEVEL:-debug}"  # After other env vars
+  - file: scripts/start-ws-bridge-macos.sh
+  - check if exists and add: LOG_LEVEL="${LOG_LEVEL:-debug}"
   
 CONFIG PASSING:
   - start-server.ts → BridgeServer constructor
@@ -336,6 +350,11 @@ CONFIG PASSING:
 TYPE SAFETY:
   - All log level strings normalized through normalizeLogLevel()
   - Type safety enforced via LogLevel type
+
+CHANGELOG:
+  - Follow Keep a Changelog format
+  - Reverse chronological order
+  - Standard sections: Added, Changed, Deprecated, Removed, Fixed, Security
 ```
 
 ## Validation Loop
@@ -376,6 +395,9 @@ LOG_LEVEL=verbose pnpm run start  # Should behave like debug
 LOG_LEVEL=trace pnpm run start    # Should behave like debug
 LOG_LEVEL=warn pnpm run start     # Should behave like info
 LOG_LEVEL=invalid pnpm run start  # Should warn and default to debug
+
+# Verify CHANGELOG.md format
+cat CHANGELOG.md  # Should show proper Keep a Changelog format
 ```
 
 ### Level 3: Integration Test
@@ -403,7 +425,10 @@ LOG_LEVEL=info pnpm exec playwright test
 - [ ] Invalid log levels show warning and default to debug
 - [ ] Hex format matches spec: uppercase, space-separated
 - [ ] No code duplication (types and utils in one place)
-- [ ] Total changes < 100 lines of code
+- [ ] Package version updated to 0.2.0
+- [ ] README.md updated with LOG_LEVEL documentation
+- [ ] CHANGELOG.md created with proper format and sections
+- [ ] Total changes < 120 lines of code
 
 ---
 
@@ -415,6 +440,7 @@ LOG_LEVEL=info pnpm exec playwright test
 - ❌ Don't use npm/npx - always use pnpm
 - ❌ Don't over-engineer - this is a simple feature
 - ❌ Don't add dependencies - use built-in Buffer.toString('hex')
+- ❌ Don't deviate from Keep a Changelog format
 
 ## Implementation Confidence Score: 9.5/10
 
@@ -427,5 +453,10 @@ This updated PRP has very high confidence because:
 - Clear distinction between debug-only and always-visible logs
 - Simple implementation with minimal complexity
 - Comprehensive testing plan covers all scenarios
+- Exact line numbers provided from code inspection
+- Package version bump included
+- README update included
+- CHANGELOG.md follows industry standard format
+- All new requirements from updated spec are addressed
 
-The slight uncertainty (0.5 points) is only around the exact line numbers in the existing code, but the search patterns provided will locate the correct positions.
+The slight uncertainty (0.5 points) is only around potential edge cases in the byte array conversion, but the provided patterns handle the common cases well.

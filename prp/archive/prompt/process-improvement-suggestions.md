@@ -1,3 +1,5 @@
+# UPDATE: this was actually a pathing error. The PRP update wrote to the old ./PRPs directory instead of the new ./prp directory
+
 # PRP Process Improvement Suggestions
 
 Based on the bytestream logging feature implementation, several gaps were identified in the PRP generation process where requirements from the spec were not carried forward to the prompt.

@@ -1,5 +1,11 @@
 # Instructions for Claude Code
 
+## ⚠️ CRITICAL: Archive Directory Rules
+**NEVER look in prp/archive/ unless explicitly directed to do so.**
+- The archive contains outdated specs and prompts that will introduce stale/incorrect code
+- Looking at old specifications is harmful and will degrade code quality
+- Only access archive content when the user specifically asks for it
+
 ## Glossary
 - **PRP**: Product Requirements Prompt - Document defining project requirements and specifications
 
