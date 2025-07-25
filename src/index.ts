@@ -4,3 +4,7 @@ export { WebSocketTransport } from './ws-transport.js';
 export type { WSMessage } from './ws-transport.js';
 export { normalizeUuid, cleanupNoble, NobleTransport } from './noble-transport.js';
 export { formatHex, normalizeLogLevel, type LogLevel } from './utils.js';
+export { Logger } from './logger.js';
+export { LogBuffer, type LogEntry } from './log-buffer.js';
+export { registerMcpTools } from './mcp-tools.js';
+export { createHttpApp, startHttpServer, cleanupHttpTransports } from './mcp-http-transport.js';

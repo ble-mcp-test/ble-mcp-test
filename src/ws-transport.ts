@@ -43,7 +43,7 @@ export class WebSocketTransport {
             clearTimeout(timeout);
             reject(new Error(msg.error || 'Connection failed'));
           }
-        } catch (e) {
+        } catch {
           // Ignore invalid messages
         }
       };
@@ -81,7 +81,7 @@ export class WebSocketTransport {
           if (this.messageHandler) {
             this.messageHandler(msg);
           }
-        } catch (e) {
+        } catch {
           // Ignore invalid messages
         }
       };

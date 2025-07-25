@@ -1,6 +1,10 @@
-# web-ble-bridge
+# ble-mcp-test
 
-A minimal WebSocket-to-BLE bridge that enables Web Bluetooth API testing in browsers without built-in BLE support.
+```
+[BLE]──●──[MCP]──●──[AI agent]
+```
+
+Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol.
 
 ## What is this?
 
@@ -16,25 +20,25 @@ This lets you write and test Web Bluetooth applications on any machine, even if 
 ### For testing (recommended)
 ```bash
 # npm
-npm install --save-dev @trakrf/web-ble-bridge
+npm install --save-dev ble-mcp-test
 
 # pnpm
-pnpm add -D @trakrf/web-ble-bridge
+pnpm add -D ble-mcp-test
 
 # yarn
-yarn add --dev @trakrf/web-ble-bridge
+yarn add --dev ble-mcp-test
 ```
 
 ### For production use
 ```bash
 # npm
-npm install @trakrf/web-ble-bridge
+npm install ble-mcp-test
 
 # pnpm  
-pnpm add @trakrf/web-ble-bridge
+pnpm add ble-mcp-test
 
 # yarn
-yarn add @trakrf/web-ble-bridge
+yarn add ble-mcp-test
 ```
 
 ## Quick Start
@@ -42,11 +46,11 @@ yarn add @trakrf/web-ble-bridge
 ### Step 1: Run the Bridge Server (on a machine with BLE)
 
 ```bash
-# Using npx (no installation needed)
-npx @trakrf/web-ble-bridge
+# Using pnpm dlx (no installation needed)
+pnpm dlx ble-mcp-test
 
 # Or if installed globally
-web-ble-bridge
+ble-mcp-test
 ```
 
 The server will start on `ws://localhost:8080` by default.
@@ -57,15 +61,15 @@ The bridge server can be configured using environment variables:
 
 ```bash
 # Set WebSocket port (default: 8080)
-WS_PORT=3000 npx @trakrf/web-ble-bridge
+WS_PORT=3000 pnpm dlx ble-mcp-test
 
 # Set host interface (default: 0.0.0.0)
-WS_HOST=127.0.0.1 npx @trakrf/web-ble-bridge
+WS_HOST=127.0.0.1 pnpm dlx ble-mcp-test
 
 # Set log level (default: debug)
 # Options: debug, info, warn, error
 # Also supports: verbose, trace (maps to debug), warning (maps to info)
-LOG_LEVEL=info npx @trakrf/web-ble-bridge
+LOG_LEVEL=info pnpm dlx ble-mcp-test
 
 # Advanced BLE timing configuration (milliseconds)
 # Override platform-specific defaults for your hardware
@@ -104,7 +108,7 @@ You can also view logs in a web browser:
 
 ```html
 <!-- In your test HTML -->
-<script src="node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js"></script>
+<script src="node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js"></script>
 <script>
     // Initialize the mock with your bridge server URL
     WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
@@ -138,7 +142,7 @@ test('read battery level from BLE device', async ({ page }) => {
 
   // Inject the Web Bluetooth mock
   await page.addScriptTag({
-    path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js'
+    path: 'node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js'
   });
 
   // Initialize mock with bridge server
@@ -185,7 +189,7 @@ The bridge accepts UUIDs in multiple formats:
 
 ```bash
 # On Raspberry Pi with BLE hardware
-WS_HOST=0.0.0.0 WS_PORT=8080 npx @trakrf/web-ble-bridge
+WS_HOST=0.0.0.0 WS_PORT=8080 pnpm dlx ble-mcp-test
 
 # In your tests (from another machine)
 WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
@@ -198,6 +202,10 @@ WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
 Environment variables:
 - `WS_HOST` - WebSocket host (default: `0.0.0.0`)
 - `WS_PORT` - WebSocket port (default: `8080`)
+- `LOG_LEVEL` - Logging level: debug, info, warn, error (default: `debug`)
+- `MCP_PORT` - MCP HTTP server port (default: `8081`, setting this enables HTTP transport)
+- `MCP_TOKEN` - Bearer token for MCP authentication (setting this enables HTTP transport)
+- `LOG_BUFFER_SIZE` - Circular buffer size for logs (default: `10000`, min: 100, max: 1000000)
 
 ### Device Configuration
 
@@ -325,38 +333,120 @@ The bridge uses a simple JSON protocol over WebSocket:
 ### Bridge server crashes
 - Ensure Node.js 24.x is installed (not 22.x or 26.x)
 - Check for other processes using the same port
-- Run with debug logging: `LOG_LEVEL=debug npx @trakrf/web-ble-bridge`
+- Run with debug logging: `LOG_LEVEL=debug pnpm dlx ble-mcp-test`
 
 ## Documentation
 
 - [API Documentation](docs/API.md) - Detailed API reference
 - [Migration Guide](docs/MIGRATION.md) - Migrating from native Web Bluetooth
 
+## Using with Claude Code
+
+### Direct Integration via MCP Server
+
+The ble-mcp-test server always includes MCP (Model Context Protocol) tools for powerful debugging and analysis. By default, MCP uses stdio transport for security (no network ports opened). To enable HTTP transport on port 8081:
+
+```json
+// In your Claude Code settings.json
+{
+  "mcpServers": {
+    "ble-mcp-test": {
+      "transport": "http",
+      "url": "http://localhost:8081/mcp",
+      "headers": {
+        "Authorization": "Bearer your-optional-token"
+      }
+    }
+  }
+}
+```
+
+#### Available MCP Tools
+
+1. **get_logs** - Retrieve recent BLE communication logs
+2. **search_packets** - Search for hex patterns in packet history
+3. **get_connection_state** - Monitor current connection status
+4. **status** - Get bridge server status and statistics
+5. **scan_devices** - Scan for nearby BLE devices
+
+#### MCP Transport Options
+
+```bash
+# Default: stdio transport only (secure, no network ports)
+pnpm start
+
+# Enable HTTP transport on port 8081
+pnpm start:http
+
+# Enable HTTP with authentication
+MCP_TOKEN=secret pnpm start
+
+# Custom port (also enables HTTP)
+MCP_PORT=8000 pnpm start
+```
+
+#### Running with Authentication
+
+For added security on local networks:
+
+```bash
+# Generate a random token automatically
+pnpm start:auth
+
+# Or set your own token
+MCP_TOKEN=your-secret-token pnpm start
+
+# Or use .env.local
+echo "MCP_TOKEN=your-secret-token" >> .env.local
+pnpm start
+```
+
+This enables natural language BLE interactions in Claude Code:
+- "What BLE devices are available?"
+- "Show me recent BLE communication logs"
+- "Search for packets containing A7B3"
+- "What's the current connection status?"
+
+### Server Options
+
+The bridge server supports the following options:
+
+```bash
+# Start with default settings (stdio MCP, no network ports)
+ble-mcp-test
+
+# Enable HTTP transport for MCP on port 8081
+ble-mcp-test --mcp-http
+
+# All other configuration via environment variables (see above)
+```
+
 ## Roadmap
 
-### v0.2.0 - Multi-Device Support
+### v0.3.0 - MCP Server Integration ✅ (Released)
+- Direct Claude Code integration via MCP protocol
+- HTTP/SSE transport for network access
+- 5 debugging tools (get_logs, search_packets, status, etc.)
+- Circular log buffer with client position tracking
+- Optional bearer token authentication
+- Cross-machine access (VM → Mac/Pi)
+
+### v0.4.0 - CLI Tools (Next)
+- `ble-mcp-test scan` - Scan for nearby BLE devices
+- `ble-mcp-test test <device>` - Test connection to a device
+- `ble-mcp-test monitor` - Live connection dashboard
+- CLI as MCP client for enhanced capabilities
+
+### v0.5.0 - Multi-Device Support
 - Support multiple simultaneous BLE connections
 - Route WebSocket clients to specific devices
 - Connection pooling and management
 
-### v0.3.0 - CLI Tools
-- `web-ble-bridge scan` - Scan for nearby BLE devices
-- `web-ble-bridge test <device>` - Test connection to a device
-- `web-ble-bridge reset` - Reset BLE adapter
-- `web-ble-bridge monitor` - Live connection monitoring
-
-### v0.4.0 - HTTP API
-- `GET /status` - Current connection status and device info
-- `GET /metrics` - Connection stats, data throughput, errors
-- `GET /health` - Health check endpoint for monitoring
-- `POST /reset` - Reset BLE adapter via HTTP
-
 ### Future Considerations
-- Reconnection support with configurable retry
-- WebSocket authentication/authorization
-- OpenTelemetry integration for distributed tracing
+- HTTP API for REST-based control
 - Docker container for easy deployment
 - Prometheus metrics export
+
 
 ## Contributing
 

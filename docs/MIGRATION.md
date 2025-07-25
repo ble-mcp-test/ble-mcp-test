@@ -1,6 +1,6 @@
 # Migration Guide
 
-## Migrating from Native Web Bluetooth to web-ble-bridge
+## Migrating from Native Web Bluetooth to ble-mcp-test
 
 If you have existing Web Bluetooth code that you want to test in environments without BLE support, the migration is straightforward.
 
@@ -23,11 +23,11 @@ async function connectToDevice() {
 }
 ```
 
-### After (Using web-ble-bridge)
+### After (Using ble-mcp-test)
 
 ```javascript
 // Add this before your Web Bluetooth code
-import { injectWebBluetoothMock } from '@trakrf/web-ble-bridge';
+import { injectWebBluetoothMock } from 'ble-mcp-test';
 
 // Configure the bridge (only needed once)
 const bridgeUrl = new URL('ws://localhost:8080');
@@ -97,7 +97,7 @@ You can check if the mock is active:
 ```javascript
 // After injecting the mock
 if (navigator.bluetooth.constructor.name === 'MockBluetooth') {
-  console.log('Using web-ble-bridge mock');
+  console.log('Using ble-mcp-test mock');
 } else {
   console.log('Using native Web Bluetooth');
 }
@@ -113,7 +113,7 @@ The mock implements the most commonly used Web Bluetooth API methods. Currently 
 - GATT server events
 - Multiple simultaneous device connections
 
-If you need these features, please [open an issue](https://github.com/trakrf/web-ble-bridge/issues).
+If you need these features, please [open an issue](https://github.com/ble-mcp-test/ble-mcp-test/issues).
 
 ## Best Practices
 
@@ -135,7 +135,7 @@ test.beforeEach(async ({ page }) => {
     
   if (bridgeAvailable) {
     await page.addScriptTag({ 
-      path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js' 
+      path: 'node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js' 
     });
     
     await page.evaluate(() => {

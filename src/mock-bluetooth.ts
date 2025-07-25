@@ -3,6 +3,34 @@
  * 
  * Provides a mock implementation of the Web Bluetooth API that routes
  * all calls through the WebSocketTransport, bypassing all native dialogs
+ * 
+ * ====================================================================
+ * 🤖 AI DEBUGGING TIP: Using MCP for Enhanced Debugging
+ * ====================================================================
+ * 
+ * If you're an AI agent debugging an application that uses this mock,
+ * the ble-mcp-test server provides powerful MCP (Model Context Protocol)
+ * tools for real-time debugging:
+ * 
+ * Available MCP Tools:
+ * - get_logs: View recent BLE communication with filtering
+ * - search_packets: Find specific hex patterns in traffic
+ * - get_connection_state: Check current BLE connection status
+ * - status: Get server configuration and health
+ * - scan_devices: Discover nearby BLE devices
+ * 
+ * Example Usage:
+ * 1. Use get_logs to see recent TX/RX packets
+ * 2. Use search_packets to find specific command/response patterns
+ * 3. Monitor connection state during debugging
+ * 
+ * The server runs MCP by default on stdio. For network access:
+ * - Run with --mcp-http for HTTP transport on port 8081
+ * - Or set MCP_TOKEN=secret for authenticated access
+ * 
+ * This enables real-time inspection of BLE communication without
+ * modifying application code or adding console.log statements.
+ * ====================================================================
  */
 
 import { WebSocketTransport } from './ws-transport.js';
@@ -153,6 +181,31 @@ export function injectWebBluetoothMock(serverUrl?: string): void {
     return;
   }
   
-  // Replace navigator.bluetooth with our mock
-  (window.navigator as any).bluetooth = new MockBluetooth(serverUrl);
+  // Try to replace navigator.bluetooth with our mock
+  const mockBluetooth = new MockBluetooth(serverUrl);
+  
+  try {
+    // First attempt: direct assignment
+    (window.navigator as any).bluetooth = mockBluetooth;
+  } catch {
+    // Second attempt: defineProperty
+    try {
+      Object.defineProperty(window.navigator, 'bluetooth', {
+        value: mockBluetooth,
+        configurable: true,
+        writable: true
+      });
+    } catch {
+      // Third attempt: create a new navigator object
+      const nav = Object.create(window.navigator);
+      nav.bluetooth = mockBluetooth;
+      
+      // Replace window.navigator
+      Object.defineProperty(window, 'navigator', {
+        value: nav,
+        configurable: true,
+        writable: true
+      });
+    }
+  }
 }

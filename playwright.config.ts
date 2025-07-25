@@ -6,6 +6,7 @@ export default defineConfig({
   timeout: 60000,
   fullyParallel: true,
   reporter: 'list',
+  outputDir: './tmp/test-results',
   use: {
     headless: true,
     viewport: { width: 1280, height: 720 },
@@ -16,7 +17,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: { 
+        browserName: 'chromium',
+        launchOptions: {
+          args: ['--disable-blink-features=AutomationControlled']
+        }
+      },
     },
   ],
   webServer: {

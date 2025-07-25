@@ -113,3 +113,6 @@ tests/level-3/test-results/
 
 # Claude local settings
 .claude/settings.local.json
+
+# Serena configuration
+.serena/
