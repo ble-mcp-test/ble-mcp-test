@@ -49,7 +49,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
           onsessioninitialized: (id: string) => {
             transports[id] = transport;
             console.log(`[MCP HTTP] New session initialized: ${id}`);
-          }
+          },
+          enableJsonResponse: true // Allow JSON responses for simple testing
         });
         await server.connect(transport);
       }
