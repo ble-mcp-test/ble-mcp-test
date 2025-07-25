@@ -116,8 +116,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
 export function startHttpServer(app: Express, port?: number): void {
   const actualPort = port || parseInt(process.env.MCP_PORT || '3000', 10);
   
-  app.listen(actualPort, () => {
-    console.log(`[MCP HTTP] Server listening on port ${actualPort}`);
+  app.listen(actualPort, '0.0.0.0', () => {
+    console.log(`[MCP HTTP] Server listening on 0.0.0.0:${actualPort}`);
     if (process.env.MCP_TOKEN) {
       console.log('[MCP HTTP] Authentication enabled (Bearer token required)');
     } else {
