@@ -1,15 +1,36 @@
 import { WebSocketServer } from 'ws';
-import { NobleTransport, ConnectionState } from './noble-transport.js';
+import { NobleTransport } from './noble-transport.js';
 import { LogLevel, formatHex } from './utils.js';
+import { LogBuffer } from './log-buffer.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { registerMcpTools } from './mcp-tools.js';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
   private logClients: Set<any> = new Set();
   private logLevel: LogLevel;
+  private logBuffer: LogBuffer;
+  private mcpServer: McpServer;
+  private connectionState: {
+    connected: boolean;
+    deviceName?: string;
+    connectedAt?: string;
+    lastActivity?: string;
+  } = { connected: false };
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
+    this.logBuffer = new LogBuffer();
+    
+    // Initialize MCP server
+    this.mcpServer = new McpServer({
+      name: '@trakrf/web-ble-bridge',
+      version: '0.3.0'
+    });
+    
+    // Register all MCP tools
+    registerMcpTools(this.mcpServer, this);
   }
   async start(port?: number) {
     // Use provided port, or fall back to env var, or default to 8080
@@ -94,6 +115,11 @@ export class BridgeServer {
         await this.transport.connect(bleConfig, {
           onData: (data) => {
             console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
+            
+            // Add to shared log buffer
+            this.logBuffer.push('RX', data);
+            this.updateActivity();
+            
             if (this.logLevel === 'debug') {
               console.log(`[RX] ${formatHex(data)}`);
             }
@@ -108,6 +134,14 @@ export class BridgeServer {
           }
         });
         
+        // Update connection state
+        this.connectionState = {
+          connected: true,
+          deviceName: this.transport.getDeviceName(),
+          connectedAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString()
+        };
+        
         // Send connected message
         console.log(`[BridgeServer] BLE connected, sending connected message`);
         ws.send(JSON.stringify({ 
@@ -121,12 +155,17 @@ export class BridgeServer {
             const msg = JSON.parse(message.toString());
             if (msg.type === 'data' && msg.data && this.transport) {
               const dataArray = new Uint8Array(msg.data);
+              
+              // Add to shared log buffer
+              this.logBuffer.push('TX', dataArray);
+              this.updateActivity();
+              
               if (this.logLevel === 'debug') {
                 console.log(`[TX] ${formatHex(dataArray)}`);
               }
               await this.transport.sendData(dataArray);
             }
-          } catch (error) {
+          } catch {
             // Ignore malformed messages
           }
         });
@@ -139,6 +178,9 @@ export class BridgeServer {
             await this.transport.disconnect();
             console.log('[BridgeServer] BLE disconnected successfully');
           }
+          
+          // Clear connection state
+          this.connectionState = { connected: false };
         });
         
       } catch (error: any) {
@@ -269,5 +311,46 @@ export class BridgeServer {
     console.log(`[BridgeServer]   SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
     console.log(`[BridgeServer]   CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
     console.log(`[BridgeServer]   DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
+  }
+  
+  // MCP integration methods
+  getLogBuffer(): LogBuffer {
+    return this.logBuffer;
+  }
+  
+  getMcpServer(): McpServer {
+    return this.mcpServer;
+  }
+  
+  getConnectionState(): { connected: boolean; deviceName?: string; connectedAt?: string; lastActivity?: string } {
+    return { ...this.connectionState };
+  }
+  
+  async scanDevices(duration?: number): Promise<any[]> {
+    // CRITICAL: Check connection state first
+    if (this.transport && this.transport.getState() === 'connected') {
+      throw new Error('Cannot scan while connected to a device. Please disconnect first.');
+    }
+    
+    // Use existing transport or create temporary one
+    const scanTransport = this.transport || new NobleTransport(this.logLevel);
+    const devices = await scanTransport.performQuickScan(duration || 5000);
+    
+    // Clean up temporary transport
+    if (!this.transport && scanTransport) {
+      await scanTransport.disconnect();
+    }
+    
+    return devices.map(d => ({
+      id: d.id,
+      name: d.name || 'Unknown',
+      rssi: d.rssi
+    }));
+  }
+  
+  private updateActivity(): void {
+    if (this.connectionState.connected) {
+      this.connectionState.lastActivity = new Date().toISOString();
+    }
   }
 }

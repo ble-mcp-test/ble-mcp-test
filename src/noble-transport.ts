@@ -38,7 +38,7 @@ export async function cleanupNoble(): Promise<void> {
       if (activeScanners > 0) {
         try {
           await noble.stopScanningAsync();
-        } catch (e: any) {
+        } catch {
           // Ignore stop scanning errors
         }
       }
@@ -430,7 +430,6 @@ export class NobleTransport {
       }
     }
     
-    let services;
     let targetService;
     
     // Add service discovery with timeout
@@ -649,7 +648,6 @@ export class NobleTransport {
       
       // 5. Check for specific high-pressure indicators
       const scanStopListeners = noble.listenerCount('scanStop');
-      const discoverListeners = noble.listenerCount('discover');
       
       // Calculate total pressure from all sources
       const totalListeners = nobleListeners + bindingsListeners + peripheralListeners;
@@ -784,8 +782,8 @@ export class NobleTransport {
     }
   }
   
-  async performQuickScan(duration: number): Promise<Array<{id: string, name?: string}>> {
-    const devices: Array<{id: string, name?: string}> = [];
+  async performQuickScan(duration: number): Promise<Array<{id: string, name?: string, rssi?: number}>> {
+    const devices: Array<{id: string, name?: string, rssi?: number}> = [];
     
     try {
       // Ensure noble is ready
@@ -838,7 +836,7 @@ export class NobleTransport {
         
         // Add to list if not already present
         if (!devices.some(d => d.id === device.id)) {
-          devices.push({ id: device.id, name });
+          devices.push({ id: device.id, name, rssi: device.rssi });
         }
       }
       
@@ -856,7 +854,9 @@ export class NobleTransport {
       // Stop scanning on error
       try {
         await noble.stopScanningAsync();
-      } catch {} // Ignore cleanup errors
+      } catch {
+        // Ignore cleanup errors
+      }
       
       throw error;
     }
