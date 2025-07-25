@@ -29,7 +29,12 @@ interface ServerStatus {
   version: string;
   uptime: number;
   wsPort: number;
-  mcpPort: number;
+  mcpTransports: {
+    stdio: boolean;
+    http: boolean;
+    httpPort?: number;
+    httpAuth: boolean;
+  };
   logBufferSize: number;
   logLevel: string;
 }
@@ -148,11 +153,21 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       inputSchema: {}
     },
     async () => {
+      // Determine active transports
+      const hasTty = process.stdin.isTTY && process.stdout.isTTY;
+      const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
+      const httpEnabled = !!process.argv.includes('--mcp-http') || !!process.env.MCP_PORT || !!process.env.MCP_TOKEN;
+      
       const status: ServerStatus = {
         version: '0.3.0',
         uptime: process.uptime(),
         wsPort: parseInt(process.env.WS_PORT || '8080'),
-        mcpPort: parseInt(process.env.MCP_PORT || '3000'),
+        mcpTransports: {
+          stdio: stdioEnabled,
+          http: httpEnabled,
+          httpPort: httpEnabled ? parseInt(process.env.MCP_PORT || '8081') : undefined,
+          httpAuth: !!process.env.MCP_TOKEN
+        },
         logBufferSize: parseInt(process.env.LOG_BUFFER_SIZE || '10000'),
         logLevel: process.env.LOG_LEVEL || 'debug'
       };

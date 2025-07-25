@@ -2,7 +2,7 @@
 
 ## Overview
 
-Web-ble-bridge includes an integrated MCP (Model Context Protocol) server that provides powerful debugging and analysis capabilities for BLE communication. The MCP server runs alongside the WebSocket bridge, exposing tools through both stdio and HTTP/SSE transports.
+ble-mcp-test includes integrated MCP (Model Context Protocol) tools that provide powerful debugging and analysis capabilities for BLE communication. MCP runs alongside the WebSocket bridge, using stdio transport by default for security. HTTP/SSE transport can be enabled when network access is needed.
 
 ## Architecture
 
@@ -18,7 +18,7 @@ The MCP server is integrated directly into the bridge server process:
 ├─────────────────────────────────────┤
 │  MCP Server                         │
 │  ├─ Stdio Transport (local)         │
-│  └─ HTTP/SSE Transport (Port 3000)  │
+│  └─ HTTP/SSE Transport (Port 8081)  │
 ├─────────────────────────────────────┤
 │  Shared Components                  │
 │  ├─ Circular Log Buffer (10k)       │
@@ -29,22 +29,24 @@ The MCP server is integrated directly into the bridge server process:
 
 ## Transports
 
-### HTTP/SSE Transport (Default)
+### Stdio Transport (Default)
 
-The HTTP transport allows network access from VMs, containers, and other machines:
-
-- **Port**: 3000 (configurable via `MCP_PORT`)
-- **Protocol**: HTTP with Server-Sent Events (SSE)
-- **Authentication**: Optional bearer token
-- **CORS**: Permissive for local network use
-
-### Stdio Transport
-
-Available when running with TTY (interactive terminal):
+Secure local transport for terminal/CLI access:
 
 - **Auto-enabled**: When `process.stdin.isTTY` is true
 - **Disabled**: In cloud/Docker environments without TTY
 - **Force disable**: Set `DISABLE_STDIO=true`
+- **Security**: No network ports opened
+
+### HTTP/SSE Transport (Optional)
+
+Network transport for remote access from VMs, containers, and other machines:
+
+- **Enable**: Set `MCP_PORT`, `MCP_TOKEN`, or use `--mcp-http` flag
+- **Port**: 8081 (configurable via `MCP_PORT`)
+- **Protocol**: HTTP with Server-Sent Events (SSE)
+- **Authentication**: Bearer token (when `MCP_TOKEN` is set)
+- **CORS**: Permissive for local network use
 
 ## Available Tools
 
@@ -160,7 +162,7 @@ Get bridge server status and configuration.
   "version": "0.3.0",
   "uptime": 3600,
   "wsPort": 8080,
-  "mcpPort": 3000,
+  "mcpPort": 8081,
   "logBufferSize": 10000,
   "logBufferUsed": 1532,
   "connections": {
@@ -210,12 +212,13 @@ Scan for nearby BLE devices.
 
 ```bash
 # MCP Server Configuration
-MCP_PORT=3000              # HTTP transport port
-MCP_TOKEN=secret123        # Optional bearer token
+MCP_PORT=8081              # HTTP transport port (enables HTTP when set)
+MCP_TOKEN=secret123        # Bearer token (enables HTTP when set)
 LOG_BUFFER_SIZE=50000      # Circular buffer size (default: 10000)
 
-# Disable transports
+# Transport control
 DISABLE_STDIO=true         # Force disable stdio transport
+--mcp-http                 # CLI flag to enable HTTP transport
 ```
 
 ### Authentication
@@ -245,7 +248,7 @@ Add to your `settings.json`:
   "mcpServers": {
     "ble-mcp-test": {
       "transport": "http",
-      "url": "http://localhost:3000/mcp",
+      "url": "http://localhost:8081/mcp",
       "headers": {
         "Authorization": "Bearer your-token-here"
       }
@@ -263,7 +266,7 @@ For access from VMs or other machines:
   "mcpServers": {
     "ble-mcp-test": {
       "transport": "http",
-      "url": "http://macbook.local:3000/mcp",
+      "url": "http://macbook.local:8081/mcp",
       "headers": {
         "Authorization": "Bearer your-token-here"
       }
@@ -306,13 +309,13 @@ uvx mcp-cli chat --server ble-mcp-test
 2. **Firewall rules** to restrict access:
    ```bash
    # Allow only local network
-   sudo ufw allow from 192.168.0.0/16 to any port 3000
+   sudo ufw allow from 192.168.0.0/16 to any port 8081
    ```
 
 3. **Use SSH tunneling** for remote access:
    ```bash
    # On remote machine
-   ssh -L 3000:localhost:3000 user@ble-host
+   ssh -L 8081:localhost:8081 user@ble-host
    ```
 
 ## Debugging
@@ -321,10 +324,10 @@ uvx mcp-cli chat --server ble-mcp-test
 
 ```bash
 # Verify HTTP server is running
-curl http://localhost:3000/health
+curl http://localhost:8081/health
 
 # Test with authentication
-curl -H "Authorization: Bearer your-token" http://localhost:3000/health
+curl -H "Authorization: Bearer your-token" http://localhost:8081/health
 ```
 
 ### View Server Logs
@@ -334,7 +337,7 @@ curl -H "Authorization: Bearer your-token" http://localhost:3000/health
 LOG_LEVEL=debug pnpm start
 
 # Watch for MCP-specific logs
-[MCP HTTP] Server listening on port 3000
+[MCP HTTP] Server listening on port 8081
 [MCP HTTP] New session initialized: <session-id>
 ```
 
@@ -358,7 +361,7 @@ LOG_LEVEL=debug pnpm start
 
 ```javascript
 // Using fetch API
-const response = await fetch('http://localhost:3000/mcp', {
+const response = await fetch('http://localhost:8081/mcp', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',
@@ -385,7 +388,7 @@ const response = await fetch('http://localhost:3000/mcp', {
 
 ```javascript
 // Search for CS108 battery voltage command (A000)
-const response = await fetch('http://localhost:3000/mcp', {
+const response = await fetch('http://localhost:8081/mcp', {
   method: 'POST',
   headers: {
     'Content-Type': 'application/json',

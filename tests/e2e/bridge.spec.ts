@@ -7,10 +7,11 @@ test.describe('WebSocket Bridge E2E', () => {
   const testConfig = getTestConfig();
 
   test.beforeAll(async () => {
-    // Start bridge server if not using external
-    if (!process.env.WS_URL || process.env.WS_URL.includes('localhost')) {
+    // Only start a local server if no WS_URL is provided
+    // If WS_URL is set (even to localhost), assume external server is running
+    if (!process.env.WS_URL) {
       bridge = new BridgeServer();
-      bridge.start(8080);
+      await bridge.start(8080);
     }
   });
 

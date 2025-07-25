@@ -1,4 +1,5 @@
 import { formatHex } from './utils.js';
+import { Logger } from './logger.js';
 
 export interface LogEntry {
   id: number;              // Global sequence number
@@ -11,18 +12,20 @@ export interface LogEntry {
 export class LogBuffer {
   private buffer: LogEntry[] = [];
   private maxSize: number;
+  private logger: Logger;
   private sequenceCounter = 0;
   private clientPositions = new Map<string, number>(); // client_id -> last_seen_id
 
   constructor(maxSize?: number) {
     // Default 10k, configurable via env var or constructor
     this.maxSize = maxSize || parseInt(process.env.LOG_BUFFER_SIZE || '10000', 10);
+    this.logger = new Logger('LogBuffer');
     
     // Validate reasonable bounds (100 to 1M entries)
     if (this.maxSize < 100) this.maxSize = 100;
     if (this.maxSize > 1000000) this.maxSize = 1000000;
     
-    console.log(`[LogBuffer] Initialized with max size: ${this.maxSize} entries`);
+    this.logger.debug(`Initialized with max size: ${this.maxSize} entries`);
   }
 
   push(direction: 'TX' | 'RX', data: Uint8Array): void {

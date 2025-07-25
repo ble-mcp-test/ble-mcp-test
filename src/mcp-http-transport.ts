@@ -3,9 +3,11 @@ import cors from 'cors';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { randomUUID } from 'crypto';
+import { Logger } from './logger.js';
 
 // Transport storage for sessions
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+const logger = new Logger('MCP HTTP');
 
 export function createHttpApp(server: McpServer, token?: string): Express {
   const app = express();
@@ -48,7 +50,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
           sessionIdGenerator: () => sessionId,
           onsessioninitialized: (id: string) => {
             transports[id] = transport;
-            console.log(`[MCP HTTP] New session initialized: ${id}`);
+            logger.debug(`New session initialized: ${id}`);
           },
           enableJsonResponse: true // Allow JSON responses for simple testing
         });
@@ -58,7 +60,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
       // handleRequest will handle the response internally
       await transport.handleRequest(req, res, req.body);
     } catch (error: any) {
-      console.error('[MCP HTTP] Error handling request:', error);
+      logger.error('Error handling request:', error);
       res.status(500).json({ 
         error: 'Internal server error',
         message: error.message 
@@ -79,7 +81,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
       // For GET requests, handleRequest will set up SSE streaming
       await transport.handleRequest(req, res);
     } catch (error: any) {
-      console.error('[MCP HTTP] Error handling SSE request:', error);
+      logger.error('Error handling SSE request:', error);
       res.status(500).json({ 
         error: 'Internal server error',
         message: error.message 
@@ -95,7 +97,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
     if (transport) {
       transport.close();
       delete transports[sessionId];
-      console.log(`[MCP HTTP] Session terminated: ${sessionId}`);
+      logger.debug(`Session terminated: ${sessionId}`);
     }
     
     res.status(204).send();
@@ -103,9 +105,20 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   
   // Health check endpoint
   app.get('/health', (req, res) => {
+    const hasTty = process.stdin.isTTY && process.stdout.isTTY;
+    const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
+    
     res.json({ 
       status: 'ok',
-      sessions: Object.keys(transports).length,
+      mcp: {
+        transports: {
+          stdio: stdioEnabled,
+          http: true, // Always true if this endpoint is accessible
+          httpPort: parseInt(process.env.MCP_PORT || '8081'),
+          httpAuth: !!token
+        },
+        sessions: Object.keys(transports).length
+      },
       timestamp: new Date().toISOString()
     });
   });
@@ -115,14 +128,14 @@ export function createHttpApp(server: McpServer, token?: string): Express {
 
 // Helper to start HTTP server
 export function startHttpServer(app: Express, port?: number): void {
-  const actualPort = port || parseInt(process.env.MCP_PORT || '3000', 10);
+  const actualPort = port || parseInt(process.env.MCP_PORT || '8081', 10);
   
   app.listen(actualPort, '0.0.0.0', () => {
-    console.log(`[MCP HTTP] Server listening on 0.0.0.0:${actualPort}`);
+    logger.info(`Server listening on 0.0.0.0:${actualPort}`);
     if (process.env.MCP_TOKEN) {
-      console.log('[MCP HTTP] Authentication enabled (Bearer token required)');
+      logger.info('Authentication enabled (Bearer token required)');
     } else {
-      console.log('[MCP HTTP] ⚠️  Running without authentication - local network only!');
+      logger.warn('⚠️  Running without authentication - local network only!');
     }
   });
 }
@@ -135,5 +148,5 @@ export function cleanupHttpTransports(): void {
       transport.close();
     }
   });
-  console.log('[MCP HTTP] All sessions closed');
+  logger.info('All sessions closed');
 }

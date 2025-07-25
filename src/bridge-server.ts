@@ -4,6 +4,7 @@ import { LogLevel, formatHex } from './utils.js';
 import { LogBuffer } from './log-buffer.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerMcpTools } from './mcp-tools.js';
+import { Logger } from './logger.js';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
@@ -11,6 +12,7 @@ export class BridgeServer {
   private logClients: Set<any> = new Set();
   private logLevel: LogLevel;
   private logBuffer: LogBuffer;
+  private logger: Logger;
   private mcpServer: McpServer;
   private connectionState: {
     connected: boolean;
@@ -21,6 +23,7 @@ export class BridgeServer {
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
+    this.logger = new Logger('BridgeServer');
     this.logBuffer = new LogBuffer();
     
     // Initialize MCP server
@@ -83,11 +86,11 @@ export class BridgeServer {
         return;
       }
       
-      console.log(`[BridgeServer] New WebSocket connection`);
-      console.log(`[BridgeServer]   Device prefix: ${bleConfig.devicePrefix}`);
-      console.log(`[BridgeServer]   Service UUID: ${bleConfig.serviceUuid}`);
-      console.log(`[BridgeServer]   Write UUID: ${bleConfig.writeUuid}`);
-      console.log(`[BridgeServer]   Notify UUID: ${bleConfig.notifyUuid}`);
+      this.logger.info('New WebSocket connection');
+      this.logger.debug(`  Device prefix: ${bleConfig.devicePrefix}`);
+      this.logger.debug(`  Service UUID: ${bleConfig.serviceUuid}`);
+      this.logger.debug(`  Write UUID: ${bleConfig.writeUuid}`);
+      this.logger.debug(`  Notify UUID: ${bleConfig.notifyUuid}`);
       
       // Create transport if needed
       if (!this.transport) {
@@ -96,7 +99,7 @@ export class BridgeServer {
       
       // Try to claim the connection atomically
       if (!this.transport.tryClaimConnection()) {
-        console.warn(`[BridgeServer] Rejecting connection - BLE state: ${this.transport.getState()}`);
+        this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
         ws.send(JSON.stringify({ 
           type: 'error', 
           error: 'Another connection is active' 
@@ -107,27 +110,27 @@ export class BridgeServer {
       
       try {
         // Connect to BLE device
-        console.log('[BridgeServer] Starting BLE connection...');
+        this.logger.info('Starting BLE connection...');
         
         // Track if we're already disconnecting to prevent loops
         let isDisconnecting = false;
         
         await this.transport.connect(bleConfig, {
           onData: (data) => {
-            console.log(`[BridgeServer] Forwarding ${data.length} bytes to WebSocket`);
+            this.logger.debug(`Forwarding ${data.length} bytes to WebSocket`);
             
             // Add to shared log buffer
             this.logBuffer.push('RX', data);
             this.updateActivity();
             
             if (this.logLevel === 'debug') {
-              console.log(`[RX] ${formatHex(data)}`);
+              this.logger.debug(`[RX] ${formatHex(data)}`);
             }
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
             if (!isDisconnecting) {
-              console.log('[BridgeServer] BLE disconnected, closing WebSocket');
+              this.logger.info('BLE disconnected, closing WebSocket');
               ws.send(JSON.stringify({ type: 'disconnected' }));
               ws.close();
             }
@@ -143,7 +146,7 @@ export class BridgeServer {
         };
         
         // Send connected message
-        console.log(`[BridgeServer] BLE connected, sending connected message`);
+        this.logger.info('BLE connected, sending connected message');
         ws.send(JSON.stringify({ 
           type: 'connected', 
           device: this.transport.getDeviceName() 
@@ -161,7 +164,7 @@ export class BridgeServer {
               this.updateActivity();
               
               if (this.logLevel === 'debug') {
-                console.log(`[TX] ${formatHex(dataArray)}`);
+                this.logger.debug(`[TX] ${formatHex(dataArray)}`);
               }
               await this.transport.sendData(dataArray);
             }
@@ -172,11 +175,11 @@ export class BridgeServer {
         
         // Clean disconnect on WebSocket close
         ws.on('close', async () => {
-          console.log('[BridgeServer] WebSocket closed, disconnecting BLE');
+          this.logger.info('WebSocket closed, disconnecting BLE');
           isDisconnecting = true;
           if (this.transport) {
             await this.transport.disconnect();
-            console.log('[BridgeServer] BLE disconnected successfully');
+            this.logger.debug('BLE disconnected successfully');
           }
           
           // Clear connection state
@@ -184,7 +187,7 @@ export class BridgeServer {
         });
         
       } catch (error: any) {
-        console.error('[BridgeServer] Error:', error?.message || error);
+        this.logger.error('Error:', error?.message || error);
         ws.send(JSON.stringify({ 
           type: 'error', 
           error: error?.message || error?.toString() || 'Unknown error' 
@@ -201,7 +204,7 @@ export class BridgeServer {
   }
   
   async stop() {
-    console.log('[BridgeServer] Stopping server...');
+    this.logger.info('Stopping server...');
     
     // Close all WebSocket connections
     if (this.wss) {
@@ -212,7 +215,7 @@ export class BridgeServer {
       // Properly close the server
       await new Promise<void>((resolve) => {
         this.wss!.close(() => {
-          console.log('[BridgeServer] WebSocket server closed');
+          this.logger.debug('WebSocket server closed');
           resolve();
         });
       });
@@ -224,7 +227,7 @@ export class BridgeServer {
       this.transport = null;
     }
     
-    console.log('[BridgeServer] Server stopped');
+    this.logger.info('Server stopped');
   }
   
   private interceptConsole() {
@@ -265,7 +268,7 @@ export class BridgeServer {
   }
   
   private async performStartupScan() {
-    console.log('[BridgeServer] Performing startup BLE scan to verify functionality...');
+    this.logger.info('Performing startup BLE scan to verify functionality...');
     
     try {
       // Create a temporary transport just for scanning
@@ -275,42 +278,42 @@ export class BridgeServer {
       const devices = await scanTransport.performQuickScan(2000);
       
       if (devices.length > 0) {
-        console.log(`[BridgeServer] BLE is functional. Found ${devices.length} device(s):`);
+        this.logger.info(`BLE is functional. Found ${devices.length} device(s):`);
         if (this.logLevel === 'debug') {
           devices.forEach(device => {
-            console.log(`[BridgeServer]   - ${device.name || 'Unknown'} (${device.id})`);
+            this.logger.debug(`  - ${device.name || 'Unknown'} (${device.id})`);
           });
         }
       } else {
-        console.log('[BridgeServer] BLE is functional. No devices found in range.');
+        this.logger.info('BLE is functional. No devices found in range.');
       }
       
       // Clean up the temporary transport
       await scanTransport.disconnect();
     } catch (error) {
-      console.error('[BridgeServer] BLE functionality check failed:', error);
-      console.error('[BridgeServer] The bridge server will start but BLE operations may fail.');
-      console.error('[BridgeServer] Please ensure:');
-      console.error('[BridgeServer]   - Bluetooth is enabled on this system');
-      console.error('[BridgeServer]   - Node.js has Bluetooth permissions');
-      console.error('[BridgeServer]   - No other process is using Bluetooth');
+      this.logger.error('BLE functionality check failed:', error);
+      this.logger.error('The bridge server will start but BLE operations may fail.');
+      this.logger.error('Please ensure:');
+      this.logger.error('  - Bluetooth is enabled on this system');
+      this.logger.error('  - Node.js has Bluetooth permissions');
+      this.logger.error('  - No other process is using Bluetooth');
     }
   }
   
   private logBleTimingConfig() {
-    console.log('[BridgeServer] BLE Timing Configuration:');
-    console.log(`[BridgeServer]   Platform: ${process.platform}`);
+    this.logger.info('BLE Timing Configuration:');
+    this.logger.info(`  Platform: ${process.platform}`);
     
     // Get actual timing configuration from NobleTransport
     const timings = NobleTransport.getTimingConfig();
     
     // Check which values are from environment overrides
-    console.log(`[BridgeServer]   CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_CONNECTION_STABILITY ? ' (env override)' : ''}`);
-    console.log(`[BridgeServer]   PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
-    console.log(`[BridgeServer]   NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
-    console.log(`[BridgeServer]   SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
-    console.log(`[BridgeServer]   CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
-    console.log(`[BridgeServer]   DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
+    this.logger.info(`  CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_CONNECTION_STABILITY ? ' (env override)' : ''}`);
+    this.logger.info(`  PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
+    this.logger.info(`  NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
+    this.logger.info(`  SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
+    this.logger.info(`  CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
+    this.logger.info(`  DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
   }
   
   // MCP integration methods

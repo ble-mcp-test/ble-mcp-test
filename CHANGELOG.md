@@ -12,11 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - HTTP/SSE transport for network-accessible MCP connections
 - 5 debugging tools accessible via MCP: get_logs, search_packets, get_connection_state, status, scan_devices
 - Circular log buffer with client position tracking
-- Optional bearer token authentication for MCP endpoints
+- Bearer token authentication for MCP endpoints (optional - local access allowed without token)
 - Cross-machine access support (e.g., VM → Mac/Pi)
 
 ### Changed
 - **BREAKING**: Package renamed from `@trakrf/web-ble-bridge` to `ble-mcp-test`
+- MCP server is now always enabled (removed `--no-mcp` flag) - it's a core feature!
   - Update imports: `@trakrf/web-ble-bridge` → `ble-mcp-test`
   - Update CLI commands: `npx @trakrf/web-ble-bridge` → `pnpm dlx ble-mcp-test`
   - Update binary name: `web-ble-bridge` → `ble-mcp-test`

@@ -20,10 +20,11 @@ describe('MCP Tools Integration Tests', () => {
   
   it('should have all 5 tools registered', () => {
     // Access the internal tools registry
-    const tools = (mcpServer as any)._tools;
-    expect(tools.size).toBe(5);
+    const tools = (mcpServer as any)._registeredTools;
+    expect(tools).toBeDefined();
+    expect(Object.keys(tools).length).toBe(5);
     
-    const toolNames = Array.from(tools.keys());
+    const toolNames = Object.keys(tools);
     expect(toolNames).toContain('get_logs');
     expect(toolNames).toContain('search_packets');
     expect(toolNames).toContain('get_connection_state');
@@ -38,8 +39,8 @@ describe('MCP Tools Integration Tests', () => {
     logBuffer.push('RX', new Uint8Array([0x04, 0x05, 0x06]));
     
     // Get the tool
-    const tools = (mcpServer as any)._tools;
-    const getLogsTool = tools.get('get_logs');
+    const tools = (mcpServer as any)._registeredTools;
+    const getLogsTool = tools['get_logs'];
     
     // Execute the tool
     const result = await getLogsTool.callback(
@@ -66,8 +67,8 @@ describe('MCP Tools Integration Tests', () => {
     logBuffer.push('RX', new Uint8Array([0x02, 0x03, 0x04]));
     logBuffer.push('TX', new Uint8Array([0xA7, 0xB3, 0x02]));
     
-    const tools = (mcpServer as any)._tools;
-    const searchTool = tools.get('search_packets');
+    const tools = (mcpServer as any)._registeredTools;
+    const searchTool = tools['search_packets'];
     
     const result = await searchTool.callback(
       { hex_pattern: 'A7B3', limit: 10 },
@@ -81,8 +82,8 @@ describe('MCP Tools Integration Tests', () => {
   });
   
   it('should execute get_connection_state tool', async () => {
-    const tools = (mcpServer as any)._tools;
-    const stateTool = tools.get('get_connection_state');
+    const tools = (mcpServer as any)._registeredTools;
+    const stateTool = tools['get_connection_state'];
     
     const result = await stateTool.callback(
       {},
@@ -96,8 +97,8 @@ describe('MCP Tools Integration Tests', () => {
   });
   
   it('should execute status tool', async () => {
-    const tools = (mcpServer as any)._tools;
-    const statusTool = tools.get('status');
+    const tools = (mcpServer as any)._registeredTools;
+    const statusTool = tools['status'];
     
     const result = await statusTool.callback(
       {},
@@ -108,12 +109,15 @@ describe('MCP Tools Integration Tests', () => {
     expect(status.version).toBe('0.3.0');
     expect(status.uptime).toBeGreaterThan(0);
     expect(status.wsPort).toBeDefined();
-    expect(status.mcpPort).toBeDefined();
+    expect(status.mcpTransports).toBeDefined();
+    // Test environment behavior varies, so just check structure
+    expect(status.logBufferSize).toBe(10000);
+    expect(status.logLevel).toBe('debug');
   });
   
   it('should handle scan_devices when not connected', async () => {
-    const tools = (mcpServer as any)._tools;
-    const scanTool = tools.get('scan_devices');
+    const tools = (mcpServer as any)._registeredTools;
+    const scanTool = tools['scan_devices'];
     
     try {
       // This will likely fail in test environment without BLE

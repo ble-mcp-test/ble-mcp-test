@@ -203,8 +203,8 @@ Environment variables:
 - `WS_HOST` - WebSocket host (default: `0.0.0.0`)
 - `WS_PORT` - WebSocket port (default: `8080`)
 - `LOG_LEVEL` - Logging level: debug, info, warn, error (default: `debug`)
-- `MCP_PORT` - MCP HTTP server port (default: `3000`)
-- `MCP_TOKEN` - Optional bearer token for MCP authentication
+- `MCP_PORT` - MCP HTTP server port (default: `8081`, setting this enables HTTP transport)
+- `MCP_TOKEN` - Bearer token for MCP authentication (setting this enables HTTP transport)
 - `LOG_BUFFER_SIZE` - Circular buffer size for logs (default: `10000`, min: 100, max: 1000000)
 
 ### Device Configuration
@@ -344,7 +344,7 @@ The bridge uses a simple JSON protocol over WebSocket:
 
 ### Direct Integration via MCP Server
 
-Web-ble-bridge now includes an integrated MCP (Model Context Protocol) server for powerful debugging and analysis:
+The ble-mcp-test server always includes MCP (Model Context Protocol) tools for powerful debugging and analysis. By default, MCP uses stdio transport for security (no network ports opened). To enable HTTP transport on port 8081:
 
 ```json
 // In your Claude Code settings.json
@@ -352,7 +352,7 @@ Web-ble-bridge now includes an integrated MCP (Model Context Protocol) server fo
   "mcpServers": {
     "ble-mcp-test": {
       "transport": "http",
-      "url": "http://localhost:3000/mcp",
+      "url": "http://localhost:8081/mcp",
       "headers": {
         "Authorization": "Bearer your-optional-token"
       }
@@ -368,6 +368,22 @@ Web-ble-bridge now includes an integrated MCP (Model Context Protocol) server fo
 3. **get_connection_state** - Monitor current connection status
 4. **status** - Get bridge server status and statistics
 5. **scan_devices** - Scan for nearby BLE devices
+
+#### MCP Transport Options
+
+```bash
+# Default: stdio transport only (secure, no network ports)
+pnpm start
+
+# Enable HTTP transport on port 8081
+pnpm start:http
+
+# Enable HTTP with authentication
+MCP_TOKEN=secret pnpm start
+
+# Custom port (also enables HTTP)
+MCP_PORT=8000 pnpm start
+```
 
 #### Running with Authentication
 

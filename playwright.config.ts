@@ -17,7 +17,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { browserName: 'chromium' },
+      use: { 
+        browserName: 'chromium',
+        launchOptions: {
+          args: ['--disable-blink-features=AutomationControlled']
+        }
+      },
     },
   ],
   webServer: {

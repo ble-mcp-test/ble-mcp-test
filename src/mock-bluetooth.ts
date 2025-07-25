@@ -153,6 +153,31 @@ export function injectWebBluetoothMock(serverUrl?: string): void {
     return;
   }
   
-  // Replace navigator.bluetooth with our mock
-  (window.navigator as any).bluetooth = new MockBluetooth(serverUrl);
+  // Try to replace navigator.bluetooth with our mock
+  const mockBluetooth = new MockBluetooth(serverUrl);
+  
+  try {
+    // First attempt: direct assignment
+    (window.navigator as any).bluetooth = mockBluetooth;
+  } catch {
+    // Second attempt: defineProperty
+    try {
+      Object.defineProperty(window.navigator, 'bluetooth', {
+        value: mockBluetooth,
+        configurable: true,
+        writable: true
+      });
+    } catch {
+      // Third attempt: create a new navigator object
+      const nav = Object.create(window.navigator);
+      nav.bluetooth = mockBluetooth;
+      
+      // Replace window.navigator
+      Object.defineProperty(window, 'navigator', {
+        value: nav,
+        configurable: true,
+        writable: true
+      });
+    }
+  }
 }

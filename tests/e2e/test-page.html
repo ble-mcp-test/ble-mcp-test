@@ -29,6 +29,11 @@
             };
             
             try {
+                // Check if WebBleMock is loaded
+                if (typeof WebBleMock === 'undefined') {
+                    throw new Error('WebBleMock global not found - bundle may not be loaded');
+                }
+                
                 // Build WebSocket URL with device parameters
                 const url = new URL(wsUrl);
                 url.searchParams.set('device', config.device);
