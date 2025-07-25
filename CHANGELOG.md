@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - **BREAKING**: Package renamed from `@trakrf/web-ble-bridge` to `ble-mcp-test`
-- MCP server is now always enabled (removed `--no-mcp` flag) - it's a core feature!
+- MCP server is now always enabled - it's a core feature!
   - Update imports: `@trakrf/web-ble-bridge` → `ble-mcp-test`
   - Update CLI commands: `npx @trakrf/web-ble-bridge` → `pnpm dlx ble-mcp-test`
   - Update binary name: `web-ble-bridge` → `ble-mcp-test`
