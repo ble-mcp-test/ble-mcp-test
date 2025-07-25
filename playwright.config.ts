@@ -6,6 +6,7 @@ export default defineConfig({
   timeout: 60000,
   fullyParallel: true,
   reporter: 'list',
+  outputDir: './tmp/test-results',
   use: {
     headless: true,
     viewport: { width: 1280, height: 720 },

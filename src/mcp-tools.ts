@@ -3,24 +3,6 @@ import { z } from 'zod';
 import type { BridgeServer } from './bridge-server.js';
 import { LogEntry } from './log-buffer.js';
 
-// Tool input schemas
-const GetLogsSchema = z.object({
-  since: z.string().default('30s'),
-  filter: z.string().optional(),
-  limit: z.number().min(1).max(1000).default(100)
-});
-
-const SearchPacketsSchema = z.object({
-  hex_pattern: z.string(),
-  limit: z.number().min(1).max(1000).default(100)
-});
-
-const StatusSchema = z.object({});
-const GetConnectionStateSchema = z.object({});
-const ScanDevicesSchema = z.object({
-  duration: z.number().min(1000).max(30000).default(5000)
-});
-
 // Response interfaces
 interface LogsResponse {
   logs: LogEntry[];
@@ -60,9 +42,14 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     {
       title: 'Get BLE Communication Logs',
       description: 'Retrieve recent BLE communication logs with filtering options',
-      inputSchema: GetLogsSchema as any
+      inputSchema: {
+        since: z.string().default('30s').describe("Time filter: duration (30s, 5m, 1h), ISO timestamp, or 'last'"),
+        filter: z.string().optional().describe("Filter by 'TX'/'RX' or hex pattern"),
+        limit: z.number().min(1).max(1000).default(100).describe("Maximum entries to return")
+      }
     },
-    (async ({ since, filter, limit }: z.infer<typeof GetLogsSchema>) => {
+    async (args) => {
+      const { since, filter, limit } = args;
       const logs = bridgeServer.getLogBuffer().getLogsSince(since, limit);
       
       // Apply filter if provided
@@ -93,7 +80,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
           text: JSON.stringify(response, null, 2)
         }]
       };
-    }) as any
+    }
   );
 
   // Tool 2: search_packets
@@ -102,9 +89,13 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     {
       title: 'Search BLE Packets',
       description: 'Search for hex patterns in BLE packets',
-      inputSchema: SearchPacketsSchema as any
+      inputSchema: {
+        hex_pattern: z.string().describe("Hex pattern to search for (case insensitive, spaces optional)"),
+        limit: z.number().min(1).max(1000).default(100).describe("Maximum results to return")
+      }
     },
-    (async ({ hex_pattern, limit }: z.infer<typeof SearchPacketsSchema>) => {
+    async (args) => {
+      const { hex_pattern, limit } = args;
       const matches = bridgeServer.getLogBuffer().searchPackets(hex_pattern, limit);
       
       const response: SearchResponse = {
@@ -119,7 +110,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
           text: JSON.stringify(response, null, 2)
         }]
       };
-    }) as any
+    }
   );
 
   // Tool 3: get_connection_state
@@ -128,9 +119,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     {
       title: 'Get Connection State',
       description: 'Get detailed BLE connection state and activity',
-      inputSchema: GetConnectionStateSchema as any
+      inputSchema: {}
     },
-    (async () => {
+    async () => {
       const state = bridgeServer.getConnectionState();
       const stats = bridgeServer.getLogBuffer().getConnectionStats();
       
@@ -145,7 +136,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
           text: JSON.stringify(response, null, 2)
         }]
       };
-    }) as any
+    }
   );
 
   // Tool 4: status
@@ -154,9 +145,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     {
       title: 'Get Bridge Server Status',
       description: 'Get bridge server status and configuration',
-      inputSchema: StatusSchema as any
+      inputSchema: {}
     },
-    (async () => {
+    async () => {
       const status: ServerStatus = {
         version: '0.3.0',
         uptime: process.uptime(),
@@ -172,7 +163,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
           text: JSON.stringify(status, null, 2)
         }]
       };
-    }) as any
+    }
   );
 
   // Tool 5: scan_devices
@@ -181,9 +172,12 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     {
       title: 'Scan for BLE Devices',
       description: 'Scan for nearby BLE devices (only when not connected)',
-      inputSchema: ScanDevicesSchema as any
+      inputSchema: {
+        duration: z.number().min(1000).max(30000).default(5000).describe("Scan duration in milliseconds")
+      }
     },
-    (async ({ duration }: z.infer<typeof ScanDevicesSchema>) => {
+    async (args) => {
+      const { duration } = args;
       try {
         const devices = await bridgeServer.scanDevices(duration);
         
@@ -209,6 +203,6 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         
         throw error;
       }
-    }) as any
+    }
   );
 }

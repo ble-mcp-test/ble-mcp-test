@@ -198,6 +198,10 @@ WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
 Environment variables:
 - `WS_HOST` - WebSocket host (default: `0.0.0.0`)
 - `WS_PORT` - WebSocket port (default: `8080`)
+- `LOG_LEVEL` - Logging level: debug, info, warn, error (default: `debug`)
+- `MCP_PORT` - MCP HTTP server port (default: `3000`)
+- `MCP_TOKEN` - Optional bearer token for MCP authentication
+- `LOG_BUFFER_SIZE` - Circular buffer size for logs (default: `10000`, min: 100, max: 1000000)
 
 ### Device Configuration
 
@@ -332,29 +336,96 @@ The bridge uses a simple JSON protocol over WebSocket:
 - [API Documentation](docs/API.md) - Detailed API reference
 - [Migration Guide](docs/MIGRATION.md) - Migrating from native Web Bluetooth
 
+## Using with Claude Code
+
+### Direct Integration via MCP Server
+
+Web-ble-bridge now includes an integrated MCP (Model Context Protocol) server for powerful debugging and analysis:
+
+```json
+// In your Claude Code settings.json
+{
+  "mcpServers": {
+    "web-ble-bridge": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer your-optional-token"
+      }
+    }
+  }
+}
+```
+
+#### Available MCP Tools
+
+1. **get_logs** - Retrieve recent BLE communication logs
+2. **search_packets** - Search for hex patterns in packet history
+3. **get_connection_state** - Monitor current connection status
+4. **status** - Get bridge server status and statistics
+5. **scan_devices** - Scan for nearby BLE devices
+
+#### Running with Authentication
+
+For added security on local networks:
+
+```bash
+# Generate a random token automatically
+pnpm start:auth
+
+# Or set your own token
+MCP_TOKEN=your-secret-token pnpm start
+
+# Or use .env.local
+echo "MCP_TOKEN=your-secret-token" >> .env.local
+pnpm start
+```
+
+This enables natural language BLE interactions in Claude Code:
+- "What BLE devices are available?"
+- "Show me recent BLE communication logs"
+- "Search for packets containing A7B3"
+- "What's the current connection status?"
+
+### Using the CLI (Available Now)
+
+The bridge includes a comprehensive CLI for testing and monitoring:
+
+```bash
+# Scan for devices
+web-ble-bridge scan --filter CS108
+
+# Test a connection
+web-ble-bridge test --device CS108 --cs108
+
+# Monitor logs from a remote bridge
+web-ble-bridge logs --url ws://192.168.1.100:8080
+```
+
 ## Roadmap
 
-### v0.2.0 - Multi-Device Support
+### v0.3.0 - MCP Server Integration ✅ (Released)
+- Direct Claude Code integration via MCP protocol
+- HTTP/SSE transport for network access
+- 5 debugging tools (get_logs, search_packets, status, etc.)
+- Circular log buffer with client position tracking
+- Optional bearer token authentication
+- Cross-machine access (VM → Mac/Pi)
+
+### v0.4.0 - CLI Tools (Next)
+- `web-ble-bridge scan` - Scan for nearby BLE devices
+- `web-ble-bridge test <device>` - Test connection to a device
+- `web-ble-bridge monitor` - Live connection dashboard
+- CLI as MCP client for enhanced capabilities
+
+### v0.5.0 - Multi-Device Support
 - Support multiple simultaneous BLE connections
 - Route WebSocket clients to specific devices
 - Connection pooling and management
 
-### v0.3.0 - CLI Tools
-- `web-ble-bridge scan` - Scan for nearby BLE devices
-- `web-ble-bridge test <device>` - Test connection to a device
-- `web-ble-bridge reset` - Reset BLE adapter
-- `web-ble-bridge monitor` - Live connection monitoring
-
-### v0.4.0 - HTTP API
-- `GET /status` - Current connection status and device info
-- `GET /metrics` - Connection stats, data throughput, errors
-- `GET /health` - Health check endpoint for monitoring
-- `POST /reset` - Reset BLE adapter via HTTP
-
 ### Future Considerations
-- Reconnection support with configurable retry
-- WebSocket authentication/authorization
-- OpenTelemetry integration for distributed tracing
+- HTTP API for REST-based control
+- CS108 simulator for development without hardware
 - Docker container for easy deployment
 - Prometheus metrics export
 
