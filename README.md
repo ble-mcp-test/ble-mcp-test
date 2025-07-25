@@ -407,19 +407,18 @@ This enables natural language BLE interactions in Claude Code:
 - "Search for packets containing A7B3"
 - "What's the current connection status?"
 
-### Using the CLI (Available Now)
+### Server Options
 
-The bridge includes a comprehensive CLI for testing and monitoring:
+The bridge server supports the following options:
 
 ```bash
-# Scan for devices
-ble-mcp-test scan --filter CS108
+# Start with default settings (stdio MCP, no network ports)
+ble-mcp-test
 
-# Test a connection
-ble-mcp-test test --device CS108 --cs108
+# Enable HTTP transport for MCP on port 8081
+ble-mcp-test --mcp-http
 
-# Monitor logs from a remote bridge
-ble-mcp-test logs --url ws://192.168.1.100:8080
+# All other configuration via environment variables (see above)
 ```
 
 ## Roadmap
@@ -445,45 +444,9 @@ ble-mcp-test logs --url ws://192.168.1.100:8080
 
 ### Future Considerations
 - HTTP API for REST-based control
-- CS108 simulator for development without hardware
 - Docker container for easy deployment
 - Prometheus metrics export
 
-## Migration from web-ble-bridge
-
-This package was previously published as `@trakrf/web-ble-bridge`. If you're migrating from the old package:
-
-1. **Update your package.json**:
-   ```bash
-   # Remove old package
-   pnpm remove @trakrf/web-ble-bridge
-   
-   # Install new package
-   pnpm add ble-mcp-test
-   ```
-
-2. **Update your imports**:
-   ```javascript
-   // Old
-   import '@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js';
-   
-   // New
-   import 'ble-mcp-test/dist/web-ble-mock.bundle.js';
-   ```
-
-3. **Update CLI commands**:
-   ```bash
-   # Old
-   npx @trakrf/web-ble-bridge
-   
-   # New
-   pnpm dlx ble-mcp-test
-   ```
-
-4. **Update MCP configuration**:
-   - Change server name from `web-ble-bridge` to `ble-mcp-test` in your Claude Code settings
-
-All functionality remains the same, only the package name has changed.
 
 ## Contributing
 
