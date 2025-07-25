@@ -25,7 +25,7 @@ export class BridgeServer {
     
     // Initialize MCP server
     this.mcpServer = new McpServer({
-      name: '@trakrf/web-ble-bridge',
+      name: 'ble-mcp-test',
       version: '0.3.0'
     });
     

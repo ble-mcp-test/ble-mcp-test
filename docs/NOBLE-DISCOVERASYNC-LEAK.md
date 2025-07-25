@@ -93,5 +93,5 @@ async function* discoverAsync() {
 ## References
 
 - Noble library: https://github.com/stoprocent/noble
-- Issue discovered while debugging npm publish timeouts in web-ble-bridge
+- Issue discovered while debugging npm publish timeouts in ble-mcp-test
 - Workaround implemented in PR #11 (to be created)

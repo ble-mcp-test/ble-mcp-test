@@ -2,7 +2,7 @@
 
 ## Background
 
-During development of web-ble-bridge, we identified that using a real CS108 RFID reader ($600+) for testing creates a barrier to entry for contributors. We discussed creating accessible alternatives for testing.
+During development of ble-mcp-test, we identified that using a real CS108 RFID reader ($600+) for testing creates a barrier to entry for contributors. We discussed creating accessible alternatives for testing.
 
 ## Approach 1: nRF52 Hardware Emulator
 
@@ -35,7 +35,7 @@ Create a WebSocket server that mimics CS108 responses:
 ```typescript
 // CS108 simulator speaks WebSocket directly
 // Bypasses BLE entirely for pure software testing
-// Could connect directly to web-ble-bridge
+// Could connect directly to ble-mcp-test
 ```
 
 ## Benefits for CSL
@@ -52,10 +52,10 @@ The existing TypeScript CS108 simulator from the web worker state machine projec
 1. Extended to support full command set
 2. Wrapped with BLE peripheral interface (bleno)
 3. Used for both development and automated testing
-4. Bridge between web-ble-bridge and web worker architecture
+4. Bridge between ble-mcp-test and web worker architecture
 
 This creates a complete testing ecosystem:
-- Web app → web-ble-bridge → virtual CS108 (simulator)
+- Web app → ble-mcp-test → virtual CS108 (simulator)
 - All in TypeScript/JavaScript
 - No hardware required for development
 - Real hardware path available when needed

@@ -243,7 +243,7 @@ Add to your `settings.json`:
 ```json
 {
   "mcpServers": {
-    "web-ble-bridge": {
+    "ble-mcp-test": {
       "transport": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -261,7 +261,7 @@ For access from VMs or other machines:
 ```json
 {
   "mcpServers": {
-    "web-ble-bridge": {
+    "ble-mcp-test": {
       "transport": "http",
       "url": "http://macbook.local:3000/mcp",
       "headers": {
@@ -279,10 +279,10 @@ For access from VMs or other machines:
 uvx mcp-cli tools
 
 # Call a specific tool
-uvx mcp-cli call get_logs --server web-ble-bridge
+uvx mcp-cli call get_logs --server ble-mcp-test
 
 # Interactive mode
-uvx mcp-cli chat --server web-ble-bridge
+uvx mcp-cli chat --server ble-mcp-test
 ```
 
 ## Security Considerations

@@ -1,7 +1,7 @@
 {
-  "name": "@trakrf/web-ble-bridge",
+  "name": "ble-mcp-test",
   "version": "0.3.0",
-  "description": "WebSocket-to-BLE bridge for Web Bluetooth API testing",
+  "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
   "keywords": [
     "bluetooth",
     "ble",
@@ -12,16 +12,19 @@
     "mcp",
     "model-context-protocol"
   ],
-  "homepage": "https://github.com/trakrf/web-ble-bridge",
+  "homepage": "https://github.com/ble-mcp-test/ble-mcp-test",
   "repository": {
     "type": "git",
-    "url": "https://github.com/trakrf/web-ble-bridge.git"
+    "url": "https://github.com/ble-mcp-test/ble-mcp-test.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ble-mcp-test/ble-mcp-test/issues"
   },
   "type": "module",
   "main": "./dist/index.js",
   "browser": "./dist/web-ble-mock.bundle.js",
   "bin": {
-    "web-ble-bridge": "./dist/start-server.js"
+    "ble-mcp-test": "./dist/start-server.js"
   },
   "exports": {
     ".": "./dist/index.js",

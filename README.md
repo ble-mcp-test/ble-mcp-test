@@ -1,6 +1,10 @@
-# web-ble-bridge
+# ble-mcp-test
 
-A minimal WebSocket-to-BLE bridge that enables Web Bluetooth API testing in browsers without built-in BLE support.
+```
+[BLE]──●──[MCP]──●──[AI agent]
+```
+
+Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol.
 
 ## What is this?
 
@@ -16,25 +20,25 @@ This lets you write and test Web Bluetooth applications on any machine, even if 
 ### For testing (recommended)
 ```bash
 # npm
-npm install --save-dev @trakrf/web-ble-bridge
+npm install --save-dev ble-mcp-test
 
 # pnpm
-pnpm add -D @trakrf/web-ble-bridge
+pnpm add -D ble-mcp-test
 
 # yarn
-yarn add --dev @trakrf/web-ble-bridge
+yarn add --dev ble-mcp-test
 ```
 
 ### For production use
 ```bash
 # npm
-npm install @trakrf/web-ble-bridge
+npm install ble-mcp-test
 
 # pnpm  
-pnpm add @trakrf/web-ble-bridge
+pnpm add ble-mcp-test
 
 # yarn
-yarn add @trakrf/web-ble-bridge
+yarn add ble-mcp-test
 ```
 
 ## Quick Start
@@ -42,11 +46,11 @@ yarn add @trakrf/web-ble-bridge
 ### Step 1: Run the Bridge Server (on a machine with BLE)
 
 ```bash
-# Using npx (no installation needed)
-npx @trakrf/web-ble-bridge
+# Using pnpm dlx (no installation needed)
+pnpm dlx ble-mcp-test
 
 # Or if installed globally
-web-ble-bridge
+ble-mcp-test
 ```
 
 The server will start on `ws://localhost:8080` by default.
@@ -57,15 +61,15 @@ The bridge server can be configured using environment variables:
 
 ```bash
 # Set WebSocket port (default: 8080)
-WS_PORT=3000 npx @trakrf/web-ble-bridge
+WS_PORT=3000 pnpm dlx ble-mcp-test
 
 # Set host interface (default: 0.0.0.0)
-WS_HOST=127.0.0.1 npx @trakrf/web-ble-bridge
+WS_HOST=127.0.0.1 pnpm dlx ble-mcp-test
 
 # Set log level (default: debug)
 # Options: debug, info, warn, error
 # Also supports: verbose, trace (maps to debug), warning (maps to info)
-LOG_LEVEL=info npx @trakrf/web-ble-bridge
+LOG_LEVEL=info pnpm dlx ble-mcp-test
 
 # Advanced BLE timing configuration (milliseconds)
 # Override platform-specific defaults for your hardware
@@ -104,7 +108,7 @@ You can also view logs in a web browser:
 
 ```html
 <!-- In your test HTML -->
-<script src="node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js"></script>
+<script src="node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js"></script>
 <script>
     // Initialize the mock with your bridge server URL
     WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
@@ -138,7 +142,7 @@ test('read battery level from BLE device', async ({ page }) => {
 
   // Inject the Web Bluetooth mock
   await page.addScriptTag({
-    path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js'
+    path: 'node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js'
   });
 
   // Initialize mock with bridge server
@@ -185,7 +189,7 @@ The bridge accepts UUIDs in multiple formats:
 
 ```bash
 # On Raspberry Pi with BLE hardware
-WS_HOST=0.0.0.0 WS_PORT=8080 npx @trakrf/web-ble-bridge
+WS_HOST=0.0.0.0 WS_PORT=8080 pnpm dlx ble-mcp-test
 
 # In your tests (from another machine)
 WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
@@ -329,7 +333,7 @@ The bridge uses a simple JSON protocol over WebSocket:
 ### Bridge server crashes
 - Ensure Node.js 24.x is installed (not 22.x or 26.x)
 - Check for other processes using the same port
-- Run with debug logging: `LOG_LEVEL=debug npx @trakrf/web-ble-bridge`
+- Run with debug logging: `LOG_LEVEL=debug pnpm dlx ble-mcp-test`
 
 ## Documentation
 
@@ -346,7 +350,7 @@ Web-ble-bridge now includes an integrated MCP (Model Context Protocol) server fo
 // In your Claude Code settings.json
 {
   "mcpServers": {
-    "web-ble-bridge": {
+    "ble-mcp-test": {
       "transport": "http",
       "url": "http://localhost:3000/mcp",
       "headers": {
@@ -393,13 +397,13 @@ The bridge includes a comprehensive CLI for testing and monitoring:
 
 ```bash
 # Scan for devices
-web-ble-bridge scan --filter CS108
+ble-mcp-test scan --filter CS108
 
 # Test a connection
-web-ble-bridge test --device CS108 --cs108
+ble-mcp-test test --device CS108 --cs108
 
 # Monitor logs from a remote bridge
-web-ble-bridge logs --url ws://192.168.1.100:8080
+ble-mcp-test logs --url ws://192.168.1.100:8080
 ```
 
 ## Roadmap
@@ -413,9 +417,9 @@ web-ble-bridge logs --url ws://192.168.1.100:8080
 - Cross-machine access (VM → Mac/Pi)
 
 ### v0.4.0 - CLI Tools (Next)
-- `web-ble-bridge scan` - Scan for nearby BLE devices
-- `web-ble-bridge test <device>` - Test connection to a device
-- `web-ble-bridge monitor` - Live connection dashboard
+- `ble-mcp-test scan` - Scan for nearby BLE devices
+- `ble-mcp-test test <device>` - Test connection to a device
+- `ble-mcp-test monitor` - Live connection dashboard
 - CLI as MCP client for enhanced capabilities
 
 ### v0.5.0 - Multi-Device Support
@@ -428,6 +432,42 @@ web-ble-bridge logs --url ws://192.168.1.100:8080
 - CS108 simulator for development without hardware
 - Docker container for easy deployment
 - Prometheus metrics export
+
+## Migration from web-ble-bridge
+
+This package was previously published as `@trakrf/web-ble-bridge`. If you're migrating from the old package:
+
+1. **Update your package.json**:
+   ```bash
+   # Remove old package
+   pnpm remove @trakrf/web-ble-bridge
+   
+   # Install new package
+   pnpm add ble-mcp-test
+   ```
+
+2. **Update your imports**:
+   ```javascript
+   // Old
+   import '@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js';
+   
+   // New
+   import 'ble-mcp-test/dist/web-ble-mock.bundle.js';
+   ```
+
+3. **Update CLI commands**:
+   ```bash
+   # Old
+   npx @trakrf/web-ble-bridge
+   
+   # New
+   pnpm dlx ble-mcp-test
+   ```
+
+4. **Update MCP configuration**:
+   - Change server name from `web-ble-bridge` to `ble-mcp-test` in your Claude Code settings
+
+All functionality remains the same, only the package name has changed.
 
 ## Contributing
 

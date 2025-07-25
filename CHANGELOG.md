@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-01-25
+
+### Added
+- MCP (Model Context Protocol) server integration for Claude Code
+- HTTP/SSE transport for network-accessible MCP connections
+- 5 debugging tools accessible via MCP: get_logs, search_packets, get_connection_state, status, scan_devices
+- Circular log buffer with client position tracking
+- Optional bearer token authentication for MCP endpoints
+- Cross-machine access support (e.g., VM → Mac/Pi)
+
+### Changed
+- **BREAKING**: Package renamed from `@trakrf/web-ble-bridge` to `ble-mcp-test`
+  - Update imports: `@trakrf/web-ble-bridge` → `ble-mcp-test`
+  - Update CLI commands: `npx @trakrf/web-ble-bridge` → `pnpm dlx ble-mcp-test`
+  - Update binary name: `web-ble-bridge` → `ble-mcp-test`
+  - Repository moved to: https://github.com/ble-mcp-test/ble-mcp-test
+- Updated description to reflect MCP integration focus
+
 ## [0.2.0] - 2025-01-23
 
 ### Added

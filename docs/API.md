@@ -7,7 +7,7 @@
 The main WebSocket bridge server class.
 
 ```javascript
-import { BridgeServer } from '@trakrf/web-ble-bridge';
+import { BridgeServer } from 'ble-mcp-test';
 
 const server = new BridgeServer();
 server.start(8080); // Start on port 8080
@@ -28,7 +28,7 @@ server.stop(); // Graceful shutdown
 Replaces the browser's `navigator.bluetooth` with a mock that communicates with the bridge server.
 
 ```javascript
-import { injectWebBluetoothMock } from '@trakrf/web-ble-bridge';
+import { injectWebBluetoothMock } from 'ble-mcp-test';
 
 // Basic usage
 injectWebBluetoothMock('ws://localhost:8080');
@@ -174,7 +174,7 @@ test('communicate with BLE device', async ({ page }) => {
   
   // Inject the mock
   await page.addScriptTag({ 
-    path: 'node_modules/@trakrf/web-ble-bridge/dist/web-ble-mock.bundle.js' 
+    path: 'node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js' 
   });
   
   // Configure and initialize
@@ -203,7 +203,7 @@ The bridge server exports several utility functions for working with BLE data an
 Formats binary data as uppercase hexadecimal with space separation.
 
 ```typescript
-import { formatHex } from '@trakrf/web-ble-bridge';
+import { formatHex } from 'ble-mcp-test';
 
 const data = new Uint8Array([0xA7, 0xB3, 0xC2, 0x01]);
 console.log(formatHex(data)); // "A7 B3 C2 01"
@@ -217,7 +217,7 @@ console.log(formatHex(buffer)); // "12 34 56 78"
 Normalizes log level strings to a valid LogLevel type, with support for common aliases.
 
 ```typescript
-import { normalizeLogLevel } from '@trakrf/web-ble-bridge';
+import { normalizeLogLevel } from 'ble-mcp-test';
 
 normalizeLogLevel('debug');    // 'debug'
 normalizeLogLevel('verbose');  // 'debug' (alias)
@@ -241,7 +241,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 ### Usage Example
 
 ```typescript
-import { BridgeServer, normalizeLogLevel } from '@trakrf/web-ble-bridge';
+import { BridgeServer, normalizeLogLevel } from 'ble-mcp-test';
 
 const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
 const server = new BridgeServer(logLevel);
