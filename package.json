@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
   "keywords": [
     "bluetooth",
@@ -41,8 +41,7 @@
     "dev": "tsc --watch",
     "start": "node dist/start-server.js",
     "start:http": "node dist/start-server.js --mcp-http",
-    "start:auth": "MCP_TOKEN=${MCP_TOKEN:-$(openssl rand -base64 32)} node dist/start-server.js",
-    "start:test": "MCP_TOKEN=test-token LOG_LEVEL=debug node dist/start-server.js",
+    "start:ci": "MCP_TOKEN=test-token node dist/start-server.js --mcp-http",
     "start:bg": "nohup node dist/start-server.js > tmp/bridge-server.log 2>&1 & echo $! > tmp/bridge-server.pid",
     "stop": "[ -f tmp/bridge-server.pid ] && kill $(cat tmp/bridge-server.pid) && rm tmp/bridge-server.pid || echo 'No server running'",
     "restart": "pnpm run stop && pnpm run start:bg",
@@ -75,12 +74,14 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
+    "@types/supertest": "^6.0.2",
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.37.0",
     "@typescript-eslint/parser": "^8.37.0",
     "esbuild": "^0.25.8",
     "eslint": "^8.56.0",
     "playwright": "^1.54.1",
+    "supertest": "^6.3.4",
     "typescript": "^5.3.3",
     "vitest": "^1.2.0"
   }

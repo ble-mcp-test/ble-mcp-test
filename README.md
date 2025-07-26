@@ -372,33 +372,32 @@ The ble-mcp-test server always includes MCP (Model Context Protocol) tools for p
 #### MCP Transport Options
 
 ```bash
-# Default: stdio transport only (secure, no network ports)
+# Default: WebSocket bridge + stdio MCP (for local development)
 pnpm start
 
-# Enable HTTP transport on port 8081
+# Add HTTP transport for testing MCP endpoints (no auth)
 pnpm start:http
 
-# Enable HTTP with authentication
-MCP_TOKEN=secret pnpm start
+# CI/CD mode: HTTP with fixed test token
+pnpm start:ci
 
-# Custom port (also enables HTTP)
-MCP_PORT=8000 pnpm start
+# Run in background (useful for automated tests)
+pnpm start:bg
+pnpm logs     # view logs
+pnpm stop     # stop server
 ```
 
-#### Running with Authentication
+#### CI/CD Testing
 
-For added security on local networks:
+For integration tests and CI pipelines:
 
 ```bash
-# Generate a random token automatically
-pnpm start:auth
+# Fixed token for predictable testing
+pnpm start:ci
+# Server runs with MCP_TOKEN=test-token on HTTP port 8081
 
-# Or set your own token
-MCP_TOKEN=your-secret-token pnpm start
-
-# Or use .env.local
-echo "MCP_TOKEN=your-secret-token" >> .env.local
-pnpm start
+# Or set custom token for specific test scenarios
+MCP_TOKEN=custom-token pnpm start:http
 ```
 
 This enables natural language BLE interactions in Claude Code:

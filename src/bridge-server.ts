@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { NobleTransport } from './noble-transport.js';
-import { LogLevel, formatHex } from './utils.js';
+import { LogLevel, formatHex, getPackageMetadata } from './utils.js';
 import { LogBuffer } from './log-buffer.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerMcpTools } from './mcp-tools.js';
@@ -27,9 +27,10 @@ export class BridgeServer {
     this.logBuffer = new LogBuffer();
     
     // Initialize MCP server
+    const metadata = getPackageMetadata();
     this.mcpServer = new McpServer({
-      name: 'ble-mcp-test',
-      version: '0.3.0'
+      name: metadata.name,
+      version: metadata.version
     });
     
     // Register all MCP tools

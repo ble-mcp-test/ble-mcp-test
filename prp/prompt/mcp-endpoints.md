@@ -2,7 +2,9 @@
 
 ## Context
 
-Claude Code expects specific dynamic registration endpoints (`/mcp/info` and `/mcp/register`) that are not part of the standard MCP specification. These endpoints enable Claude Code to discover server capabilities and register with MCP servers dynamically, avoiding the HTTP 404 error currently encountered.
+Claude Code expects specific dynamic registration endpoints (`/mcp/info` and `/mcp/register`) that were added 
+to the MCP specification after Claude model training. These endpoints enable Claude Code to discover server 
+capabilities and register with MCP servers dynamically, avoiding the HTTP 404 error currently encountered.
 
 ## Success Criteria
 

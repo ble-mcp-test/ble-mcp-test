@@ -206,6 +206,24 @@ Scan for nearby BLE devices.
 }
 ```
 
+## HTTP Endpoints
+
+When running with HTTP transport (`--mcp-http`), the following endpoints are available:
+
+### GET /mcp/info
+Returns server metadata and available tools. No authentication required.
+
+### POST /mcp/register  
+Client registration endpoint. Returns server capabilities. Requires authentication if MCP_TOKEN is set.
+
+### POST /mcp
+Main MCP protocol endpoint for tool execution.
+
+### GET /mcp
+Server-Sent Events endpoint for streaming responses.
+
+See [API Documentation](./API.md#mcp-http-endpoints) for detailed endpoint specifications.
+
 ## Configuration
 
 ### Environment Variables
@@ -226,15 +244,15 @@ DISABLE_STDIO=true         # Force disable stdio transport
 For local network security:
 
 ```bash
-# Option 1: Auto-generate token
-pnpm start:auth
+# Option 1: CI/CD mode with fixed test token
+pnpm start:ci
 
-# Option 2: Set explicit token
-MCP_TOKEN=your-secret-token pnpm start
+# Option 2: Set explicit token with HTTP
+MCP_TOKEN=your-secret-token pnpm start:http
 
 # Option 3: Use .env.local
 echo "MCP_TOKEN=your-secret-token" >> .env.local
-pnpm start
+pnpm start:http
 ```
 
 ## Client Configuration

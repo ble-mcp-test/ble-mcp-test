@@ -25,3 +25,20 @@ export function normalizeLogLevel(level: string | undefined): LogLevel {
       return 'debug';
   }
 }
+
+import { readFileSync } from 'fs';
+
+let cachedMetadata: { name: string; version: string; description: string } | null = null;
+
+export function getPackageMetadata(): { name: string; version: string; description: string } {
+  if (!cachedMetadata) {
+    const packageJsonPath = new URL('../package.json', import.meta.url);
+    const pkg = JSON.parse(readFileSync(packageJsonPath, 'utf-8'));
+    cachedMetadata = {
+      name: pkg.name,
+      version: pkg.version,
+      description: pkg.description
+    };
+  }
+  return cachedMetadata;
+}

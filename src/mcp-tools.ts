@@ -2,6 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { BridgeServer } from './bridge-server.js';
 import { LogEntry } from './log-buffer.js';
+import { getPackageMetadata } from './utils.js';
+
+// Tool registry for dynamic tool listing
+export const toolRegistry: Array<{name: string, description: string}> = [];
 
 // Response interfaces
 interface LogsResponse {
@@ -88,6 +92,11 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
+  toolRegistry.push({ 
+    name: 'get_logs', 
+    description: 'Get BLE Communication Logs' 
+  });
+
   // Tool 2: search_packets
   server.registerTool(
     'search_packets',
@@ -118,6 +127,11 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
+  toolRegistry.push({ 
+    name: 'search_packets', 
+    description: 'Search BLE Packets' 
+  });
+
   // Tool 3: get_connection_state
   server.registerTool(
     'get_connection_state',
@@ -144,6 +158,11 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
+  toolRegistry.push({ 
+    name: 'get_connection_state', 
+    description: 'Get Connection State' 
+  });
+
   // Tool 4: status
   server.registerTool(
     'status',
@@ -158,8 +177,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
       const httpEnabled = !!process.argv.includes('--mcp-http') || !!process.env.MCP_PORT || !!process.env.MCP_TOKEN;
       
+      const metadata = getPackageMetadata();
       const status: ServerStatus = {
-        version: '0.3.0',
+        version: metadata.version,
         uptime: process.uptime(),
         wsPort: parseInt(process.env.WS_PORT || '8080'),
         mcpTransports: {
@@ -180,6 +200,11 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       };
     }
   );
+
+  toolRegistry.push({ 
+    name: 'status', 
+    description: 'Get Bridge Server Status' 
+  });
 
   // Tool 5: scan_devices
   server.registerTool(
@@ -220,4 +245,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       }
     }
   );
+
+  toolRegistry.push({ 
+    name: 'scan_devices', 
+    description: 'Scan for BLE Devices' 
+  });
 }

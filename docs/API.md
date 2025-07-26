@@ -54,6 +54,73 @@ If you're not using a module bundler, include the pre-built bundle:
 </script>
 ```
 
+## MCP HTTP Endpoints
+
+When running with HTTP transport (`pnpm start:http` or `--mcp-http`), the following endpoints are available:
+
+### GET /mcp/info
+
+Public endpoint that returns server metadata and available tools. No authentication required.
+
+**Response:**
+```json
+{
+  "name": "ble-mcp-test",
+  "version": "0.3.1",
+  "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
+  "tools": [
+    { "name": "get_logs", "description": "Get BLE Communication Logs" },
+    { "name": "search_packets", "description": "Search BLE Packets" },
+    { "name": "get_connection_state", "description": "Get Connection State" },
+    { "name": "status", "description": "Get Bridge Server Status" },
+    { "name": "scan_devices", "description": "Scan for BLE Devices" }
+  ]
+}
+```
+
+**Headers:**
+- `Cache-Control: public, max-age=3600` - Cacheable for 1 hour
+
+### POST /mcp/register
+
+Authenticated endpoint for MCP client registration. Returns server capabilities.
+
+**Headers Required:**
+- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+
+**Response:**
+```json
+{
+  "name": "ble-mcp-test",
+  "version": "0.3.1",
+  "capabilities": {
+    "tools": true,
+    "resources": false,
+    "prompts": false
+  }
+}
+```
+
+**Headers:**
+- `Cache-Control: no-cache, no-store, must-revalidate` - Not cacheable
+
+### POST /mcp
+
+Main MCP message handling endpoint. Processes MCP protocol messages.
+
+**Headers:**
+- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+- `Content-Type: application/json`
+- `Mcp-Session-Id: <session-id>` - Optional session identifier
+
+### GET /mcp
+
+Server-Sent Events (SSE) endpoint for streaming MCP responses.
+
+**Headers:**
+- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+- `Mcp-Session-Id: <session-id>` - Required session identifier
+
 ## WebSocket Protocol
 
 ### Connection Parameters
