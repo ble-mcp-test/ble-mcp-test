@@ -28,11 +28,18 @@ describe.sequential('Device Interaction Tests', () => {
         logWs.on('error', reject);
       });
       
-      // Capture log messages
+      // Capture log messages - but ignore any that arrive before we start the test
+      let testStarted = false;
       logWs.on('message', (data) => {
         const log = JSON.parse(data.toString());
-        logs.push(log);
+        if (testStarted) {
+          logs.push(log);
+        }
       });
+      
+      // Wait a moment for any startup logs to pass, then start capturing
+      await new Promise(resolve => setTimeout(resolve, 100));
+      testStarted = true;
       
       try {
         const params = new URLSearchParams(DEVICE_CONFIG);
