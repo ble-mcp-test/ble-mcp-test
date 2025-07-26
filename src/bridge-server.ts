@@ -336,9 +336,20 @@ export class BridgeServer {
       throw new Error('Cannot scan while connected to a device. Please disconnect first.');
     }
     
+    // Log scan start
+    this.logger.info(`Starting BLE scan for ${duration || 5000}ms...`);
+    
     // Use existing transport or create temporary one
     const scanTransport = this.transport || new NobleTransport(this.logLevel);
     const devices = await scanTransport.performQuickScan(duration || 5000);
+    
+    // Log scan results
+    this.logger.info(`Scan complete. Found ${devices.length} device(s).`);
+    if (devices.length > 0 && this.logLevel === 'debug') {
+      devices.forEach(device => {
+        this.logger.debug(`  - ${device.name || 'Unknown'} (${device.id}) RSSI: ${device.rssi}`);
+      });
+    }
     
     // Clean up temporary transport
     if (!this.transport && scanTransport) {
