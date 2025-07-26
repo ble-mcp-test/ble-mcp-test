@@ -238,17 +238,24 @@ export class BridgeServer {
     
     console.log = (...args) => {
       originalLog.apply(console, args);
-      this.broadcastLog('info', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('info', message);
+      // Add console logs to the buffer for MCP get_logs tool
+      this.logBuffer.pushSystemLog('INFO', message);
     };
     
     console.warn = (...args) => {
       originalWarn.apply(console, args);
-      this.broadcastLog('warn', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('warn', message);
+      this.logBuffer.pushSystemLog('WARN', message);
     };
     
     console.error = (...args) => {
       originalError.apply(console, args);
-      this.broadcastLog('error', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('error', message);
+      this.logBuffer.pushSystemLog('ERROR', message);
     };
   }
   
