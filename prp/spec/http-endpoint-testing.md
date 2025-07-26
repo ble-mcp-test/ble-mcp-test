@@ -1,4 +1,5 @@
 ## FEATURE: Comprehensive HTTP Endpoint Testing
+Add OpenAPI documentation for MCP http endpoint
 
 Add comprehensive test coverage for all HTTP endpoints in the MCP server implementation. Currently, the HTTP endpoints (health check, MCP operations, SSE streaming) have no test coverage, which poses risks for reliability and regression detection.
 

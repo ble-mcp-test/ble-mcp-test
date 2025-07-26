@@ -7,17 +7,21 @@ import { getPackageMetadata } from './utils.js';
 // Tool registry for dynamic tool listing
 export const toolRegistry: Array<{name: string, description: string}> = [];
 
+// Interface for tool registration
+interface ToolRegistration {
+  name: string;
+  title: string;
+  description: string;
+  inputSchema?: any;
+  handler: (args: any) => Promise<any>;
+}
+
 // Helper function to register tool and update registry
 function registerToolWithRegistry(
   server: McpServer,
-  name: string,
-  definition: {
-    title: string;
-    description: string;
-    inputSchema?: any;
-  },
-  handler: (args: any) => Promise<any>
+  tool: ToolRegistration
 ) {
+  const { name, handler, ...definition } = tool;
   server.registerTool(name, definition, handler);
   toolRegistry.push({ 
     name, 
@@ -64,19 +68,16 @@ interface ServerStatus {
 
 export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer): void {
   // Tool 1: get_logs
-  registerToolWithRegistry(
-    server,
-    'get_logs',
-    {
-      title: 'Get BLE Communication Logs',
-      description: 'Retrieve recent BLE communication logs with filtering options',
-      inputSchema: {
-        since: z.string().default('30s').describe("Time filter: duration (30s, 5m, 1h), ISO timestamp, or 'last'"),
-        filter: z.string().optional().describe("Filter by 'TX'/'RX' or hex pattern"),
-        limit: z.number().min(1).max(1000).default(100).describe("Maximum entries to return")
-      }
+  registerToolWithRegistry(server, {
+    name: 'get_logs',
+    title: 'Get BLE Communication Logs',
+    description: 'Retrieve recent BLE communication logs with filtering options',
+    inputSchema: {
+      since: z.string().default('30s').describe("Time filter: duration (30s, 5m, 1h), ISO timestamp, or 'last'"),
+      filter: z.string().optional().describe("Filter by 'TX'/'RX' or hex pattern"),
+      limit: z.number().min(1).max(1000).default(100).describe("Maximum entries to return")
     },
-    async (args) => {
+    handler: async (args) => {
       const { since, filter, limit } = args;
       const logs = bridgeServer.getLogBuffer().getLogsSince(since, limit);
       
@@ -109,21 +110,18 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         }]
       };
     }
-  );
+  });
 
   // Tool 2: search_packets
-  registerToolWithRegistry(
-    server,
-    'search_packets',
-    {
-      title: 'Search BLE Packets',
-      description: 'Search for hex patterns in BLE packets',
-      inputSchema: {
-        hex_pattern: z.string().describe("Hex pattern to search for (case insensitive, spaces optional)"),
-        limit: z.number().min(1).max(1000).default(100).describe("Maximum results to return")
-      }
+  registerToolWithRegistry(server, {
+    name: 'search_packets',
+    title: 'Search BLE Packets',
+    description: 'Search for hex patterns in BLE packets',
+    inputSchema: {
+      hex_pattern: z.string().describe("Hex pattern to search for (case insensitive, spaces optional)"),
+      limit: z.number().min(1).max(1000).default(100).describe("Maximum results to return")
     },
-    async (args) => {
+    handler: async (args) => {
       const { hex_pattern, limit } = args;
       const matches = bridgeServer.getLogBuffer().searchPackets(hex_pattern, limit);
       
@@ -140,18 +138,15 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         }]
       };
     }
-  );
+  });
 
   // Tool 3: get_connection_state
-  registerToolWithRegistry(
-    server,
-    'get_connection_state',
-    {
-      title: 'Get Connection State',
-      description: 'Get detailed BLE connection state and activity',
-      inputSchema: {}
-    },
-    async () => {
+  registerToolWithRegistry(server, {
+    name: 'get_connection_state',
+    title: 'Get Connection State',
+    description: 'Get detailed BLE connection state and activity',
+    inputSchema: {},
+    handler: async () => {
       const state = bridgeServer.getConnectionState();
       const stats = bridgeServer.getLogBuffer().getConnectionStats();
       
@@ -167,18 +162,15 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         }]
       };
     }
-  );
+  });
 
   // Tool 4: status
-  registerToolWithRegistry(
-    server,
-    'status',
-    {
-      title: 'Get Bridge Server Status',
-      description: 'Get bridge server status and configuration',
-      inputSchema: {}
-    },
-    async () => {
+  registerToolWithRegistry(server, {
+    name: 'status',
+    title: 'Get Bridge Server Status',
+    description: 'Get bridge server status and configuration',
+    inputSchema: {},
+    handler: async () => {
       // Determine active transports
       const hasTty = process.stdin.isTTY && process.stdout.isTTY;
       const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
@@ -206,20 +198,17 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         }]
       };
     }
-  );
+  });
 
   // Tool 5: scan_devices
-  registerToolWithRegistry(
-    server,
-    'scan_devices',
-    {
-      title: 'Scan for BLE Devices',
-      description: 'Scan for nearby BLE devices (only when not connected)',
-      inputSchema: {
-        duration: z.number().min(1000).max(30000).default(5000).describe("Scan duration in milliseconds")
-      }
+  registerToolWithRegistry(server, {
+    name: 'scan_devices',
+    title: 'Scan for BLE Devices',
+    description: 'Scan for nearby BLE devices (only when not connected)',
+    inputSchema: {
+      duration: z.number().min(1000).max(30000).default(5000).describe("Scan duration in milliseconds")
     },
-    async (args) => {
+    handler: async (args) => {
       const { duration } = args;
       try {
         const devices = await bridgeServer.scanDevices(duration);
@@ -247,5 +236,5 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
         throw error;
       }
     }
-  );
+  });
 }
