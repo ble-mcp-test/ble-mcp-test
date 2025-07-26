@@ -45,6 +45,23 @@ export class LogBuffer {
     }
   }
 
+  pushSystemLog(level: 'INFO' | 'WARN' | 'ERROR', message: string): void {
+    const entry: LogEntry = {
+      id: this.sequenceCounter++,
+      timestamp: new Date().toISOString(),
+      direction: level as any, // Reuse direction field for log level
+      hex: message, // Store message in hex field
+      size: 0
+    };
+
+    this.buffer.push(entry);
+
+    // Maintain circular buffer size
+    while (this.buffer.length > this.maxSize) {
+      this.buffer.shift();
+    }
+  }
+
   getLogsSince(since: string, limit: number, clientId?: string): LogEntry[] {
     const startIdx = this.parseSince(since, clientId);
     

@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import { NobleTransport } from './noble-transport.js';
-import { LogLevel, formatHex } from './utils.js';
+import { LogLevel, formatHex, getPackageMetadata } from './utils.js';
 import { LogBuffer } from './log-buffer.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerMcpTools } from './mcp-tools.js';
@@ -27,9 +27,10 @@ export class BridgeServer {
     this.logBuffer = new LogBuffer();
     
     // Initialize MCP server
+    const metadata = getPackageMetadata();
     this.mcpServer = new McpServer({
-      name: 'ble-mcp-test',
-      version: '0.3.0'
+      name: metadata.name,
+      version: metadata.version
     });
     
     // Register all MCP tools
@@ -237,17 +238,24 @@ export class BridgeServer {
     
     console.log = (...args) => {
       originalLog.apply(console, args);
-      this.broadcastLog('info', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('info', message);
+      // Add console logs to the buffer for MCP get_logs tool
+      this.logBuffer.pushSystemLog('INFO', message);
     };
     
     console.warn = (...args) => {
       originalWarn.apply(console, args);
-      this.broadcastLog('warn', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('warn', message);
+      this.logBuffer.pushSystemLog('WARN', message);
     };
     
     console.error = (...args) => {
       originalError.apply(console, args);
-      this.broadcastLog('error', args.join(' '));
+      const message = args.join(' ');
+      this.broadcastLog('error', message);
+      this.logBuffer.pushSystemLog('ERROR', message);
     };
   }
   
@@ -335,9 +343,20 @@ export class BridgeServer {
       throw new Error('Cannot scan while connected to a device. Please disconnect first.');
     }
     
+    // Log scan start
+    this.logger.info(`Starting BLE scan for ${duration || 5000}ms...`);
+    
     // Use existing transport or create temporary one
     const scanTransport = this.transport || new NobleTransport(this.logLevel);
     const devices = await scanTransport.performQuickScan(duration || 5000);
+    
+    // Log scan results
+    this.logger.info(`Scan complete. Found ${devices.length} device(s).`);
+    if (devices.length > 0 && this.logLevel === 'debug') {
+      devices.forEach(device => {
+        this.logger.debug(`  - ${device.name || 'Unknown'} (${device.id}) RSSI: ${device.rssi}`);
+      });
+    }
     
     // Clean up temporary transport
     if (!this.transport && scanTransport) {

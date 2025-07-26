@@ -4,6 +4,8 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { randomUUID } from 'crypto';
 import { Logger } from './logger.js';
+import { getPackageMetadata } from './utils.js';
+import { toolRegistry } from './mcp-tools.js';
 
 // Transport storage for sessions
 const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
@@ -33,11 +35,81 @@ export function createHttpApp(server: McpServer, token?: string): Express {
     
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${token}`) {
+      logger.warn(`Unauthorized access attempt to ${req.method} ${req.path}`);
       return res.status(401).json({ error: 'Unauthorized' });
     }
     
     next();
   };
+  
+  // MCP INFO endpoint - public discovery
+  app.get('/mcp/info', (req, res) => {
+    logger.debug('GET /mcp/info accessed');
+    try {
+      // Validate server is initialized
+      if (!server || !toolRegistry) {
+        return res.status(500).json({ 
+          error: 'Internal server error', 
+          message: 'MCP server not initialized' 
+        });
+      }
+
+      const metadata = getPackageMetadata();
+      
+      // Set headers
+      res.set('Content-Type', 'application/json');
+      res.set('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+      
+      res.json({
+        name: metadata.name,
+        version: metadata.version,
+        description: metadata.description,
+        tools: toolRegistry
+      });
+    } catch (error: any) {
+      logger.error('Error in /mcp/info:', error);
+      res.status(500).json({ 
+        error: 'Internal server error', 
+        message: error.message 
+      });
+    }
+  });
+
+  // MCP REGISTER endpoint - requires auth
+  app.post('/mcp/register', authenticate, (req, res) => {
+    logger.info('POST /mcp/register - Client registration attempt');
+    try {
+      // Validate server is initialized
+      if (!server) {
+        return res.status(500).json({ 
+          error: 'Internal server error', 
+          message: 'MCP server not initialized' 
+        });
+      }
+
+      const metadata = getPackageMetadata();
+      
+      // Set headers
+      res.set('Content-Type', 'application/json');
+      res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      
+      res.json({
+        name: metadata.name,
+        version: metadata.version,
+        capabilities: {
+          tools: true,
+          resources: false,
+          prompts: false
+        }
+      });
+    } catch (error: any) {
+      logger.error('Error in /mcp/register:', error);
+      res.status(500).json({ 
+        error: 'Internal server error', 
+        message: error.message 
+      });
+    }
+  });
   
   // MCP POST endpoint - main message handling
   app.post('/mcp', authenticate, async (req, res) => {

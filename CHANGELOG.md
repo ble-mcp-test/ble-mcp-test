@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-01-26
+
+### Added
+- MCP dynamic registration endpoints for Claude Code compatibility
+  - `GET /mcp/info` - Public endpoint returning server metadata and tool list
+  - `POST /mcp/register` - Authenticated endpoint for client registration
+- Dynamic version loading from package.json (no more hardcoded versions)
+- Tool registry for dynamic tool discovery
+- Integration tests for MCP endpoints
+
+### Changed
+- Simplified convenience scripts for better developer experience:
+  - Removed confusing `start:auth` and `start:test` scripts
+  - Renamed scripts to align with use cases:
+    - `start` - Basic local development (stdio + WebSocket)
+    - `start:http` - Add HTTP transport for MCP endpoint testing
+    - `start:ci` - CI/CD mode with fixed test token
+    - `start:bg` - Background daemon mode
+- Fixed missing `--mcp-http` flag in auth-related scripts
+
+### Fixed
+- Claude Code "HTTP 404" errors when discovering MCP server
+- Hardcoded version strings now dynamically loaded from package.json
+
 ## [0.3.0] - 2025-01-25
 
 ### Added
