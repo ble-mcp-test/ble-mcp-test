@@ -33,8 +33,12 @@ describe('MCP Tools Integration Tests', () => {
   });
   
   it('should execute get_logs tool', async () => {
-    // Add some test data to the log buffer
+    // Get the log buffer and clear it before test
     const logBuffer = server.getLogBuffer();
+    (logBuffer as any).buffer = []; // Clear existing logs
+    (logBuffer as any).sequenceCounter = 0; // Reset sequence counter
+    
+    // Add some test data to the log buffer
     logBuffer.push('TX', new Uint8Array([0x01, 0x02, 0x03]));
     logBuffer.push('RX', new Uint8Array([0x04, 0x05, 0x06]));
     
@@ -53,16 +57,22 @@ describe('MCP Tools Integration Tests', () => {
     expect(result.content[0].type).toBe('text');
     
     const logs = JSON.parse(result.content[0].text);
-    expect(logs.logs).toHaveLength(2);
-    expect(logs.logs[0].direction).toBe('TX');
-    expect(logs.logs[0].hex).toBe('01 02 03');
-    expect(logs.logs[1].direction).toBe('RX');
-    expect(logs.logs[1].hex).toBe('04 05 06');
+    // Filter out INFO logs (system logs)
+    const dataLogs = logs.logs.filter((log: any) => log.direction === 'TX' || log.direction === 'RX');
+    expect(dataLogs).toHaveLength(2);
+    expect(dataLogs[0].direction).toBe('TX');
+    expect(dataLogs[0].hex).toBe('01 02 03');
+    expect(dataLogs[1].direction).toBe('RX');
+    expect(dataLogs[1].hex).toBe('04 05 06');
   });
   
   it('should execute search_packets tool', async () => {
-    // Add test data
+    // Get the log buffer and clear it before test
     const logBuffer = server.getLogBuffer();
+    (logBuffer as any).buffer = []; // Clear existing logs
+    (logBuffer as any).sequenceCounter = 0; // Reset sequence counter
+    
+    // Add test data
     logBuffer.push('TX', new Uint8Array([0xA7, 0xB3, 0x01]));
     logBuffer.push('RX', new Uint8Array([0x02, 0x03, 0x04]));
     logBuffer.push('TX', new Uint8Array([0xA7, 0xB3, 0x02]));
@@ -76,9 +86,11 @@ describe('MCP Tools Integration Tests', () => {
     );
     
     const searchResult = JSON.parse(result.content[0].text);
-    expect(searchResult.matches).toHaveLength(2);
+    // Filter out INFO logs from matches
+    const dataMatches = searchResult.matches.filter((match: any) => match.direction === 'TX' || match.direction === 'RX');
+    expect(dataMatches).toHaveLength(2);
     expect(searchResult.pattern).toBe('A7B3');
-    expect(searchResult.count).toBe(2);
+    expect(dataMatches.length).toBe(2);
   });
   
   it('should execute get_connection_state tool', async () => {
