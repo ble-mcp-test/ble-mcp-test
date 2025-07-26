@@ -22,7 +22,21 @@ function registerToolWithRegistry(
   tool: ToolRegistration
 ) {
   const { name, handler, ...definition } = tool;
-  server.registerTool(name, definition, handler);
+  
+  // Wrap handler to add logging
+  const wrappedHandler = async (args: any) => {
+    console.log(`[MCP Tool] Executing '${name}' with args:`, JSON.stringify(args));
+    try {
+      const result = await handler(args);
+      console.log(`[MCP Tool] '${name}' completed successfully`);
+      return result;
+    } catch (error: any) {
+      console.error(`[MCP Tool] '${name}' failed:`, error.message);
+      throw error;
+    }
+  };
+  
+  server.registerTool(name, definition, wrappedHandler);
   toolRegistry.push({ 
     name, 
     description: definition.description 

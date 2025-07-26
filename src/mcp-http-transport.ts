@@ -35,6 +35,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
     
     const authHeader = req.headers.authorization;
     if (!authHeader || authHeader !== `Bearer ${token}`) {
+      logger.warn(`Unauthorized access attempt to ${req.method} ${req.path}`);
       return res.status(401).json({ error: 'Unauthorized' });
     }
     
@@ -43,6 +44,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   
   // MCP INFO endpoint - public discovery
   app.get('/mcp/info', (req, res) => {
+    logger.debug('GET /mcp/info accessed');
     try {
       // Validate server is initialized
       if (!server || !toolRegistry) {
@@ -75,6 +77,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
 
   // MCP REGISTER endpoint - requires auth
   app.post('/mcp/register', authenticate, (req, res) => {
+    logger.info('POST /mcp/register - Client registration attempt');
     try {
       // Validate server is initialized
       if (!server) {
