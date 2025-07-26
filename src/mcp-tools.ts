@@ -7,6 +7,24 @@ import { getPackageMetadata } from './utils.js';
 // Tool registry for dynamic tool listing
 export const toolRegistry: Array<{name: string, description: string}> = [];
 
+// Helper function to register tool and update registry
+function registerToolWithRegistry(
+  server: McpServer,
+  name: string,
+  definition: {
+    title: string;
+    description: string;
+    inputSchema?: any;
+  },
+  handler: (args: any) => Promise<any>
+) {
+  server.registerTool(name, definition, handler);
+  toolRegistry.push({ 
+    name, 
+    description: definition.description 
+  });
+}
+
 // Response interfaces
 interface LogsResponse {
   logs: LogEntry[];
@@ -46,7 +64,8 @@ interface ServerStatus {
 
 export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer): void {
   // Tool 1: get_logs
-  server.registerTool(
+  registerToolWithRegistry(
+    server,
     'get_logs',
     {
       title: 'Get BLE Communication Logs',
@@ -92,13 +111,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
-  toolRegistry.push({ 
-    name: 'get_logs', 
-    description: 'Get BLE Communication Logs' 
-  });
-
   // Tool 2: search_packets
-  server.registerTool(
+  registerToolWithRegistry(
+    server,
     'search_packets',
     {
       title: 'Search BLE Packets',
@@ -127,13 +142,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
-  toolRegistry.push({ 
-    name: 'search_packets', 
-    description: 'Search BLE Packets' 
-  });
-
   // Tool 3: get_connection_state
-  server.registerTool(
+  registerToolWithRegistry(
+    server,
     'get_connection_state',
     {
       title: 'Get Connection State',
@@ -158,13 +169,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
-  toolRegistry.push({ 
-    name: 'get_connection_state', 
-    description: 'Get Connection State' 
-  });
-
   // Tool 4: status
-  server.registerTool(
+  registerToolWithRegistry(
+    server,
     'status',
     {
       title: 'Get Bridge Server Status',
@@ -201,13 +208,9 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     }
   );
 
-  toolRegistry.push({ 
-    name: 'status', 
-    description: 'Get Bridge Server Status' 
-  });
-
   // Tool 5: scan_devices
-  server.registerTool(
+  registerToolWithRegistry(
+    server,
     'scan_devices',
     {
       title: 'Scan for BLE Devices',
@@ -245,9 +248,4 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       }
     }
   );
-
-  toolRegistry.push({ 
-    name: 'scan_devices', 
-    description: 'Scan for BLE Devices' 
-  });
 }

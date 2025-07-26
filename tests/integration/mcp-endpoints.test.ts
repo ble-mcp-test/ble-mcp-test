@@ -33,11 +33,11 @@ describe('MCP Dynamic Registration Endpoints', () => {
         version: metadata.version,
         description: metadata.description,
         tools: expect.arrayContaining([
-          { name: 'status', description: 'Get Bridge Server Status' },
-          { name: 'get_connection_state', description: 'Get Connection State' },
-          { name: 'scan_devices', description: 'Scan for BLE Devices' },
-          { name: 'get_logs', description: 'Get BLE Communication Logs' },
-          { name: 'search_packets', description: 'Search BLE Packets' }
+          { name: 'get_logs', description: 'Retrieve recent BLE communication logs with filtering options' },
+          { name: 'search_packets', description: 'Search for hex patterns in BLE packets' },
+          { name: 'get_connection_state', description: 'Get detailed BLE connection state and activity' },
+          { name: 'status', description: 'Get bridge server status and configuration' },
+          { name: 'scan_devices', description: 'Scan for nearby BLE devices (only when not connected)' }
         ])
       });
     });
