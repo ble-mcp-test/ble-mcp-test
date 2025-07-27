@@ -171,6 +171,41 @@ export class NobleTransport {
     this.logger = new Logger('NobleTransport');
   }
   
+  // Force cleanup of all Noble resources - call between tests
+  static async forceCleanup(): Promise<void> {
+    // Stop any active scanning
+    try {
+      await noble.stopScanningAsync();
+    } catch {
+      // Ignore errors
+    }
+    
+    // Remove all listeners
+    noble.removeAllListeners();
+    
+    // Clean up all cached peripherals
+    const peripherals = (noble as any)._peripherals || {};
+    Object.values(peripherals).forEach((p: any) => {
+      p.removeAllListeners();
+    });
+    (noble as any)._peripherals = {};
+    
+    // Clean up bindings
+    const bindings = (noble as any)._bindings;
+    if (bindings) {
+      bindings.removeAllListeners();
+      if (bindings._hci) {
+        bindings._hci.removeAllListeners();
+      }
+    }
+    
+    // Reset scanner count
+    NobleTransport.activeScanners = 0;
+    
+    // Wait for cleanup to settle
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+  
   // Public method to check current pressure levels
   static checkPressure(): { [key: string]: number } {
     const eventNames = noble.eventNames();
@@ -307,6 +342,13 @@ export class NobleTransport {
       if (peripheral) {
         peripheral.removeAllListeners('connect');
         peripheral.removeAllListeners('disconnect');
+        peripheral.removeAllListeners('servicesDiscover');
+        peripheral.removeAllListeners('characteristicsDiscover');
+        // Also remove from Noble's internal peripheral cache
+        const peripherals = (noble as any)._peripherals;
+        if (peripherals && peripherals[peripheral.id]) {
+          delete peripherals[peripheral.id];
+        }
       }
     };
     
@@ -548,6 +590,13 @@ export class NobleTransport {
     peripheral.once('disconnect', () => {
       this.logger.debug('[NobleTransport] Device disconnected');
       this.state = ConnectionState.DISCONNECTED;
+      
+      // Clean up ALL listeners on disconnect
+      cleanupPeripheralListeners();
+      if (this.notifyChar) {
+        this.notifyChar.removeAllListeners('data');
+      }
+      
       callbacks.onDisconnected();
     });
     
@@ -556,6 +605,19 @@ export class NobleTransport {
     } catch (error) {
       // CRITICAL: Clean up all listeners on ANY error
       cleanupPeripheralListeners();
+      
+      // Clean up any dangling notify char listeners
+      if (this.notifyChar) {
+        // CRITICAL: Unsubscribe from BLE notifications before clearing reference
+        try {
+          await this.notifyChar.unsubscribeAsync();
+        } catch (e) {
+          // Expected if already disconnected
+          this.logger.debug('[NobleTransport] Error unsubscribing during error cleanup:', e);
+        }
+        this.notifyChar.removeAllListeners('data');
+        this.notifyChar = null;
+      }
       
       // Always reset state on ANY connection error
       this.state = ConnectionState.DISCONNECTED;
@@ -669,8 +731,21 @@ export class NobleTransport {
         criticalPressure
       );
       
-      // Dynamic cooldown: increase by 500ms per pressure unit
-      const dynamicCooldown = baseCooldown + (pressureMultiplier * 500);
+      // Dynamic cooldown: increase by 1000ms per pressure unit (more aggressive)
+      const dynamicCooldown = baseCooldown + (pressureMultiplier * 1000);
+      
+      // Additional cleanup if pressure is high
+      if (pressureMultiplier > 2) {
+        this.logger.debug('[NobleTransport] High pressure detected, performing aggressive cleanup');
+        // Remove all peripheral references from Noble's cache
+        const peripherals = (noble as any)._peripherals || {};
+        Object.keys(peripherals).forEach(id => {
+          if (peripherals[id]) {
+            peripherals[id].removeAllListeners();
+            delete peripherals[id];
+          }
+        });
+      }
       
       
       if (pressureMultiplier > 0) {
@@ -744,7 +819,7 @@ export class NobleTransport {
         // Clean up excessive scanStop listeners during long scans
         // Noble's discoverAsync adds 3 listeners per next() call
         const scanStopCount = noble.listenerCount('scanStop');
-        if (scanStopCount > 90) {
+        if (scanStopCount > 15) {  // Lower threshold for more aggressive cleanup
           if (this.logLevel === 'debug') {
             this.logger.debug(`[NobleTransport] Mid-scan cleanup of ${scanStopCount} scanStop listeners`);
           }
