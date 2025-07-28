@@ -93,6 +93,19 @@ if (enableHttpTransport) {
   startHttpServer(httpApp);
 }
 
+// Handle uncaught errors to prevent server crash
+process.on('uncaughtException', (error) => {
+  console.error('[CRITICAL] Uncaught exception:', error);
+  console.error('Stack:', error.stack);
+  // Don't exit - try to keep server running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[CRITICAL] Unhandled promise rejection at:', promise);
+  console.error('Reason:', reason);
+  // Don't exit - try to keep server running
+});
+
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down...');

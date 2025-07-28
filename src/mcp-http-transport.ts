@@ -75,8 +75,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
     }
   });
 
-  // MCP REGISTER endpoint - requires auth
-  app.post('/mcp/register', authenticate, (req, res) => {
+  // MCP REGISTER endpoint - no auth required for discovery
+  app.post('/mcp/register', async (req, res) => {
     logger.info('POST /mcp/register - Client registration attempt');
     try {
       // Validate server is initialized
@@ -90,8 +90,26 @@ export function createHttpApp(server: McpServer, token?: string): Express {
       const metadata = getPackageMetadata();
       
       // Set headers
+      // Create a new session for this registration
+      const sessionId = randomUUID();
+      const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => sessionId,
+        onsessioninitialized: (id: string) => {
+          transports[id] = transport;
+          logger.info(`New session initialized: ${id}`);
+        },
+        enableJsonResponse: true
+      });
+      
+      // Connect the transport to the server
+      await server.connect(transport);
+      transports[sessionId] = transport;
+      
       res.set('Content-Type', 'application/json');
       res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.set('Mcp-Session-Id', sessionId);
+      
+      logger.info(`New session initialized: ${sessionId}`);
       
       res.json({
         name: metadata.name,
@@ -113,11 +131,20 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   
   // MCP POST endpoint - main message handling
   app.post('/mcp', authenticate, async (req, res) => {
+    // Debug: Log all headers from Claude client
+    logger.info('Claude MCP request headers:', JSON.stringify(req.headers, null, 2));
+    
+    // Fix Accept header for Claude client compatibility
+    if (!req.headers.accept || !req.headers.accept.includes('text/event-stream')) {
+      logger.debug('Adding required Accept header for MCP transport');
+      req.headers.accept = 'application/json, text/event-stream';
+    }
     try {
       const sessionId = req.headers['mcp-session-id'] as string || randomUUID();
       
       let transport = transports[sessionId];
       if (!transport) {
+        logger.debug(`Creating new transport for session: ${sessionId}`);
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => sessionId,
           onsessioninitialized: (id: string) => {
@@ -126,7 +153,22 @@ export function createHttpApp(server: McpServer, token?: string): Express {
           },
           enableJsonResponse: true // Allow JSON responses for simple testing
         });
-        await server.connect(transport);
+        
+        // Store transport BEFORE connecting to prevent race conditions
+        transports[sessionId] = transport;
+        
+        try {
+          await server.connect(transport);
+          logger.debug(`Transport connected for session: ${sessionId}`);
+          
+          // Give the transport a moment to fully initialize
+          // This is a workaround for the MCP SDK's internal state management
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (error) {
+          // Clean up on connection failure
+          delete transports[sessionId];
+          throw error;
+        }
       }
       
       // handleRequest will handle the response internally
@@ -202,13 +244,23 @@ export function createHttpApp(server: McpServer, token?: string): Express {
 export function startHttpServer(app: Express, port?: number): void {
   const actualPort = port || parseInt(process.env.MCP_PORT || '8081', 10);
   
-  app.listen(actualPort, '0.0.0.0', () => {
+  const server = app.listen(actualPort, '0.0.0.0', () => {
     logger.info(`Server listening on 0.0.0.0:${actualPort}`);
     if (process.env.MCP_TOKEN) {
       logger.info('Authentication enabled (Bearer token required)');
     } else {
       logger.warn('⚠️  Running without authentication - local network only!');
     }
+  });
+  
+  // Handle server errors
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      logger.error(`Port ${actualPort} is already in use. Is another instance running?`);
+    } else {
+      logger.error('HTTP server error:', error);
+    }
+    process.exit(1);
   });
 }
 

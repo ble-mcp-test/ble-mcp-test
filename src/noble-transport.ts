@@ -587,56 +587,25 @@ export class NobleTransport {
     this.logger.debug('[NobleTransport] Subscribed to notifications');
     
     // Handle unexpected disconnect
-    peripheral.once('disconnect', () => {
-      this.logger.debug('[NobleTransport] Device disconnected');
-      this.state = ConnectionState.DISCONNECTED;
-      
-      // Clean up ALL listeners on disconnect
-      cleanupPeripheralListeners();
-      if (this.notifyChar) {
-        this.notifyChar.removeAllListeners('data');
-      }
-      
+    peripheral.once('disconnect', async () => {
+      this.logger.debug('[NobleTransport] Device disconnected unexpectedly');
+      await this.performCompleteCleanup('unexpected-disconnect');
       callbacks.onDisconnected();
     });
     
     this.logger.debug('[NobleTransport] Connection complete');
     this.state = ConnectionState.CONNECTED;
     } catch (error) {
-      // CRITICAL: Clean up all listeners on ANY error
-      cleanupPeripheralListeners();
+      // CRITICAL: Perform complete cleanup on ANY error
+      await this.performCompleteCleanup('connection-error');
       
-      // Clean up any dangling notify char listeners
-      if (this.notifyChar) {
-        // CRITICAL: Unsubscribe from BLE notifications before clearing reference
-        try {
-          await this.notifyChar.unsubscribeAsync();
-        } catch (e) {
-          // Expected if already disconnected
-          this.logger.debug('[NobleTransport] Error unsubscribing during error cleanup:', e);
-        }
-        this.notifyChar.removeAllListeners('data');
-        this.notifyChar = null;
+      // If we have a peripheral reference, it should already be disconnected
+      // by performCompleteCleanup, but log if somehow it's not
+      if (this.peripheral?.state === 'connected') {
+        this.logger.error('[NobleTransport] Peripheral still connected after cleanup!');
       }
       
-      // Always reset state on ANY connection error
       this.state = ConnectionState.DISCONNECTED;
-      
-      // If we have a peripheral reference, try to disconnect it
-      if (this.peripheral) {
-        try {
-          await this.peripheral.disconnectAsync();
-        } catch (e) {
-          // Ignore disconnect errors
-          this.logger.debug('[NobleTransport] Error disconnecting peripheral during cleanup:', e);
-        }
-        this.peripheral = null;
-      }
-      
-      // Clear any other references
-      this.writeChar = null;
-      this.notifyChar = null;
-      
       throw error;
     }
   }
@@ -646,8 +615,67 @@ export class NobleTransport {
     await this.writeChar.writeAsync(Buffer.from(data), false);
   }
   
+  /**
+   * Performs complete cleanup of BLE connection and all resources.
+   * This is the single source of truth for cleanup logic.
+   * Safe to call multiple times (idempotent).
+   */
+  async performCompleteCleanup(reason: string = 'unknown'): Promise<void> {
+    this.logger.debug(`[NobleTransport] Performing complete cleanup (reason: ${reason}, current state: ${this.state})`);
+    
+    // Mark state early to prevent concurrent operations
+    if (this.state !== ConnectionState.DISCONNECTED) {
+      this.state = ConnectionState.DISCONNECTING;
+    }
+    
+    // Step 1: Unsubscribe from BLE notifications first
+    // This prevents any more data events from the hardware
+    if (this.notifyChar) {
+      try {
+        await this.notifyChar.unsubscribeAsync();
+        this.logger.debug('[NobleTransport] Unsubscribed from BLE notifications');
+      } catch (e) {
+        // Expected if already disconnected
+        this.logger.debug('[NobleTransport] Error unsubscribing (may be expected):', e);
+      }
+      
+      // Step 2: Remove all JavaScript event listeners
+      this.notifyChar.removeAllListeners('data');
+      this.notifyChar = null;
+    }
+    
+    // Step 3: Clean up peripheral listeners
+    if (this.peripheral) {
+      this.peripheral.removeAllListeners('connect');
+      this.peripheral.removeAllListeners('disconnect');
+      this.peripheral.removeAllListeners('servicesDiscover');
+      this.peripheral.removeAllListeners('characteristicsDiscover');
+      
+      // Step 4: Disconnect peripheral if still connected
+      if (this.peripheral.state === 'connected') {
+        try {
+          await this.peripheral.disconnectAsync();
+          this.logger.debug('[NobleTransport] Disconnected peripheral');
+        } catch (e) {
+          // Ignore disconnect errors
+          this.logger.debug('[NobleTransport] Error disconnecting peripheral (may be expected):', e);
+        }
+      }
+      
+      this.peripheral = null;
+    }
+    
+    // Step 5: Clear other references
+    this.writeChar = null;
+    
+    // Step 6: Final state update
+    this.state = ConnectionState.DISCONNECTED;
+    
+    this.logger.debug('[NobleTransport] Complete cleanup finished');
+  }
+
   async disconnect(): Promise<void> {
-    this.logger.debug(`[NobleTransport] Disconnecting from current state: ${this.state}`);
+    this.logger.debug(`[NobleTransport] Disconnect requested from state: ${this.state}`);
     
     // If already disconnected or disconnecting, return early
     if (this.state === ConnectionState.DISCONNECTED || 
@@ -656,18 +684,9 @@ export class NobleTransport {
       return;
     }
     
-    // Set state to disconnecting
-    this.state = ConnectionState.DISCONNECTING;
-    
     try {
-      if (this.notifyChar) {
-        await this.notifyChar.unsubscribeAsync();
-      }
-      if (this.peripheral && this.peripheral.state === 'connected') {
-        await this.peripheral.disconnectAsync();
-      }
-    } catch (error) {
-      this.logger.debug('[NobleTransport] Error during disconnect (expected):', error);
+      // Use our centralized cleanup method
+      await this.performCompleteCleanup('explicit-disconnect');
     } finally {
       // Clear references
       this.peripheral = null;

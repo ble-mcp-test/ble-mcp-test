@@ -6,6 +6,26 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerMcpTools } from './mcp-tools.js';
 import { Logger } from './logger.js';
 
+/**
+ * WebSocket API Commands:
+ * 
+ * Outgoing messages (client -> server):
+ * - { type: 'data', data: number[] } - Send data to BLE device
+ * - { type: 'disconnect' } - Disconnect from BLE device gracefully
+ * - { type: 'cleanup' } - Perform complete BLE cleanup (unsubscribe + disconnect)
+ * - { type: 'force_cleanup' } - Force Noble.js global cleanup (use with caution)
+ * - { type: 'check_pressure' } - Get current Noble.js listener pressure metrics
+ * 
+ * Incoming messages (server -> client):
+ * - { type: 'connected', device: string } - Connected to BLE device
+ * - { type: 'disconnected' } - Disconnected from BLE device
+ * - { type: 'data', data: number[] } - Data received from BLE device
+ * - { type: 'error', error: string } - Error occurred
+ * - { type: 'cleanup_complete', message: string } - Cleanup completed
+ * - { type: 'force_cleanup_complete', message: string } - Force cleanup completed
+ * - { type: 'pressure_report', pressure: object } - Listener pressure metrics
+ */
+
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private transport: NobleTransport | null = null;
@@ -157,17 +177,67 @@ export class BridgeServer {
         ws.on('message', async (message) => {
           try {
             const msg = JSON.parse(message.toString());
-            if (msg.type === 'data' && msg.data && this.transport) {
-              const dataArray = new Uint8Array(msg.data);
-              
-              // Add to shared log buffer
-              this.logBuffer.push('TX', dataArray);
-              this.updateActivity();
-              
-              if (this.logLevel === 'debug') {
-                this.logger.debug(`[TX] ${formatHex(dataArray)}`);
+            
+            switch (msg.type) {
+              case 'data':
+                if (msg.data && this.transport) {
+                  const dataArray = new Uint8Array(msg.data);
+                  
+                  // Add to shared log buffer
+                  this.logBuffer.push('TX', dataArray);
+                  this.updateActivity();
+                  
+                  if (this.logLevel === 'debug') {
+                    this.logger.debug(`[TX] ${formatHex(dataArray)}`);
+                  }
+                  await this.transport.sendData(dataArray);
+                }
+                break;
+                
+              case 'disconnect':
+                this.logger.info('Disconnect requested via WebSocket');
+                isDisconnecting = true;
+                if (this.transport) {
+                  await this.transport.disconnect();
+                  ws.send(JSON.stringify({ type: 'disconnected' }));
+                  ws.close();
+                }
+                break;
+                
+              case 'cleanup':
+                this.logger.info('Cleanup requested via WebSocket');
+                if (this.transport) {
+                  // Use the new performCompleteCleanup method
+                  await (this.transport as any).performCompleteCleanup('websocket-cleanup');
+                  ws.send(JSON.stringify({ 
+                    type: 'cleanup_complete',
+                    message: 'BLE cleanup completed successfully'
+                  }));
+                }
+                break;
+                
+              case 'force_cleanup':
+                this.logger.info('Force cleanup requested via WebSocket');
+                // Call the static forceCleanup method
+                await NobleTransport.forceCleanup();
+                ws.send(JSON.stringify({ 
+                  type: 'force_cleanup_complete',
+                  message: 'Noble force cleanup completed successfully'
+                }));
+                break;
+                
+              case 'check_pressure': {
+                this.logger.info('Pressure check requested via WebSocket');
+                const pressure = NobleTransport.checkPressure();
+                ws.send(JSON.stringify({ 
+                  type: 'pressure_report',
+                  pressure
+                }));
+                break;
               }
-              await this.transport.sendData(dataArray);
+                
+              default:
+                this.logger.warn(`Unknown message type: ${msg.type}`);
             }
           } catch {
             // Ignore malformed messages
