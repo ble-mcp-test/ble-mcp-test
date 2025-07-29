@@ -9,6 +9,10 @@ import { Logger } from './logger.js';
 /**
  * WebSocket API Commands:
  * 
+ * Special connection URLs:
+ * - ws://localhost:8080/?command=health - Health check endpoint (responds with server status)
+ * - ws://localhost:8080/?command=log-stream - Real-time log streaming
+ * 
  * Outgoing messages (client -> server):
  * - { type: 'data', data: number[] } - Send data to BLE device
  * - { type: 'disconnect' } - Disconnect from BLE device gracefully
@@ -24,6 +28,7 @@ import { Logger } from './logger.js';
  * - { type: 'cleanup_complete', message: string } - Cleanup completed
  * - { type: 'force_cleanup_complete', message: string } - Force cleanup completed
  * - { type: 'pressure_report', pressure: object } - Listener pressure metrics
+ * - { type: 'health', status: string, free: boolean, ... } - Health check response
  */
 
 export class BridgeServer {
@@ -86,6 +91,23 @@ export class BridgeServer {
         ws.on('close', () => {
           this.logClients.delete(ws);
         });
+        return;
+      }
+      
+      // Check if this is a health check connection
+      if (url.searchParams.get('command') === 'health') {
+        // "Are you free, Mr. Bridge Server?"
+        const isFree = !this.transport || this.transport.getState() !== 'connected';
+        ws.send(JSON.stringify({ 
+          type: 'health',
+          status: 'ok',
+          free: isFree,
+          state: this.transport?.getState() || 'no-transport',
+          message: isFree ? "I'm free!" : "I'm with a customer",
+          connectionState: this.connectionState,
+          timestamp: new Date().toISOString()
+        }));
+        ws.close();
         return;
       }
       
