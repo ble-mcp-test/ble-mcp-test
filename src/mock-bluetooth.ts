@@ -19,6 +19,11 @@
  * - status: Get server configuration and health
  * - scan_devices: Discover nearby BLE devices
  * 
+ * WebSocket Health Check:
+ * - Connect to ws://localhost:8080/?command=health to check server status
+ * - Returns: { status: 'ok', free: boolean, message: string, ... }
+ * - Use before running tests to ensure server is available
+ * 
  * Example Usage:
  * 1. Use get_logs to see recent TX/RX packets
  * 2. Use search_packets to find specific command/response patterns
