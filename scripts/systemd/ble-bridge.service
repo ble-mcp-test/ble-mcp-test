@@ -1,0 +1,32 @@
+[Unit]
+Description=BLE WebSocket Bridge Service
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=mike
+Group=mike
+WorkingDirectory=/home/mike/ble-mcp-test
+Environment="NODE_ENV=production"
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/home/mike/ble-mcp-test/start-service.sh
+Restart=always
+RestartSec=10
+
+# Bluetooth permissions
+SupplementaryGroups=bluetooth
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ble-bridge
+
+[Install]
+WantedBy=multi-user.target

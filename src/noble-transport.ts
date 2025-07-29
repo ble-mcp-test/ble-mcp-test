@@ -812,7 +812,7 @@ export class NobleTransport {
       this.logger.debug(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
       
       // Start fresh scanning each time
-      await noble.startScanningAsync([], false);
+      await noble.startScanningAsync([], true);
       this.logger.debug('[NobleTransport] Scanning started');
       
       const generator = noble.discoverAsync();
@@ -825,12 +825,20 @@ export class NobleTransport {
         if (done) break;
         
         const name = device.advertisement.localName || '';
+        const deviceId = device.id;
+        
         if (this.logLevel === 'debug') {
-          this.logger.debug(`[NobleTransport] Discovered: ${name || 'Unknown'} (${device.id})`);
+          this.logger.debug(`[NobleTransport] Discovered: ${name || 'Unknown'} (${deviceId})`);
         }
         
-        if (name.startsWith(devicePrefix)) {
-          this.logger.debug(`[NobleTransport] Found matching device: ${name}`);
+        // Match by name if available, otherwise try matching by ID
+        if (name && name.startsWith(devicePrefix)) {
+          this.logger.debug(`[NobleTransport] Found matching device by name: ${name}`);
+          peripheral = device;
+          break;
+        } else if (deviceId === devicePrefix) {
+          // If devicePrefix is a device ID (no name match), match by exact ID
+          this.logger.debug(`[NobleTransport] Found matching device by ID: ${deviceId}`);
           peripheral = device;
           break;
         }
@@ -908,7 +916,7 @@ export class NobleTransport {
       }
       
       // Start scanning
-      await noble.startScanningAsync([], false);
+      await noble.startScanningAsync([], true);
       
       // Collect devices for the specified duration
       const generator = noble.discoverAsync();
