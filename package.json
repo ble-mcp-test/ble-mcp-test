@@ -24,7 +24,7 @@
     "ai",
     "coding-assistant"
   ],
-  "author": "Michael Hayes",
+  "author": "Mike Stankavich <mike@trakrf.id> (https://trakrf.id)",
   "license": "MIT",
   "homepage": "https://github.com/ble-mcp-test/ble-mcp-test",
   "repository": {
