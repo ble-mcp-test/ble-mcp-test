@@ -34,9 +34,9 @@ print_error() {
 }
 
 # Configuration
-WS_PORT="${WS_PORT:-8080}"
-WS_HOST="${WS_HOST:-0.0.0.0}"
-CS108_DEVICE_NAME="${CS108_DEVICE_NAME:-}"  # Empty means ANY device
+WS_PORT="${BLE_MCP_WS_PORT:-8080}"
+WS_HOST="${BLE_MCP_WS_HOST:-0.0.0.0}"
+CS108_DEVICE_NAME="${BLE_MCP_DEVICE_NAME:-}"  # Empty means ANY device
 
 echo "🚀 Starting WebSocket-to-BLE Bridge on macOS"
 echo "==========================================="

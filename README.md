@@ -55,31 +55,72 @@ ble-mcp-test
 
 The server will start on `ws://localhost:8080` by default.
 
+## Breaking Changes in v0.4.0
+
+### Connection Token (BREAKING)
+All WebSocket connections now receive a unique token upon successful BLE connection:
+```json
+// Old format (v0.3.x)
+{ "type": "connected", "device": "CS108-123456" }
+
+// New format (v0.4.0)
+{ "type": "connected", "device": "CS108-123456", "token": "550e8400-e29b-41d4-a716-446655440000" }
+```
+
+### Client Idle Timeout (NEW)
+Clients are now automatically disconnected after 45 seconds of inactivity:
+- Send a `{ "type": "keepalive" }` message to reset the idle timer
+- Receive an `eviction_warning` before disconnection (5-second grace period)
+- Configure timeout with `BLE_MCP_CLIENT_IDLE_TIMEOUT` environment variable
+
+### Enhanced Health Endpoint (ENHANCED)
+The health check now includes state machine information:
+```json
+{
+  "type": "health",
+  "status": "ok",
+  "free": true,
+  "state": "IDLE",  // NEW: IDLE, ACTIVE, or EVICTING
+  "transportState": "disconnected",
+  "connectionInfo": null,  // NEW: Includes token, deviceName, timestamps
+  "timestamp": "2025-01-30T12:34:56.789Z"
+}
+```
+
+### Single Connection Enforcement (BEHAVIOR CHANGE)
+- Only one active BLE connection allowed at a time
+- Enforced by atomic mutex to prevent race conditions
+- Connection attempts while busy receive: `"Another connection is active"`
+
 ### Configuration
 
 The bridge server can be configured using environment variables:
 
 ```bash
 # Set WebSocket port (default: 8080)
-WS_PORT=3000 pnpm dlx ble-mcp-test
+BLE_MCP_WS_PORT=3000 pnpm dlx ble-mcp-test
 
 # Set host interface (default: 0.0.0.0)
-WS_HOST=127.0.0.1 pnpm dlx ble-mcp-test
+BLE_MCP_WS_HOST=127.0.0.1 pnpm dlx ble-mcp-test
 
 # Set log level (default: debug)
 # Options: debug, info, warn, error
 # Also supports: verbose, trace (maps to debug), warning (maps to info)
-LOG_LEVEL=info pnpm dlx ble-mcp-test
+BLE_MCP_LOG_LEVEL=info pnpm dlx ble-mcp-test
+
+# Set client idle timeout (default: 45000ms / 45 seconds)
+# Clients are disconnected after this period of inactivity
+BLE_MCP_CLIENT_IDLE_TIMEOUT=60000 pnpm dlx ble-mcp-test
 
 # Advanced BLE timing configuration (milliseconds)
 # Override platform-specific defaults for your hardware
 # Note: Default values vary by platform (macOS/Windows/Linux)
-BLE_CONNECTION_STABILITY=0      # Delay after connection before service discovery
-BLE_PRE_DISCOVERY_DELAY=0       # Additional delay before service discovery
-BLE_NOBLE_RESET_DELAY=1000      # Delay after Noble reset before operations
-BLE_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
-BLE_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
-BLE_DISCONNECT_COOLDOWN=200     # Recovery time after disconnect (dynamically scales with load)
+BLE_MCP_CONNECTION_STABILITY=0      # Delay after connection before service discovery
+BLE_MCP_PRE_DISCOVERY_DELAY=0       # Additional delay before service discovery
+BLE_MCP_NOBLE_RESET_DELAY=1000      # Delay after Noble reset before operations
+BLE_MCP_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
+BLE_MCP_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
+BLE_MCP_DISCONNECT_COOLDOWN=200     # Recovery time after disconnect (dynamically scales with load)
 ```
 
 **Log Levels:**
@@ -96,7 +137,7 @@ The bridge server supports real-time log streaming via WebSocket:
 pnpm logs
 
 # Or use a custom server URL
-WS_URL=ws://192.168.1.100:8080 pnpm logs
+BLE_MCP_TEST_WS_URL=ws://192.168.1.100:8080 pnpm logs
 ```
 
 You can also view logs in a web browser:
@@ -189,7 +230,7 @@ The bridge accepts UUIDs in multiple formats:
 
 ```bash
 # On Raspberry Pi with BLE hardware
-WS_HOST=0.0.0.0 WS_PORT=8080 pnpm dlx ble-mcp-test
+BLE_MCP_WS_HOST=0.0.0.0 BLE_MCP_WS_PORT=8080 pnpm dlx ble-mcp-test
 
 # In your tests (from another machine)
 WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
@@ -200,12 +241,12 @@ WebBleMock.injectWebBluetoothMock('ws://raspberrypi.local:8080');
 ### Bridge Server Options
 
 Environment variables:
-- `WS_HOST` - WebSocket host (default: `0.0.0.0`)
-- `WS_PORT` - WebSocket port (default: `8080`)
-- `LOG_LEVEL` - Logging level: debug, info, warn, error (default: `debug`)
-- `MCP_PORT` - MCP HTTP server port (default: `8081`, setting this enables HTTP transport)
-- `MCP_TOKEN` - Bearer token for MCP authentication (setting this enables HTTP transport)
-- `LOG_BUFFER_SIZE` - Circular buffer size for logs (default: `10000`, min: 100, max: 1000000)
+- `BLE_MCP_WS_HOST` - WebSocket host (default: `0.0.0.0`)
+- `BLE_MCP_WS_PORT` - WebSocket port (default: `8080`)
+- `BLE_MCP_LOG_LEVEL` - Logging level: debug, info, warn, error (default: `debug`)
+- `BLE_MCP_HTTP_PORT` - MCP HTTP server port (default: `8081`, setting this enables HTTP transport)
+- `BLE_MCP_HTTP_TOKEN` - Bearer token for MCP authentication (setting this enables HTTP transport)
+- `BLE_MCP_LOG_BUFFER_SIZE` - Circular buffer size for logs (default: `10000`, min: 100, max: 1000000)
 
 ### Device Configuration
 
@@ -333,7 +374,7 @@ The bridge uses a simple JSON protocol over WebSocket:
 ### Bridge server crashes
 - Ensure Node.js 24.x is installed (not 22.x or 26.x)
 - Check for other processes using the same port
-- Run with debug logging: `LOG_LEVEL=debug pnpm dlx ble-mcp-test`
+- Run with debug logging: `BLE_MCP_LOG_LEVEL=debug pnpm dlx ble-mcp-test`
 
 ## Documentation
 
@@ -394,10 +435,10 @@ For integration tests and CI pipelines:
 ```bash
 # Fixed token for predictable testing
 pnpm start:ci
-# Server runs with MCP_TOKEN=test-token on HTTP port 8081
+# Server runs with BLE_MCP_HTTP_TOKEN=test-token on HTTP port 8081
 
 # Or set custom token for specific test scenarios
-MCP_TOKEN=custom-token pnpm start:http
+BLE_MCP_HTTP_TOKEN=custom-token pnpm start:http
 ```
 
 This enables natural language BLE interactions in Claude Code:

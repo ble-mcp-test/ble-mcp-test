@@ -1,6 +1,12 @@
 // Test configuration for BLE bridge
 // Can be overridden by environment variables
 
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load .env.local if it exists
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+
 export interface BridgeTestConfig {
   wsUrl: string;
   device: string;
@@ -9,27 +15,39 @@ export interface BridgeTestConfig {
   notify: string;
 }
 
-// Default CS108 RFID Reader configuration
-const DEFAULT_CONFIG: BridgeTestConfig = {
-  wsUrl: 'ws://localhost:8080',
-  device: process.platform === 'linux' ? '6c79b82603a7' : 'CS108',
-  service: '9800',
-  write: '9900',
-  notify: '9901'
-};
-
-// Get complete test configuration from environment or use defaults
+// Get complete test configuration from environment
+// All values MUST come from environment - no hardcoded defaults
 export function getTestConfig(): BridgeTestConfig {
+  const device = process.env.BLE_MCP_DEVICE_NAME || 
+                 process.env.BLE_MCP_DEVICE_MAC ||
+                 '';
+                 
+  const service = process.env.BLE_MCP_SERVICE_UUID || '';
+  const write = process.env.BLE_MCP_WRITE_UUID || '';
+  const notify = process.env.BLE_MCP_NOTIFY_UUID || '';
+  
+  const wsPort = process.env.BLE_MCP_WS_PORT || '8080';
+  const wsUrl = process.env.BLE_MCP_TEST_WS_URL || `ws://localhost:${wsPort}`;
+
+  // Validate required configuration
+  if (!device) {
+    throw new Error('BLE device configuration missing. Set BLE_MCP_DEVICE_NAME or BLE_MCP_DEVICE_MAC in .env.local');
+  }
+  
+  if (!service || !write || !notify) {
+    throw new Error('BLE service/characteristic UUIDs missing. Set BLE_MCP_SERVICE_UUID, BLE_MCP_WRITE_UUID, and BLE_MCP_NOTIFY_UUID in .env.local');
+  }
+
   return {
-    wsUrl: process.env.WS_URL || DEFAULT_CONFIG.wsUrl,
-    device: process.env.BLE_DEVICE_PREFIX || DEFAULT_CONFIG.device,
-    service: process.env.BLE_SERVICE_UUID || DEFAULT_CONFIG.service,
-    write: process.env.BLE_WRITE_UUID || DEFAULT_CONFIG.write,
-    notify: process.env.BLE_NOTIFY_UUID || DEFAULT_CONFIG.notify
+    wsUrl,
+    device,
+    service,
+    write,
+    notify
   };
 }
 
-// For backward compatibility with existing tests
+// Helper to extract just device-related config
 export function getDeviceConfig() {
   const config = getTestConfig();
   return {
@@ -84,7 +102,7 @@ export async function setupTestServer() {
     if (isLocalhost) {
       // Local URL - start our own server on the port from WS_URL
       console.log(`[Test] Starting local bridge server on port ${port}...`);
-      const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
+      const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
       const server = new BridgeServer(logLevel);
       await server.start(port); // Use port from WS_URL, not WS_PORT
       console.log(`[Test] Started local bridge server on port ${port}`);
@@ -102,17 +120,30 @@ export async function setupTestServer() {
 
 // Usage examples:
 // 
-// 1. Run tests with default CS108 configuration:
-//    WS_URL=ws://cheetah.local:8080 pnpm test
-//    Note: On Linux, defaults to MAC address 6c79b82603a7 instead of device name
+// 1. Run integration tests without real devices (tests will skip if device not found):
+//    pnpm test:integration
 //
-// 2. Run tests with custom device configuration:
-//    BLE_DEVICE_PREFIX=MyDevice \
-//    BLE_SERVICE_UUID=180f \
-//    BLE_WRITE_UUID=2a19 \
-//    BLE_NOTIFY_UUID=2a20 \
-//    WS_URL=ws://cheetah.local:8080 \
+// 2. Run integration tests with a specific test device:
+//    BLE_MCP_TEST_DEVICE=MockBLE pnpm test:integration
+//
+// 3. Run tests with real BLE device (e.g., nRF52 dongle):
+//    BLE_MCP_DEVICE_NAME=nRF52 \
+//    BLE_MCP_SERVICE_UUID=180f \
+//    BLE_MCP_WRITE_UUID=2a19 \
+//    BLE_MCP_NOTIFY_UUID=2a19 \
 //    pnpm test
 //
-// 3. Override default device on Linux:
-//    BLE_DEVICE_PREFIX=CS108 WS_URL=ws://cheetah.local:8080 pnpm test
+// 4. Run tests with CS108 RFID reader:
+//    BLE_MCP_DEVICE_NAME=CS108 \
+//    BLE_MCP_SERVICE_UUID=9800 \
+//    BLE_MCP_WRITE_UUID=9900 \
+//    BLE_MCP_NOTIFY_UUID=9901 \
+//    pnpm test
+//
+// 5. Run tests against remote bridge server:
+//    BLE_MCP_TEST_WS_URL=ws://raspberry-pi.local:8080 \
+//    BLE_MCP_DEVICE_NAME=MyDevice \
+//    BLE_MCP_SERVICE_UUID=... \
+//    BLE_MCP_WRITE_UUID=... \
+//    BLE_MCP_NOTIFY_UUID=... \
+//    pnpm test

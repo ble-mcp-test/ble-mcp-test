@@ -2,8 +2,8 @@
 
 import WebSocket from 'ws';
 
-// Use WS_URL env var if set, otherwise default to localhost
-const baseUrl = process.env.WS_URL || 'ws://localhost:8080';
+// Use BLE_MCP_TEST_WS_URL env var if set, otherwise default to localhost
+const baseUrl = process.env.BLE_MCP_TEST_WS_URL || 'ws://localhost:8080';
 const url = baseUrl.replace(/\/$/, '') + '?command=log-stream';
 
 console.log(`Connecting to: ${url}`);

@@ -187,22 +187,22 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     handler: async () => {
       // Determine active transports
       const hasTty = process.stdin.isTTY && process.stdout.isTTY;
-      const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
-      const httpEnabled = !!process.argv.includes('--mcp-http') || !!process.env.MCP_PORT || !!process.env.MCP_TOKEN;
+      const stdioEnabled = hasTty && process.env.BLE_MCP_STDIO_DISABLED !== 'true';
+      const httpEnabled = !!process.argv.includes('--mcp-http') || !!process.env.BLE_MCP_HTTP_PORT || !!process.env.BLE_MCP_HTTP_TOKEN;
       
       const metadata = getPackageMetadata();
       const status: ServerStatus = {
         version: metadata.version,
         uptime: process.uptime(),
-        wsPort: parseInt(process.env.WS_PORT || '8080'),
+        wsPort: parseInt(process.env.BLE_MCP_WS_PORT || '8080'),
         mcpTransports: {
           stdio: stdioEnabled,
           http: httpEnabled,
-          httpPort: httpEnabled ? parseInt(process.env.MCP_PORT || '8081') : undefined,
-          httpAuth: !!process.env.MCP_TOKEN
+          httpPort: httpEnabled ? parseInt(process.env.BLE_MCP_HTTP_PORT || '8081') : undefined,
+          httpAuth: !!process.env.BLE_MCP_HTTP_TOKEN
         },
-        logBufferSize: parseInt(process.env.LOG_BUFFER_SIZE || '10000'),
-        logLevel: process.env.LOG_LEVEL || 'debug'
+        logBufferSize: parseInt(process.env.BLE_MCP_LOG_BUFFER_SIZE || '10000'),
+        logLevel: process.env.BLE_MCP_LOG_LEVEL || 'debug'
       };
       
       return {

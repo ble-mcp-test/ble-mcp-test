@@ -10,31 +10,48 @@ import { ConnectionMutex } from './connection-mutex.js';
 import { ConnectionContext } from './connection-context.js';
 
 /**
- * WebSocket API Commands:
+ * WebSocket API v0.4.0 - Enhanced Connection Lifecycle
  * 
  * Special connection URLs:
- * - ws://localhost:8080/?command=health - Health check endpoint (responds with server status)
+ * - ws://localhost:8080/?command=health - Health check endpoint (server status + state machine)
  * - ws://localhost:8080/?command=log-stream - Real-time log streaming
  * 
- * Outgoing messages (client -> server):
- * - { type: 'data', data: number[] } - Send data to BLE device
- * - { type: 'disconnect' } - Disconnect from BLE device gracefully
- * - { type: 'cleanup' } - Perform complete BLE cleanup (unsubscribe + disconnect)
- * - { type: 'force_cleanup', token: string } - Token-validated force cleanup
- * - { type: 'check_pressure' } - Get current Noble.js listener pressure metrics
- * - { type: 'keepalive' } - Reset idle timer without side effects
+ * Connection URL Parameters (for BLE connections):
+ * - device: Device name prefix to search for (required)
+ * - service: BLE service UUID (required)
+ * - write: Write characteristic UUID (required)
+ * - notify: Notify characteristic UUID (required)
  * 
- * Incoming messages (server -> client):
- * - { type: 'connected', device: string, token: string } - Connected with token
+ * Client → Server Messages:
+ * - { type: 'data', data: number[] } - Send data to BLE device
+ * - { type: 'disconnect' } - Graceful disconnect from BLE device
+ * - { type: 'cleanup' } - Complete BLE cleanup (unsubscribe + disconnect)
+ * - { type: 'force_cleanup', token: string } - Force cleanup with auth token (NEW)
+ * - { type: 'check_pressure' } - Get Noble.js listener pressure metrics
+ * - { type: 'keepalive' } - Reset idle timer, prevents eviction (NEW)
+ * 
+ * Server → Client Messages:
+ * - { type: 'connected', device: string, token: string } - Connected with auth token (BREAKING)
  * - { type: 'disconnected' } - Disconnected from BLE device
  * - { type: 'data', data: number[] } - Data received from BLE device
  * - { type: 'error', error: string } - Error occurred
  * - { type: 'cleanup_complete', message: string } - Cleanup completed
- * - { type: 'force_cleanup_complete', message: string } - Force cleanup completed
+ * - { type: 'force_cleanup_complete', message: string } - Force cleanup completed (NEW)
  * - { type: 'pressure_report', pressure: object } - Listener pressure metrics
- * - { type: 'health', status: string, free: boolean, state: string, ... } - Health check
- * - { type: 'eviction_warning', grace_period_ms: number, reason: string } - Timeout warning
- * - { type: 'keepalive_ack', timestamp: string } - Keepalive acknowledgment
+ * - { type: 'health', status: string, free: boolean, state: string, transportState: string, connectionInfo: object, timestamp: string } - Health check (ENHANCED)
+ * - { type: 'eviction_warning', grace_period_ms: number, reason: string } - Idle timeout warning (NEW)
+ * - { type: 'keepalive_ack', timestamp: string } - Keepalive acknowledgment (NEW)
+ * 
+ * Breaking Changes in v0.4.0:
+ * - 'connected' message now includes mandatory token field
+ * - Health endpoint includes state machine state and connection info
+ * - Clients are disconnected after idle timeout (default: 45s)
+ * - Only one active connection allowed (enforced by mutex)
+ * 
+ * Environment Variables:
+ * - BLE_MCP_CLIENT_IDLE_TIMEOUT: Idle timeout in ms (default: 45000)
+ * - BLE_MCP_WS_PORT: WebSocket port (default: 8080)
+ * - BLE_MCP_LOG_LEVEL: Logging level (debug|info|warn|error)
  */
 
 export class BridgeServer {
@@ -61,7 +78,7 @@ export class BridgeServer {
     this.connectionMutex = new ConnectionMutex();
     
     // Get idle timeout from environment or use default
-    this.idleTimeout = parseInt(process.env.CLIENT_IDLE_TIMEOUT || '45000', 10);
+    this.idleTimeout = parseInt(process.env.BLE_MCP_CLIENT_IDLE_TIMEOUT || '45000', 10);
     this.logger.info(`Client idle timeout configured: ${this.idleTimeout}ms`);
     
     // Initialize MCP server
@@ -76,7 +93,7 @@ export class BridgeServer {
   }
   async start(port?: number) {
     // Use provided port, or fall back to env var, or default to 8080
-    const actualPort = port ?? parseInt(process.env.WS_PORT || '8080', 10);
+    const actualPort = port ?? parseInt(process.env.BLE_MCP_WS_PORT || '8080', 10);
     this.wss = new WebSocketServer({ port: actualPort });
     
     // Hook into console methods for log streaming
@@ -210,24 +227,29 @@ export class BridgeServer {
         return;
       }
 
-      // Set active connection
-      this.activeConnection = connectionContext;
-      connectionContext.setWebSocket(ws);
-
-      // Try to claim the transport connection
-      if (!this.transport.tryClaimConnection()) {
-        this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
-        this.connectionMutex.releaseConnection(connectionContext.getToken());
-        this.activeConnection = null;
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          error: 'BLE transport is not available' 
-        }));
-        ws.close();
-        return;
-      }
+      // CRITICAL: Ensure mutex is always released, even on unexpected errors
+      let mutexReleased = false;
       
       try {
+        // Set active connection
+        this.activeConnection = connectionContext;
+        connectionContext.setWebSocket(ws);
+
+        // Try to claim the transport connection
+        if (!this.transport.tryClaimConnection()) {
+          this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            error: 'BLE transport is not available' 
+          }));
+          ws.close();
+          
+          // Release mutex before returning
+          this.connectionMutex.releaseConnection(connectionContext.getToken());
+          mutexReleased = true;
+          this.activeConnection = null;
+          return;
+        }
         // Connect to BLE device
         this.logger.info('Starting BLE connection...');
         
@@ -347,6 +369,7 @@ export class BridgeServer {
                 try {
                   // Perform cleanup through context
                   await connectionContext.performCleanup('force_cleanup');
+                  mutexReleased = true; // Mark mutex as released by performCleanup
                   
                   // Clear active connection
                   this.activeConnection = null;
@@ -395,6 +418,7 @@ export class BridgeServer {
           
           // Perform cleanup through context
           await connectionContext.performCleanup('websocket_closed');
+          mutexReleased = true; // Mark mutex as released by performCleanup
           
           // Clear active connection
           this.activeConnection = null;
@@ -412,14 +436,19 @@ export class BridgeServer {
         
       } catch (error: any) {
         this.logger.error('Error:', error?.message || error);
-        ws.send(JSON.stringify({ 
-          type: 'error', 
-          error: error?.message || error?.toString() || 'Unknown error' 
-        }));
-        ws.close();
         
-        // Cleanup connection context
-        await connectionContext.performCleanup('connection_error');
+        try {
+          ws.send(JSON.stringify({ 
+            type: 'error', 
+            error: error?.message || error?.toString() || 'Unknown error' 
+          }));
+          ws.close();
+        } catch {
+          // Ignore errors during error handling
+        }
+        
+        // Mark mutex as needing release
+        mutexReleased = false;
         
         // Clear active connection
         this.activeConnection = null;
@@ -432,6 +461,20 @@ export class BridgeServer {
         // Transition back to IDLE
         if (this.stateMachine.getState() !== ServerState.IDLE) {
           this.stateMachine.transition(ServerState.IDLE, 'connection error');
+        }
+      } finally {
+        // CRITICAL: Always release mutex to prevent permanent lockup
+        if (!mutexReleased) {
+          try {
+            // Use performCleanup which releases the mutex
+            await connectionContext.performCleanup('finally_cleanup');
+          } catch (cleanupError) {
+            this.logger.error('Error during finally cleanup:', cleanupError);
+            // Last resort: force release the mutex
+            if (this.connectionMutex.isOwner(connectionContext.getToken())) {
+              this.connectionMutex.releaseConnection(connectionContext.getToken());
+            }
+          }
         }
       }
     });
@@ -549,12 +592,12 @@ export class BridgeServer {
     const timings = NobleTransport.getTimingConfig();
     
     // Check which values are from environment overrides
-    this.logger.info(`  CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_CONNECTION_STABILITY ? ' (env override)' : ''}`);
-    this.logger.info(`  PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
-    this.logger.info(`  NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
-    this.logger.info(`  SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_SCAN_TIMEOUT ? ' (env override)' : ''}`);
-    this.logger.info(`  CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
-    this.logger.info(`  DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
+    this.logger.info(`  CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_MCP_CONNECTION_STABILITY ? ' (env override)' : ''}`);
+    this.logger.info(`  PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_MCP_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
+    this.logger.info(`  NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_MCP_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
+    this.logger.info(`  SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_MCP_SCAN_TIMEOUT ? ' (env override)' : ''}`);
+    this.logger.info(`  CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_MCP_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
+    this.logger.info(`  DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_MCP_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
   }
   
   // MCP integration methods

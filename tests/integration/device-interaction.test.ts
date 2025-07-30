@@ -18,8 +18,8 @@ describe.sequential('Device Interaction Tests', () => {
       console.log(`🔋 Test: GET_BATTERY_VOLTAGE (0xA000) command with ${logLevel.toUpperCase()} logging`);
       
       // Save original LOG_LEVEL and set test level
-      const originalLogLevel = process.env.LOG_LEVEL;
-      process.env.LOG_LEVEL = logLevel;
+      const originalLogLevel = process.env.BLE_MCP_LOG_LEVEL;
+      process.env.BLE_MCP_LOG_LEVEL = logLevel;
       
       // Start server with the specific log level
       const server = await setupTestServer();
@@ -185,9 +185,9 @@ describe.sequential('Device Interaction Tests', () => {
         
         // Restore original LOG_LEVEL
         if (originalLogLevel !== undefined) {
-          process.env.LOG_LEVEL = originalLogLevel;
+          process.env.BLE_MCP_LOG_LEVEL = originalLogLevel;
         } else {
-          delete process.env.LOG_LEVEL;
+          delete process.env.BLE_MCP_LOG_LEVEL;
         }
       }
     });

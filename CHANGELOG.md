@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-01-30
+
+### Added
+- **State Machine Architecture**: Robust server lifecycle management with IDLE/ACTIVE/EVICTING states
+- **Connection Tokens**: Each connection receives a unique UUID token for authentication
+- **Client Idle Timeout**: Automatic disconnection after 45s of inactivity (configurable via `BLE_MCP_CLIENT_IDLE_TIMEOUT`)
+- **Eviction Protocol**: 5-second grace period warning before idle disconnection
+- **Keepalive Messages**: New message type to prevent idle timeout
+- **Token-Based Force Cleanup**: Enhanced security for force cleanup operations
+- **Connection Mutex**: Atomic single-connection enforcement to prevent race conditions
+- **Enhanced Health Endpoint**: Now includes state machine state and connection details
+- **Comprehensive Test Coverage**: New unit and integration tests for all v0.4.0 features
+- **Standardized Environment Variables**: All env vars now use `BLE_MCP_` prefix for consistency
+
+### Changed
+- **BREAKING**: All environment variables renamed with `BLE_MCP_` prefix (no backward compatibility)
+  - `WS_PORT` → `BLE_MCP_WS_PORT`
+  - `WS_HOST` → `BLE_MCP_WS_HOST`
+  - `LOG_LEVEL` → `BLE_MCP_LOG_LEVEL`
+  - `CLIENT_IDLE_TIMEOUT` → `BLE_MCP_CLIENT_IDLE_TIMEOUT`
+  - `MCP_TOKEN` → `BLE_MCP_HTTP_TOKEN`
+  - `MCP_PORT` → `BLE_MCP_HTTP_PORT`
+  - And many more - see MIGRATION.md for full list
+- **BREAKING**: `connected` message now includes mandatory `token` field
+- **BREAKING**: `force_cleanup` now requires authentication token
+- **BREAKING**: Health endpoint response enhanced with state information
+- **BREAKING**: All hardcoded device configurations removed - must use environment variables
+- Error message for concurrent connections changed from "Server is not available for new connections" to "Another connection is active"
+- WebSocketTransport automatically stores and uses connection tokens
+- Improved connection lifecycle management with formal state transitions
+
+### Fixed
+- Race conditions in connection management through mutex implementation
+- Memory leaks from orphaned timers through proper cleanup
+- Connection state inconsistencies with formal state machine
+- E2E test device name assertion now handles Linux MAC addresses
+- Integration test timeouts by removing hardcoded device configurations
+- Critical mutex lockup bug with auto-recovery safety mechanism
+
+### Security
+- Force cleanup operations now require valid connection token
+- Only the client that established a connection can force cleanup
+
+### Removed
+- All hardcoded UUIDs, device names, and IDs from source and test code
+- Backward compatibility for old environment variable names
+
 ## [0.3.1] - 2025-01-26
 
 ### Added

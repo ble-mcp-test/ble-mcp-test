@@ -6,7 +6,7 @@ describe('LogBuffer', () => {
   
   beforeEach(() => {
     // Clear env var before each test
-    delete process.env.LOG_BUFFER_SIZE;
+    delete process.env.BLE_MCP_LOG_BUFFER_SIZE;
   });
   
   describe('buffer size configuration', () => {
@@ -32,8 +32,8 @@ describe('LogBuffer', () => {
       expect(buffer.getLogsSince('0', 10000).length).toBe(5000);
     });
     
-    it('should respect LOG_BUFFER_SIZE env var', () => {
-      process.env.LOG_BUFFER_SIZE = '2000';
+    it('should respect BLE_MCP_LOG_BUFFER_SIZE env var', () => {
+      process.env.BLE_MCP_LOG_BUFFER_SIZE = '2000';
       buffer = new LogBuffer();
       
       for (let i = 0; i < 3000; i++) {
@@ -56,7 +56,7 @@ describe('LogBuffer', () => {
     });
     
     it('should enforce maximum buffer size of 1M', () => {
-      process.env.LOG_BUFFER_SIZE = '2000000';
+      process.env.BLE_MCP_LOG_BUFFER_SIZE = '2000000';
       buffer = new LogBuffer();
       
       // Just check the limit is enforced, not actually create 1M entries
