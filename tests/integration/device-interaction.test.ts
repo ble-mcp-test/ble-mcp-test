@@ -24,27 +24,9 @@ describe.sequential('Device Interaction Tests', () => {
       // Start server with the specific log level
       const server = await setupTestServer();
       
-      // Set up log capture
-      const logs: any[] = [];
-      const logWs = new WebSocket(`${WS_URL}?command=log-stream`);
-      
-      await new Promise<void>((resolve, reject) => {
-        logWs.on('open', () => resolve());
-        logWs.on('error', reject);
-      });
-      
-      // Capture log messages - but ignore any that arrive before we start the test
-      let testStarted = false;
-      logWs.on('message', (data) => {
-        const log = JSON.parse(data.toString());
-        if (testStarted) {
-          logs.push(log);
-        }
-      });
-      
-      // Wait a moment for any startup logs to pass, then start capturing
-      await new Promise(resolve => setTimeout(resolve, 100));
-      testStarted = true;
+      // Note: Log streaming via WebSocket was removed in v0.4.0 ultra-simple architecture
+      // Use MCP tools (get_logs, search_packets) for debugging and log analysis
+      // This test now focuses on functional behavior only
       
       try {
         const params = new URLSearchParams(DEVICE_CONFIG);
@@ -100,66 +82,9 @@ describe.sequential('Device Interaction Tests', () => {
             const percentage = Math.round(((batteryVoltage - 3300) / (4100 - 3300)) * 100);
             console.log(`  🔋 Battery level: ~${percentage}%`);
             
-            // Wait briefly for logs to arrive through the log stream
-            await new Promise(resolve => setTimeout(resolve, 200));
-            
-            // Skip log level assertions when using external server
-            if (!server) {
-              console.log('  📝 Using external server - skipping log level assertions');
-            } else if (logLevel === 'debug') {
-              // In debug mode, we should see TX/RX hex logs
-              const txLogs = logs.filter(log => 
-                log.type === 'log' && 
-                log.message.includes('[TX]') && 
-                log.message.includes('A7 B3 02 D9 82 37 00 00 A0 00')
-              );
-              console.log('  📝 TX hex logs captured:', txLogs.length);
-              expect(txLogs.length).toBeGreaterThan(0);
-              
-              const rxLogs = logs.filter(log => 
-                log.type === 'log' && 
-                log.message.includes('[RX]') &&
-                log.message.includes('A7 B3')
-              );
-              console.log('  📝 RX hex logs captured:', rxLogs.length);
-              expect(rxLogs.length).toBeGreaterThan(0);
-              
-              // Should also see BLE connection logs
-              const bleConnectionLogs = logs.filter(log => 
-                log.type === 'log' && 
-                log.message.includes('[Bridge] Connected to')
-              );
-              console.log('  📝 BLE connection logs:', bleConnectionLogs.length);
-              expect(bleConnectionLogs.length).toBeGreaterThan(0);
-              
-            } else {
-              // In info mode, we should NOT see TX/RX hex logs
-              const txLogs = logs.filter(log => 
-                log.type === 'log' && 
-                log.message.includes('[TX]')
-              );
-              console.log('  📝 TX hex logs should be absent:', txLogs.length);
-              expect(txLogs.length).toBe(0);
-              
-              const rxLogs = logs.filter(log => 
-                log.type === 'log' && 
-                log.message.includes('[RX]')
-              );
-              console.log('  📝 RX hex logs should be absent:', rxLogs.length);
-              expect(rxLogs.length).toBe(0);
-              
-              // Should NOT see TX/RX logs in info mode
-              // (already checked above)
-              
-              // But we should still see high-level connection events
-              const connectionLogs = logs.filter(log => 
-                log.type === 'log' && 
-                (log.message.includes('[Bridge] Connected to') || 
-                 log.message.includes('[Bridge] Connecting to BLE device'))
-              );
-              console.log('  📝 High-level connection logs:', connectionLogs.length);
-              expect(connectionLogs.length).toBeGreaterThan(0);
-            }
+            // Log level verification removed - use MCP tools for log analysis
+            console.log(`  📝 Log level was set to: ${logLevel}`);
+            console.log('  📝 Use MCP tools (get_logs, search_packets) to verify logging behavior');
           } else {
             throw new Error('Unexpected response format');
           }
@@ -170,12 +95,13 @@ describe.sequential('Device Interaction Tests', () => {
         }
       } finally {
         // Clean up
-        logWs.close();
         await connectionFactory.cleanup();
         
         // Stop server
         if (server) {
           await server.stop();
+          // Small delay to ensure port is released
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
         
         // Restore original LOG_LEVEL

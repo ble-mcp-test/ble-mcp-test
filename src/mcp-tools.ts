@@ -229,8 +229,7 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
     inputSchema: {
       duration: z.number().min(1000).max(30000).default(5000).describe("Scan duration in milliseconds")
     },
-    handler: async (args) => {
-      const { duration } = args;
+    handler: async () => {
       try {
         const devices = await provider.scanDevices();
         

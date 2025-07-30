@@ -68,8 +68,9 @@ observability.connectToBridge(bridge);
 
 **v0.4.0**: Minimal protocol
 - Connection: `ws://host:8080?device=NAME&service=UUID&write=UUID&notify=UUID`
-- Messages: `connected`, `data`, `disconnected`, `error`, `force_cleanup`
-- Health check: `ws://host:8080?command=health`
+- Messages: `connected`, `data`, `disconnected`, `error`
+- Health check: HTTP endpoint at `http://host:8081/health`
+- Log streaming: Use MCP tools (get_logs, search_packets)
 
 ### 5. Configuration Changes
 

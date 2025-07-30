@@ -2,7 +2,7 @@ import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerMcpTools } from './mcp-tools.js';
-import { createHttpApp, startHttpServer } from './mcp-http-transport.js';
+import { createHttpApp } from './mcp-http-transport.js';
 import { SharedState } from './shared-state.js';
 import { getPackageMetadata } from './utils.js';
 import type { BridgeServer } from './bridge-server.js';
@@ -21,6 +21,7 @@ export class ObservabilityServer {
   private mcpServer: McpServer;
   private sharedState: SharedState;
   private bridgeServer: BridgeServer | null = null;
+  private httpServer?: any;
   
   constructor(sharedState: SharedState) {
     // Use shared state for log buffer
@@ -65,7 +66,7 @@ export class ObservabilityServer {
     app.use('/mcp', mcpApp);
     
     return new Promise((resolve) => {
-      app.listen(port, () => {
+      this.httpServer = app.listen(port, () => {
         console.log(`📊 Observability server listening on port ${port}`);
         console.log(`   Health check: http://localhost:${port}/health`);
         console.log(`   MCP info: http://localhost:${port}/mcp/info`);
@@ -118,5 +119,16 @@ export class ObservabilityServer {
   
   getMcpServer() {
     return this.mcpServer;
+  }
+  
+  /**
+   * Stop the HTTP server
+   */
+  async stop(): Promise<void> {
+    if (this.httpServer) {
+      return new Promise((resolve) => {
+        this.httpServer.close(() => resolve());
+      });
+    }
   }
 }

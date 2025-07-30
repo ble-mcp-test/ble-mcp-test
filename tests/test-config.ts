@@ -28,7 +28,7 @@ export function getTestConfig(): BridgeTestConfig {
   const notify = process.env.BLE_MCP_NOTIFY_UUID || '';
   
   const wsPort = process.env.BLE_MCP_WS_PORT || '8080';
-  const wsUrl = process.env.BLE_MCP_TEST_WS_URL || `ws://localhost:${wsPort}`;
+  const wsUrl = process.env.BLE_MCP_WS_URL || `ws://localhost:${wsPort}`;
 
   // Validate required configuration
   if (!device) {
@@ -125,7 +125,7 @@ export async function setupTestServer() {
 //    pnpm test:integration
 //
 // 2. Run integration tests with a specific test device:
-//    BLE_MCP_TEST_DEVICE=MockBLE pnpm test:integration
+//    BLE_MCP_DEVICE=MockBLE pnpm test:integration
 //
 // 3. Run tests with real BLE device (e.g., nRF52 dongle):
 //    BLE_MCP_DEVICE_NAME=nRF52 \
@@ -142,7 +142,7 @@ export async function setupTestServer() {
 //    pnpm test
 //
 // 5. Run tests against remote bridge server:
-//    BLE_MCP_TEST_WS_URL=ws://raspberry-pi.local:8080 \
+//    BLE_MCP_WS_URL=ws://raspberry-pi.local:8080 \
 //    BLE_MCP_DEVICE_NAME=MyDevice \
 //    BLE_MCP_SERVICE_UUID=... \
 //    BLE_MCP_WRITE_UUID=... \

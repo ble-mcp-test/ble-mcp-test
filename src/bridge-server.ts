@@ -34,19 +34,8 @@ export class BridgeServer {
     console.log(`🚀 Ultra simple bridge listening on port ${port}`);
     
     this.wss.on('connection', async (ws, req) => {
-      // Health check endpoint
+      // Parse BLE config from URL
       const url = new URL(req.url || '', 'http://localhost');
-      if (url.searchParams.get('command') === 'health') {
-        ws.send(JSON.stringify({
-          type: 'health',
-          status: 'ok',
-          free: this.state === 'ready',
-          recovering: this.state === 'disconnecting',
-          timestamp: new Date().toISOString()
-        }));
-        ws.close();
-        return;
-      }
       
       // ONE RULE: Only ready state accepts new connections
       if (this.state !== 'ready') {
@@ -246,7 +235,9 @@ export class BridgeServer {
           this.notifyChar.unsubscribeAsync().catch(() => {});
         }
         this.peripheral.disconnectAsync().catch(() => {});
-      } catch {}
+      } catch {
+        // Ignore cleanup errors during disconnect
+      }
       
       // Start recovery period to let device settle
       console.log(`[Bridge] Starting ${this.recoveryDelay}ms recovery period`);
