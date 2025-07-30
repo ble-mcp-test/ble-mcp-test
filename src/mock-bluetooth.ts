@@ -94,6 +94,15 @@ class MockBluetoothRemoteGATTService {
   }
 }
 
+// Configuration for mock behavior
+const MOCK_CONFIG = {
+  connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1000', 10),
+  maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '10', 10),
+  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '0', 10),
+  retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.5'),
+  logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
+};
+
 // Mock BluetoothRemoteGATTServer
 class MockBluetoothRemoteGATTServer {
   connected = false;
@@ -101,25 +110,96 @@ class MockBluetoothRemoteGATTServer {
   constructor(public device: MockBluetoothDevice) {}
 
   async connect(): Promise<MockBluetoothRemoteGATTServer> {
-    await this.device.transport.connect({ device: this.device.name });
-    this.connected = true;
-    return this;
+    let lastError: Error | null = null;
+    let retryDelay = MOCK_CONFIG.connectRetryDelay;
+    
+    for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
+      try {
+        await this.device.transport.connect({ device: this.device.name });
+        this.connected = true;
+        
+        if (attempt > 1 && MOCK_CONFIG.logRetries) {
+          console.log(`[Mock] Connected successfully after ${attempt} attempts`);
+        }
+        
+        return this;
+      } catch (error: any) {
+        lastError = error;
+        
+        // Check if error is retryable (bridge busy states)
+        const retryableErrors = [
+          'Bridge is disconnecting',
+          'Bridge is connecting', 
+          'only ready state accepts connections'
+        ];
+        
+        const isRetryable = retryableErrors.some(msg => 
+          error.message?.includes(msg)
+        );
+        
+        if (isRetryable && attempt < MOCK_CONFIG.maxConnectRetries) {
+          if (MOCK_CONFIG.logRetries) {
+            console.log(`[Mock] Bridge busy (${error.message}), retry ${attempt}/${MOCK_CONFIG.maxConnectRetries} in ${retryDelay}ms...`);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Exponential backoff for subsequent retries
+          retryDelay = Math.min(
+            retryDelay * MOCK_CONFIG.retryBackoffMultiplier,
+            10000 // Max 10 second delay
+          );
+          
+          continue;
+        }
+        
+        // Non-retryable error or max retries reached
+        throw error;
+      }
+    }
+    
+    // If we get here, we've exhausted retries
+    throw lastError || new Error('Failed to connect after maximum retries');
   }
 
   async disconnect(): Promise<void> {
+    if (!this.connected) {
+      return; // Already disconnected
+    }
+    
     try {
-      // Send force_cleanup before disconnecting, just like the real transport manager
+      // Send force_cleanup before disconnecting
       if (this.device.transport.isConnected()) {
+        if (MOCK_CONFIG.logRetries) {
+          console.log('[Mock] Sending force_cleanup before disconnect');
+        }
+        
         await this.device.transport.forceCleanup();
+        
+        // Small delay to ensure cleanup message is processed
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     } catch (error) {
       // Log but continue with disconnect even if cleanup fails
-      console.warn('Force cleanup failed during disconnect:', error);
+      console.warn('[Mock] Force cleanup failed during disconnect:', error);
     }
     
     // Now disconnect the WebSocket
-    await this.device.transport.disconnect();
+    try {
+      await this.device.transport.disconnect();
+    } catch (error) {
+      console.warn('[Mock] WebSocket disconnect error:', error);
+    }
+    
     this.connected = false;
+    
+    // Optional post-disconnect delay for tests that need it
+    if (MOCK_CONFIG.postDisconnectDelay > 0) {
+      if (MOCK_CONFIG.logRetries) {
+        console.log(`[Mock] Post-disconnect delay: ${MOCK_CONFIG.postDisconnectDelay}ms`);
+      }
+      await new Promise(resolve => setTimeout(resolve, MOCK_CONFIG.postDisconnectDelay));
+    }
   }
   
   async forceCleanup(): Promise<void> {
@@ -152,6 +232,10 @@ class MockBluetoothDevice {
     if (event === 'gattserverdisconnected') {
       this.transport.onMessage((msg) => {
         if (msg.type === 'disconnected') {
+          // Ensure GATT server knows it's disconnected
+          if (this.gatt.connected) {
+            this.gatt.connected = false;
+          }
           handler();
         }
       });
