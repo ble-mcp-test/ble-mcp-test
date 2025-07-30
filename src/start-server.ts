@@ -10,8 +10,7 @@ import * as path from 'path';
 // Load .env.local if it exists
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
-// Parse command line arguments
-const args = process.argv.slice(2);
+// Note: Command line arguments handled via package.json scripts
 
 const wsPort = parseInt(process.env.BLE_MCP_WS_PORT || '8080', 10);
 const host = process.env.BLE_MCP_WS_HOST || '0.0.0.0';

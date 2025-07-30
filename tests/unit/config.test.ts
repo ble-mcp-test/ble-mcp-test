@@ -4,7 +4,7 @@ import { getTestConfig } from '../test-config.js';
 describe('Device-agnostic configuration', () => {
   it('requires device configuration from environment', () => {
     // This test will only pass if proper env vars are set
-    if (!process.env.BLE_MCP_DEVICE_NAME && !process.env.BLE_MCP_DEVICE_MAC) {
+    if (!process.env.BLE_MCP_DEVICE_IDENTIFIER && !process.env.BLE_MCP_DEVICE_NAME && !process.env.BLE_MCP_DEVICE_MAC) {
       expect(() => getTestConfig()).toThrow('BLE device configuration missing');
     } else {
       const config = getTestConfig();
@@ -19,8 +19,12 @@ describe('Device-agnostic configuration', () => {
   it('uses BLE_MCP_* environment variables', () => {
     const originalEnv = { ...process.env };
     
-    process.env.BLE_MCP_TEST_WS_URL = 'ws://custom:9090';
-    process.env.BLE_MCP_DEVICE_NAME = 'MyDevice';
+    // Clear legacy vars to test new one
+    delete process.env.BLE_MCP_DEVICE_NAME;
+    delete process.env.BLE_MCP_DEVICE_MAC;
+    
+    process.env.BLE_MCP_WS_URL = 'ws://custom:9090';
+    process.env.BLE_MCP_DEVICE_IDENTIFIER = 'MyDevice';
     process.env.BLE_MCP_SERVICE_UUID = '180f';
     process.env.BLE_MCP_WRITE_UUID = '2a19';
     process.env.BLE_MCP_NOTIFY_UUID = '2a20';

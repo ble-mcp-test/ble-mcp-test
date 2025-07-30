@@ -19,9 +19,9 @@
  * - status: Get server configuration and health
  * - scan_devices: Discover nearby BLE devices
  * 
- * WebSocket Health Check:
- * - Connect to ws://localhost:8080/?command=health to check server status
- * - Returns: { status: 'ok', free: boolean, message: string, ... }
+ * Health Check:
+ * - HTTP endpoint: http://localhost:8081/health
+ * - Returns: { status: 'ok', timestamp: string, bridge: {...} }
  * - Use before running tests to ensure server is available
  * 
  * Example Usage:

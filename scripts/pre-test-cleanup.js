@@ -80,17 +80,7 @@ async function cleanup() {
   }
   
   // 3. Ensure Noble is cleaned up
-  try {
-    // Create a quick Noble cleanup script
-    const cleanupScript = `
-      import noble from '@stoprocent/noble';
-      noble.stopScanningAsync().catch(() => {});
-      setTimeout(() => process.exit(0), 100);
-    `;
-    execSync(`node -e "${cleanupScript}"`, { stdio: 'ignore' });
-  } catch (e) {
-    // Ignore errors
-  }
+  // Skip inline noble cleanup - it causes issues with ES modules
   
   // 4. Apply cooldown period if we killed anything
   if (killedAny) {

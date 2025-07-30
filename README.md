@@ -151,20 +151,18 @@ BLE_MCP_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
 
 ### Monitoring Server Logs
 
-The bridge server supports real-time log streaming via WebSocket:
+For debugging and log analysis, use the MCP tools:
 
 ```bash
-# Stream logs from the command line
+# View logs from the server log file
 pnpm logs
 
-# Or use a custom server URL
-BLE_MCP_TEST_WS_URL=ws://192.168.1.100:8080 pnpm logs
+# Use MCP tools for advanced log analysis
+# Available tools: get_logs, search_packets, get_connection_state, status
+# Access via Claude Code or HTTP API at http://localhost:8081/mcp
 ```
 
-You can also view logs in a web browser:
-1. Open `log-viewer.html` in your browser
-2. Logs will stream in real-time with color coding
-3. Features auto-reconnect, filtering, and auto-scroll
+Note: Real-time log streaming via WebSocket was removed in v0.4.0 to maintain the ultra-simple architecture. Use MCP tools for debugging and log analysis.
 
 ### Step 2: Use in Your Browser Tests
 
@@ -445,7 +443,7 @@ pnpm start:ci
 
 # Run in background (useful for automated tests)
 pnpm start:bg
-pnpm logs     # view logs
+pnpm logs     # view logs from file
 pnpm stop     # stop server
 ```
 
