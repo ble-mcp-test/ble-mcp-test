@@ -18,7 +18,7 @@ export class LogBuffer {
 
   constructor(maxSize?: number) {
     // Default 10k, configurable via env var or constructor
-    this.maxSize = maxSize || parseInt(process.env.LOG_BUFFER_SIZE || '10000', 10);
+    this.maxSize = maxSize || parseInt(process.env.BLE_MCP_LOG_BUFFER_SIZE || '10000', 10);
     this.logger = new Logger('LogBuffer');
     
     // Validate reasonable bounds (100 to 1M entries)

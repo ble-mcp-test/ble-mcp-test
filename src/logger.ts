@@ -6,7 +6,7 @@ export class Logger {
 
   constructor(prefix: string) {
     this.prefix = prefix;
-    this.level = normalizeLogLevel(process.env.LOG_LEVEL);
+    this.level = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
   }
 
   private shouldLog(messageLevel: LogLevel): boolean {

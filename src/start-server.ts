@@ -4,18 +4,24 @@ import { BridgeServer } from './bridge-server.js';
 import { normalizeLogLevel } from './utils.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createHttpApp, startHttpServer } from './mcp-http-transport.js';
+import * as dotenv from 'dotenv';
+import * as path from 'path';
+
+// Load .env.local if it exists
+dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // Parse command line arguments
 const args = process.argv.slice(2);
 // MCP is always enabled - it's in our product name!
 
-const port = parseInt(process.env.WS_PORT || '8080', 10);
-const host = process.env.WS_HOST || '0.0.0.0';
-const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
-const mcpToken = process.env.MCP_TOKEN;
+const port = parseInt(process.env.BLE_MCP_WS_PORT || '8080', 10);
+const host = process.env.BLE_MCP_WS_HOST || '0.0.0.0';
+const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
+const mcpToken = process.env.BLE_MCP_HTTP_TOKEN;
 
 // Only enable HTTP transport if explicitly requested
-const enableHttpTransport = args.includes('--mcp-http') || !!process.env.MCP_PORT || !!mcpToken;
+const httpPort = process.env.BLE_MCP_HTTP_PORT;
+const enableHttpTransport = args.includes('--mcp-http') || !!httpPort || !!mcpToken;
 
 console.log('🚀 Starting ble-mcp-test Server');
 console.log('\n📡 Bridge Configuration:');
@@ -25,12 +31,12 @@ console.log('   Device-agnostic - UUIDs provided by client');
 
 // Show any BLE timing overrides
 const bleOverrides = [
-  'BLE_CONNECTION_STABILITY',
-  'BLE_PRE_DISCOVERY_DELAY', 
-  'BLE_NOBLE_RESET_DELAY',
-  'BLE_SCAN_TIMEOUT',
-  'BLE_CONNECTION_TIMEOUT',
-  'BLE_DISCONNECT_COOLDOWN'
+  'BLE_MCP_CONNECTION_STABILITY',
+  'BLE_MCP_PRE_DISCOVERY_DELAY', 
+  'BLE_MCP_NOBLE_RESET_DELAY',
+  'BLE_MCP_SCAN_TIMEOUT',
+  'BLE_MCP_CONNECTION_TIMEOUT',
+  'BLE_MCP_DISCONNECT_COOLDOWN'
 ].filter(key => process.env[key]);
 
 if (bleOverrides.length > 0) {
@@ -45,23 +51,24 @@ console.log('\n🔌 MCP Server Configuration:');
 
 // Check if we have TTY for stdio
 const hasTty = process.stdin.isTTY && process.stdout.isTTY;
-if (hasTty && !process.env.DISABLE_STDIO) {
+const stdioDisabled = process.env.BLE_MCP_STDIO_DISABLED === 'true';
+if (hasTty && !stdioDisabled) {
   console.log('   Stdio transport: Enabled (default)');
-} else if (process.env.DISABLE_STDIO) {
-  console.log('   Stdio transport: Disabled (DISABLE_STDIO set)');
+} else if (stdioDisabled) {
+  console.log('   Stdio transport: Disabled (BLE_MCP_STDIO_DISABLED set)');
 } else {
   console.log('   Stdio transport: Disabled (no TTY)');
 }
 
 if (enableHttpTransport) {
-  console.log(`   HTTP transport: Port ${process.env.MCP_PORT || '8081'}`);
+  console.log(`   HTTP transport: Port ${httpPort || '8081'}`);
   if (mcpToken) {
     console.log('   Authentication: Bearer token required');
   } else {
     console.log('   Authentication: ⚠️  None (local network only!)');
   }
 } else {
-  console.log('   HTTP transport: Disabled (use --mcp-http or set MCP_TOKEN/MCP_PORT to enable)');
+  console.log('   HTTP transport: Disabled (use --mcp-http or set BLE_MCP_HTTP_TOKEN/BLE_MCP_HTTP_PORT to enable)');
 }
 
 console.log('\n   Press Ctrl+C to stop\n');
@@ -78,7 +85,7 @@ server.start(port).catch(error => {
 const mcpServer = server.getMcpServer();
 
 // Auto-detect TTY and enable stdio transport (default)
-if (hasTty && !process.env.DISABLE_STDIO) {
+if (hasTty && !stdioDisabled) {
   const stdioTransport = new StdioServerTransport();
   mcpServer.connect(stdioTransport).then(() => {
     console.log('[MCP] Stdio transport connected');

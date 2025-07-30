@@ -220,7 +220,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   // Health check endpoint
   app.get('/health', (req, res) => {
     const hasTty = process.stdin.isTTY && process.stdout.isTTY;
-    const stdioEnabled = hasTty && !process.env.DISABLE_STDIO;
+    const stdioDisabled = process.env.BLE_MCP_STDIO_DISABLED === 'true';
+    const stdioEnabled = hasTty && !stdioDisabled;
     
     res.json({ 
       status: 'ok',
@@ -228,7 +229,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
         transports: {
           stdio: stdioEnabled,
           http: true, // Always true if this endpoint is accessible
-          httpPort: parseInt(process.env.MCP_PORT || '8081'),
+          httpPort: parseInt(process.env.BLE_MCP_HTTP_PORT || '8081'),
           httpAuth: !!token
         },
         sessions: Object.keys(transports).length
@@ -242,11 +243,11 @@ export function createHttpApp(server: McpServer, token?: string): Express {
 
 // Helper to start HTTP server
 export function startHttpServer(app: Express, port?: number): void {
-  const actualPort = port || parseInt(process.env.MCP_PORT || '8081', 10);
+  const actualPort = port || parseInt(process.env.BLE_MCP_HTTP_PORT || '8081', 10);
   
   const server = app.listen(actualPort, '0.0.0.0', () => {
     logger.info(`Server listening on 0.0.0.0:${actualPort}`);
-    if (process.env.MCP_TOKEN) {
+    if (process.env.BLE_MCP_HTTP_TOKEN) {
       logger.info('Authentication enabled (Bearer token required)');
     } else {
       logger.warn('⚠️  Running without authentication - local network only!');

@@ -1,15 +1,20 @@
 export interface WSMessage {
-  type: 'data' | 'connected' | 'disconnected' | 'error';
+  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack';
   seq?: number;
   data?: number[];
   device?: string;
   error?: string;
+  token?: string; // v0.4.0: Authentication token for force cleanup
+  grace_period_ms?: number; // v0.4.0: Eviction warning grace period
+  reason?: string; // v0.4.0: Eviction reason
+  timestamp?: string; // v0.4.0: Keepalive acknowledgment timestamp
 }
 
 export class WebSocketTransport {
   private ws: WebSocket | null = null;
   private serverUrl: string;
   private messageHandler?: (msg: WSMessage) => void;
+  private connectionToken?: string; // v0.4.0: Store token for force cleanup
   
   constructor(serverUrl = 'ws://localhost:8080') {
     this.serverUrl = serverUrl;
@@ -38,6 +43,10 @@ export class WebSocketTransport {
           const msg: WSMessage = JSON.parse(event.data);
           if (msg.type === 'connected') {
             clearTimeout(timeout);
+            // v0.4.0: Store token for force cleanup
+            if (msg.token) {
+              this.connectionToken = msg.token;
+            }
             resolve();
           } else if (msg.type === 'error') {
             clearTimeout(timeout);
@@ -119,7 +128,12 @@ export class WebSocketTransport {
       };
       
       // Send force cleanup request
-      ws.send(JSON.stringify({ type: 'force_cleanup' }));
+      // v0.4.0: Include token for authentication
+      const request: any = { type: 'force_cleanup' };
+      if (this.connectionToken) {
+        request.token = this.connectionToken;
+      }
+      ws.send(JSON.stringify(request));
     });
   }
   

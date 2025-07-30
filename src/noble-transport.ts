@@ -318,12 +318,12 @@ export class NobleTransport {
     
     // Allow environment variable overrides
     return {
-      CONNECTION_STABILITY: parseInt(process.env.BLE_CONNECTION_STABILITY || String(defaults.CONNECTION_STABILITY), 10),
-      PRE_DISCOVERY_DELAY: parseInt(process.env.BLE_PRE_DISCOVERY_DELAY || String(defaults.PRE_DISCOVERY_DELAY), 10),
-      NOBLE_RESET_DELAY: parseInt(process.env.BLE_NOBLE_RESET_DELAY || String(defaults.NOBLE_RESET_DELAY), 10),
-      SCAN_TIMEOUT: parseInt(process.env.BLE_SCAN_TIMEOUT || String(defaults.SCAN_TIMEOUT), 10),
-      CONNECTION_TIMEOUT: parseInt(process.env.BLE_CONNECTION_TIMEOUT || String(defaults.CONNECTION_TIMEOUT), 10),
-      DISCONNECT_COOLDOWN: parseInt(process.env.BLE_DISCONNECT_COOLDOWN || String(defaults.DISCONNECT_COOLDOWN), 10),
+      CONNECTION_STABILITY: parseInt(process.env.BLE_MCP_CONNECTION_STABILITY || String(defaults.CONNECTION_STABILITY), 10),
+      PRE_DISCOVERY_DELAY: parseInt(process.env.BLE_MCP_PRE_DISCOVERY_DELAY || String(defaults.PRE_DISCOVERY_DELAY), 10),
+      NOBLE_RESET_DELAY: parseInt(process.env.BLE_MCP_NOBLE_RESET_DELAY || String(defaults.NOBLE_RESET_DELAY), 10),
+      SCAN_TIMEOUT: parseInt(process.env.BLE_MCP_SCAN_TIMEOUT || String(defaults.SCAN_TIMEOUT), 10),
+      CONNECTION_TIMEOUT: parseInt(process.env.BLE_MCP_CONNECTION_TIMEOUT || String(defaults.CONNECTION_TIMEOUT), 10),
+      DISCONNECT_COOLDOWN: parseInt(process.env.BLE_MCP_DISCONNECT_COOLDOWN || String(defaults.DISCONNECT_COOLDOWN), 10),
     };
   })();
 
@@ -716,7 +716,7 @@ export class NobleTransport {
       // Stop any ongoing scan
       try {
         await noble.stopScanningAsync();
-      } catch (e) {
+      } catch {
         // Ignore errors if not scanning
       }
       // Note: We can't safely removeAllListeners here as it might affect other instances

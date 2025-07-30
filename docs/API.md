@@ -86,7 +86,7 @@ Public endpoint that returns server metadata and available tools. No authenticat
 Authenticated endpoint for MCP client registration. Returns server capabilities.
 
 **Headers Required:**
-- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
 
 **Response:**
 ```json
@@ -109,7 +109,7 @@ Authenticated endpoint for MCP client registration. Returns server capabilities.
 Main MCP message handling endpoint. Processes MCP protocol messages.
 
 **Headers:**
-- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
 - `Content-Type: application/json`
 - `Mcp-Session-Id: <session-id>` - Optional session identifier
 
@@ -118,7 +118,7 @@ Main MCP message handling endpoint. Processes MCP protocol messages.
 Server-Sent Events (SSE) endpoint for streaming MCP responses.
 
 **Headers:**
-- `Authorization: Bearer <token>` - Required if MCP_TOKEN is set
+- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
 - `Mcp-Session-Id: <session-id>` - Required session identifier
 
 ## WebSocket Protocol
@@ -148,13 +148,50 @@ All messages are JSON objects with a `type` field.
 }
 ```
 
+**Graceful disconnect:**
+```json
+{
+  "type": "disconnect"
+}
+```
+
+**Complete BLE cleanup:**
+```json
+{
+  "type": "cleanup"
+}
+```
+
+**Force cleanup with token (v0.4.0):**
+```json
+{
+  "type": "force_cleanup",
+  "token": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Keep connection alive (v0.4.0):**
+```json
+{
+  "type": "keepalive"
+}
+```
+
+**Check Noble.js pressure:**
+```json
+{
+  "type": "check_pressure"
+}
+```
+
 #### Server → Client Messages
 
-**Device connected:**
+**Device connected (v0.4.0 - includes token):**
 ```json
 {
   "type": "connected",
-  "device": "CS108Reader2603A7"
+  "device": "CS108Reader2603A7",
+  "token": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
 
@@ -178,6 +215,64 @@ All messages are JSON objects with a `type` field.
 ```json
 {
   "type": "disconnected"
+}
+```
+
+**Eviction warning (v0.4.0):**
+```json
+{
+  "type": "eviction_warning",
+  "grace_period_ms": 5000,
+  "reason": "idle_timeout"
+}
+```
+
+**Keepalive acknowledgment (v0.4.0):**
+```json
+{
+  "type": "keepalive_ack",
+  "timestamp": "2025-01-30T12:34:56.789Z"
+}
+```
+
+**Cleanup complete:**
+```json
+{
+  "type": "cleanup_complete",
+  "message": "BLE cleanup completed successfully"
+}
+```
+
+**Force cleanup complete (v0.4.0):**
+```json
+{
+  "type": "force_cleanup_complete",
+  "message": "Noble force cleanup completed successfully"
+}
+```
+
+**Pressure report:**
+```json
+{
+  "type": "pressure_report",
+  "pressure": {
+    "scanStopListeners": 0,
+    "peripheralListeners": 2,
+    "isUnderPressure": false
+  }
+}
+```
+
+**Health check (v0.4.0 - enhanced):**
+```json
+{
+  "type": "health",
+  "status": "ok",
+  "free": true,
+  "state": "IDLE",
+  "transportState": "disconnected",
+  "connectionInfo": null,
+  "timestamp": "2025-01-30T12:34:56.789Z"
 }
 ```
 
@@ -206,6 +301,33 @@ The mock implements the following Web Bluetooth API methods:
 - `writeValue(data)` - Write data to characteristic
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
+
+## Breaking Changes in v0.4.0
+
+### Connection Token
+All successful connections now receive a unique authentication token:
+- The `connected` message includes a `token` field
+- This token is required for `force_cleanup` operations
+- Token format: UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`)
+
+### Client Idle Timeout
+Clients are automatically disconnected after a period of inactivity:
+- Default timeout: 45 seconds (configurable via `BLE_MCP_CLIENT_IDLE_TIMEOUT` environment variable)
+- Clients receive an `eviction_warning` message 5 seconds before disconnection
+- Send `keepalive` messages to prevent idle timeout
+- All activity messages (`data`, `disconnect`, `cleanup`, etc.) reset the idle timer
+
+### Enhanced Health Endpoint
+The health check WebSocket endpoint now includes:
+- `state`: Server state machine state (IDLE, ACTIVE, EVICTING)
+- `transportState`: BLE transport state
+- `connectionInfo`: Active connection details including token and timestamps
+
+### State Machine
+The server now uses a formal state machine for connection lifecycle:
+- **IDLE**: No active connections, ready to accept new connections
+- **ACTIVE**: Connection established and operational
+- **EVICTING**: Connection being terminated due to idle timeout
 
 ## Limitations
 
@@ -310,7 +432,7 @@ export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 ```typescript
 import { BridgeServer, normalizeLogLevel } from 'ble-mcp-test';
 
-const logLevel = normalizeLogLevel(process.env.LOG_LEVEL);
+const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
 const server = new BridgeServer(logLevel);
 await server.start();
 
