@@ -82,10 +82,8 @@ export class BridgeServer {
         // Connect to BLE device directly with timeout
         const timeoutHandle = setTimeout(async () => {
           // Stop scanning if still in progress
-          if (noble._isScanning) {
-            console.log(`[Bridge] Connection timeout - stopping scan`);
-            await noble.stopScanningAsync();
-          }
+          console.log(`[Bridge] Connection timeout - stopping scan`);
+          await noble.stopScanningAsync().catch(() => {});
         }, 8000);
         
         await Promise.race([
@@ -138,9 +136,7 @@ export class BridgeServer {
       } catch (error: any) {
         console.error('[Bridge] Connection error:', error.message);
         // Ensure Noble is cleaned up on error
-        if (noble._isScanning) {
-          await noble.stopScanningAsync().catch(() => {});
-        }
+        await noble.stopScanningAsync().catch(() => {});
         ws.send(JSON.stringify({ type: 'error', error: error.message }));
         this.cleanup();
       }
@@ -156,16 +152,14 @@ export class BridgeServer {
       await noble.waitForPoweredOnAsync();
     }
     
-    // Check if already scanning and stop if so
-    if (noble._isScanning) {
-      console.log(`[Bridge] Noble already scanning, stopping first...`);
-      await noble.stopScanningAsync();
-      await new Promise(resolve => setTimeout(resolve, 500)); // Let it settle
-    }
+    // Always stop any existing scan first
+    console.log(`[Bridge] Ensuring clean scan state...`);
+    await noble.stopScanningAsync().catch(() => {});
+    await new Promise(resolve => setTimeout(resolve, 500)); // Let it settle
     
-    // Scan for device
+    // Scan for device (allowDuplicates: true is critical for CS108 on Linux)
     console.log(`[Bridge] Starting BLE scan...`);
-    await noble.startScanningAsync([], false);
+    await noble.startScanningAsync([], true);
     
     this.peripheral = await new Promise<any>((resolve, reject) => {
       const timeout = setTimeout(() => {
@@ -267,9 +261,7 @@ export class BridgeServer {
       this.recoveryTimer = setTimeout(async () => {
         try {
           // Ensure Noble is in clean state
-          if (noble._isScanning) {
-            await noble.stopScanningAsync();
-          }
+          await noble.stopScanningAsync().catch(() => {});
           await cleanupNoble();
         } catch (error) {
           console.error(`[Bridge] Error during Noble cleanup: ${error}`);
