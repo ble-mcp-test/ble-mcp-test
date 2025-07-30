@@ -47,7 +47,8 @@ test.describe('WebSocket Bridge E2E', () => {
       // Successfully got battery voltage via Web Bluetooth API!
       console.log(`✅ Battery voltage via Web Bluetooth mock: ${results.batteryVoltage}mV`);
       expect(results.connected).toBe(true);
-      expect(results.device).toContain('CS108');
+      // On Linux, device might be MAC address instead of name
+      expect(results.device).toMatch(/CS108|[0-9a-f]{12}/i);
       expect(results.batteryVoltage).toBeGreaterThan(3000);
       expect(results.batteryVoltage).toBeLessThan(4500);
     } else {
