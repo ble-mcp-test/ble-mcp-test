@@ -1,7 +1,7 @@
 {
   "name": "ble-mcp-test",
   "version": "0.4.0",
-  "description": "A WebSocket bridge server and Web Bluetooth API mock for testing BLE devices in any environment. Enables Playwright and E2E testing of Web Bluetooth applications without browser support.",
+  "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
     "model-context-protocol",
