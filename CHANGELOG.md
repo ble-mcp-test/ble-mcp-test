@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - All hardcoded UUIDs, device names, and IDs from source and test code
 - Backward compatibility for old environment variable names
+- Redundant BLE timing variables:
+  - `BLE_MCP_CONNECTION_STABILITY` and `BLE_MCP_PRE_DISCOVERY_DELAY` (both were always 0)
+  - `BLE_MCP_NOBLE_RESET_DELAY` and `BLE_MCP_DISCONNECT_COOLDOWN` (consolidated into `BLE_MCP_RECOVERY_DELAY`)
 
 ## [0.3.1] - 2025-01-26
 

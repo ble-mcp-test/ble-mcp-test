@@ -115,12 +115,9 @@ BLE_MCP_CLIENT_IDLE_TIMEOUT=60000 pnpm dlx ble-mcp-test
 # Advanced BLE timing configuration (milliseconds)
 # Override platform-specific defaults for your hardware
 # Note: Default values vary by platform (macOS/Windows/Linux)
-BLE_MCP_CONNECTION_STABILITY=0      # Delay after connection before service discovery
-BLE_MCP_PRE_DISCOVERY_DELAY=0       # Additional delay before service discovery
-BLE_MCP_NOBLE_RESET_DELAY=1000      # Delay after Noble reset before operations
+BLE_MCP_RECOVERY_DELAY=1000         # BLE stack recovery time (Noble reset + disconnect cooldown)
 BLE_MCP_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
 BLE_MCP_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
-BLE_MCP_DISCONNECT_COOLDOWN=200     # Recovery time after disconnect (dynamically scales with load)
 ```
 
 **Log Levels:**
