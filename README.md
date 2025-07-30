@@ -102,6 +102,20 @@ The health check now includes state machine information:
 - Enforced by atomic mutex to prevent race conditions
 - Connection attempts while busy receive: `"Another connection is active"`
 
+### Device Health Check
+
+Check if your BLE device is available before running tests:
+
+```bash
+# Quick device check
+pnpm check:device
+
+# Health check with success message
+pnpm check:health
+```
+
+This will scan for your configured device and provide clear feedback if it's not found.
+
 ### Configuration
 
 The bridge server can be configured using environment variables:
