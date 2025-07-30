@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `BLE_MCP_MOCK_CLEANUP_DELAY` - Optional post-disconnect delay (default: 0)
   - `BLE_MCP_MOCK_BACKOFF` - Exponential backoff multiplier (default: 1.5)
   - `BLE_MCP_MOCK_LOG_RETRIES` - Log retry behavior (default: true)
+- **simulateNotification() Method**: Tests can inject device notifications
+  ```javascript
+  // Simulate button press from device
+  characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+  ```
+  - Enables testing of notification handlers without real device events
+  - Test controls exact timing and payload of simulated events
+  - Works alongside real device notifications
 - **Stress Tests**: Suite to replicate npm publish failures under high load
   - Confirms BLE operations are sensitive to CPU/memory pressure
   - Documents attack vectors and mitigation strategies

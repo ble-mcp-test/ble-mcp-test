@@ -42,6 +42,8 @@ import { WebSocketTransport } from './ws-transport.js';
 
 // Mock BluetoothRemoteGATTCharacteristic
 class MockBluetoothRemoteGATTCharacteristic {
+  private notificationHandlers: Array<(event: any) => void> = [];
+
   constructor(
     private service: MockBluetoothRemoteGATTService,
     public uuid: string
@@ -59,25 +61,60 @@ class MockBluetoothRemoteGATTCharacteristic {
 
   addEventListener(event: string, handler: any): void {
     if (event === 'characteristicvaluechanged') {
+      // Store handler for both real and simulated notifications
+      this.notificationHandlers.push(handler);
+      
       // WebSocketTransport will handle notifications
       this.service.server.device.transport.onMessage((msg) => {
         if (msg.type === 'data' && msg.data) {
           const data = new Uint8Array(msg.data);
-          // Create a mock event with the data
-          const mockEvent = {
-            target: {
-              value: {
-                buffer: data.buffer,
-                byteLength: data.byteLength,
-                byteOffset: data.byteOffset,
-                getUint8: (index: number) => data[index]
-              }
-            }
-          };
-          handler(mockEvent);
+          this.triggerNotification(data);
         }
       });
     }
+  }
+
+  /**
+   * Simulate a notification from the device (for testing)
+   * This allows tests to inject data as if it came from the real device
+   * 
+   * @example
+   * // Simulate button press event
+   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+   * // Simulate button release event  
+   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+   */
+  simulateNotification(data: Uint8Array): void {
+    if (!this.service.server.connected) {
+      throw new Error('GATT Server not connected');
+    }
+    
+    // Log for debugging if enabled
+    if (MOCK_CONFIG.logRetries) {
+      const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      console.log(`[Mock] Simulating device notification: ${hex}`);
+    }
+    
+    this.triggerNotification(data);
+  }
+
+  private triggerNotification(data: Uint8Array): void {
+    // Create a mock event with the data matching Web Bluetooth API structure
+    const mockEvent = {
+      target: {
+        value: {
+          buffer: data.buffer,
+          byteLength: data.byteLength,
+          byteOffset: data.byteOffset,
+          getUint8: (index: number) => data[index]
+        }
+      }
+    };
+    
+    // Trigger all registered handlers
+    this.notificationHandlers.forEach(handler => {
+      handler(mockEvent);
+    });
   }
 }
 
@@ -115,7 +152,13 @@ class MockBluetoothRemoteGATTServer {
     
     for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
       try {
-        await this.device.transport.connect({ device: this.device.name });
+        // Pass BLE configuration if available
+        const connectOptions: any = { device: this.device.name };
+        if (this.device.bleConfig) {
+          Object.assign(connectOptions, this.device.bleConfig);
+        }
+        
+        await this.device.transport.connect(connectOptions);
         this.connected = true;
         
         if (attempt > 1 && MOCK_CONFIG.logRetries) {
@@ -218,14 +261,17 @@ class MockBluetoothRemoteGATTServer {
 class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
+  public bleConfig?: { service?: string; write?: string; notify?: string };
 
   constructor(
     public id: string,
     public name: string,
-    serverUrl?: string
+    serverUrl?: string,
+    bleConfig?: { service?: string; write?: string; notify?: string }
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
+    this.bleConfig = bleConfig;
   }
 
   addEventListener(event: string, handler: any): void {
@@ -245,7 +291,11 @@ class MockBluetoothDevice {
 
 // Mock Bluetooth API
 export class MockBluetooth {
-  constructor(private serverUrl?: string) {}
+  private bleConfig?: { service?: string; write?: string; notify?: string };
+
+  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string }) {
+    this.bleConfig = bleConfig;
+  }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
     // Bypass all dialogs - immediately return a mock device
@@ -262,11 +312,12 @@ export class MockBluetooth {
       }
     }
     
-    // Create and return mock device
+    // Create and return mock device with BLE configuration
     const device = new MockBluetoothDevice(
       'mock-device-id',
       deviceName,
-      this.serverUrl
+      this.serverUrl,
+      this.bleConfig
     );
 
     return device;
@@ -279,14 +330,17 @@ export class MockBluetooth {
 }
 
 // Export function to inject mock into window
-export function injectWebBluetoothMock(serverUrl?: string): void {
+export function injectWebBluetoothMock(
+  serverUrl?: string, 
+  bleConfig?: { service?: string; write?: string; notify?: string }
+): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');
     return;
   }
   
   // Try to replace navigator.bluetooth with our mock
-  const mockBluetooth = new MockBluetooth(serverUrl);
+  const mockBluetooth = new MockBluetooth(serverUrl, bleConfig);
   
   try {
     // First attempt: direct assignment

@@ -35,7 +35,7 @@ describe('Mock Retry Behavior', () => {
     process.env.BLE_MCP_MOCK_MAX_RETRIES = '15'; // More retries for 5s recovery
     
     // First, establish a connection to put device in use
-    const mock1 = new MockBluetooth(`ws://localhost:${port}`);
+    const mock1 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
     const device1 = await mock1.requestDevice({ 
       filters: [{ namePrefix: DEVICE_CONFIG.device }] 
     });
@@ -50,7 +50,7 @@ describe('Mock Retry Behavior', () => {
     console.log('  🕒 Bridge entering 5-second recovery period');
     
     // Immediately try to connect second device - should retry
-    const mock2 = new MockBluetooth(`ws://localhost:${port}`);
+    const mock2 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
     const device2 = await mock2.requestDevice({ 
       filters: [{ namePrefix: DEVICE_CONFIG.device }] 
     });
@@ -104,7 +104,7 @@ describe('Mock Retry Behavior', () => {
     process.env.BLE_MCP_MOCK_MAX_RETRIES = '2'; // Only 2 retries
     
     // Connect and disconnect to trigger recovery
-    const mock1 = new MockBluetooth(`ws://localhost:${port}`);
+    const mock1 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
     const device1 = await mock1.requestDevice({ 
       filters: [{ namePrefix: DEVICE_CONFIG.device }] 
     });
@@ -113,7 +113,7 @@ describe('Mock Retry Behavior', () => {
     await device1.gatt.disconnect();
     
     // Try to connect during recovery - should fail after 2 retries
-    const mock2 = new MockBluetooth(`ws://localhost:${port}`);
+    const mock2 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
     const device2 = await mock2.requestDevice({ 
       filters: [{ namePrefix: DEVICE_CONFIG.device }] 
     });
