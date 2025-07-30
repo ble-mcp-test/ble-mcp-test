@@ -45,9 +45,9 @@ async function checkDevice(timeoutMs = 5000) {
     console.error('⚠️  HARDWARE NOT VISIBLE TO SCAN');
     console.error('');
     console.error('ACTION REQUIRED: Ask the user to:');
-    console.error('  1. Confirm CS108 device is powered on');
+    console.error('  1. Confirm BLE device is powered on');
     console.error('  2. Press a button on device to wake it up');
-    console.error('  3. Power cycle the CS108 if needed');
+    console.error('  3. Power cycle the BLE device if needed');
     console.error('  4. Run: sudo systemctl restart bluetooth');
     console.error('');
     console.error('DO NOT assume hardware is unavailable!');
