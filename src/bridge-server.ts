@@ -45,6 +45,7 @@ export class BridgeServer {
     connectedAt?: string;
     lastActivity?: string;
   } = { connected: false };
+  private isCleaningUp = false;  // Track if cleanup is in progress
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
@@ -140,6 +141,17 @@ export class BridgeServer {
         this.transport = new NobleTransport(this.logLevel);
       }
       
+      // Check if cleanup is in progress
+      if (this.isCleaningUp) {
+        this.logger.warn('Rejecting connection - cleanup in progress');
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          error: 'System cleanup in progress, please try again' 
+        }));
+        ws.close();
+        return;
+      }
+
       // Try to claim the connection atomically
       if (!this.transport.tryClaimConnection()) {
         this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
@@ -162,13 +174,12 @@ export class BridgeServer {
           onData: (data) => {
             this.logger.debug(`Forwarding ${data.length} bytes to WebSocket`);
             
-            // Add to shared log buffer
-            this.logBuffer.push('RX', data);
-            this.updateActivity();
-            
             if (this.logLevel === 'debug') {
+              // Add to shared log buffer only in debug mode
+              this.logBuffer.push('RX', data);
               this.logger.debug(`[RX] ${formatHex(data)}`);
             }
+            this.updateActivity();
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
@@ -205,13 +216,12 @@ export class BridgeServer {
                 if (msg.data && this.transport) {
                   const dataArray = new Uint8Array(msg.data);
                   
-                  // Add to shared log buffer
-                  this.logBuffer.push('TX', dataArray);
-                  this.updateActivity();
-                  
                   if (this.logLevel === 'debug') {
+                    // Add to shared log buffer only in debug mode
+                    this.logBuffer.push('TX', dataArray);
                     this.logger.debug(`[TX] ${formatHex(dataArray)}`);
                   }
+                  this.updateActivity();
                   await this.transport.sendData(dataArray);
                 }
                 break;
@@ -240,12 +250,35 @@ export class BridgeServer {
                 
               case 'force_cleanup':
                 this.logger.info('Force cleanup requested via WebSocket');
-                // Call the static forceCleanup method
-                await NobleTransport.forceCleanup();
-                ws.send(JSON.stringify({ 
-                  type: 'force_cleanup_complete',
-                  message: 'Noble force cleanup completed successfully'
-                }));
+                
+                // Set cleanup flag to block new connections
+                this.isCleaningUp = true;
+                
+                try {
+                  // First disconnect any active transport
+                  if (this.transport) {
+                    await this.transport.disconnect();
+                    // Clear the transport reference
+                    this.transport = null;
+                  }
+                  
+                  // Then do the static force cleanup
+                  await NobleTransport.forceCleanup();
+                  
+                  // Clear connection state
+                  this.connectionState = { connected: false };
+                  
+                  // Wait a bit to ensure Noble is fully reset
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  
+                  ws.send(JSON.stringify({ 
+                    type: 'force_cleanup_complete',
+                    message: 'Noble force cleanup completed successfully'
+                  }));
+                } finally {
+                  // Always clear the cleanup flag
+                  this.isCleaningUp = false;
+                }
                 break;
                 
               case 'check_pressure': {
@@ -273,6 +306,8 @@ export class BridgeServer {
           if (this.transport) {
             await this.transport.disconnect();
             this.logger.debug('BLE disconnected successfully');
+            // CRITICAL: Clear transport reference to ensure clean state
+            this.transport = null;
           }
           
           // Clear connection state
@@ -289,9 +324,9 @@ export class BridgeServer {
         // Reset transport state on connection error
         if (this.transport) {
           await this.transport.disconnect();
+          // Clear transport to ensure clean state for next connection
+          this.transport = null;
         }
-        // NOTE: We're keeping the transport instance to allow pressure accumulation
-        // this.transport = null;
       }
     });
   }

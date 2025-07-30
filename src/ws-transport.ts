@@ -88,6 +88,41 @@ export class WebSocketTransport {
     }
   }
   
+  async forceCleanup(): Promise<void> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('Not connected');
+    }
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Force cleanup timeout'));
+      }, 5000);
+      
+      // Store reference to WebSocket
+      const ws = this.ws!;
+      const originalHandler = ws.onmessage;
+      
+      // Listen for cleanup confirmation
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'cleanup_complete' || msg.type === 'force_cleanup_complete') {
+            clearTimeout(timeout);
+            ws.onmessage = originalHandler;
+            resolve();
+          } else if (originalHandler) {
+            originalHandler.call(ws, event);
+          }
+        } catch {
+          if (originalHandler) originalHandler.call(ws, event);
+        }
+      };
+      
+      // Send force cleanup request
+      ws.send(JSON.stringify({ type: 'force_cleanup' }));
+    });
+  }
+  
   disconnect(): void {
     if (this.ws) {
       this.ws.close();

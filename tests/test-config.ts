@@ -12,7 +12,7 @@ export interface BridgeTestConfig {
 // Default CS108 RFID Reader configuration
 const DEFAULT_CONFIG: BridgeTestConfig = {
   wsUrl: 'ws://localhost:8080',
-  device: 'CS108',
+  device: process.platform === 'linux' ? '6c79b82603a7' : 'CS108',
   service: '9800',
   write: '9900',
   notify: '9901'
@@ -104,6 +104,7 @@ export async function setupTestServer() {
 // 
 // 1. Run tests with default CS108 configuration:
 //    WS_URL=ws://cheetah.local:8080 pnpm test
+//    Note: On Linux, defaults to MAC address 6c79b82603a7 instead of device name
 //
 // 2. Run tests with custom device configuration:
 //    BLE_DEVICE_PREFIX=MyDevice \
@@ -112,3 +113,6 @@ export async function setupTestServer() {
 //    BLE_NOTIFY_UUID=2a20 \
 //    WS_URL=ws://cheetah.local:8080 \
 //    pnpm test
+//
+// 3. Override default device on Linux:
+//    BLE_DEVICE_PREFIX=CS108 WS_URL=ws://cheetah.local:8080 pnpm test

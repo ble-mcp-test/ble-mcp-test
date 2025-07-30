@@ -107,8 +107,23 @@ class MockBluetoothRemoteGATTServer {
   }
 
   async disconnect(): Promise<void> {
+    try {
+      // Send force_cleanup before disconnecting, just like the real transport manager
+      if (this.device.transport.isConnected()) {
+        await this.device.transport.forceCleanup();
+      }
+    } catch (error) {
+      // Log but continue with disconnect even if cleanup fails
+      console.warn('Force cleanup failed during disconnect:', error);
+    }
+    
+    // Now disconnect the WebSocket
     await this.device.transport.disconnect();
     this.connected = false;
+  }
+  
+  async forceCleanup(): Promise<void> {
+    await this.device.transport.forceCleanup();
   }
 
   async getPrimaryService(serviceUuid: string): Promise<MockBluetoothRemoteGATTService> {

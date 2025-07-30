@@ -75,8 +75,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
     }
   });
 
-  // MCP REGISTER endpoint - no auth required for discovery
-  app.post('/mcp/register', async (req, res) => {
+  // MCP REGISTER endpoint - requires authentication
+  app.post('/mcp/register', authenticate, async (req, res) => {
     logger.info('POST /mcp/register - Client registration attempt');
     try {
       // Validate server is initialized

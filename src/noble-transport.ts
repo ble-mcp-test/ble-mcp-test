@@ -180,6 +180,18 @@ export class NobleTransport {
       // Ignore errors
     }
     
+    // Log current listener counts before cleanup
+    const listeners = {
+      scanStop: noble.listenerCount('scanStop'),
+      discover: noble.listenerCount('discover'),
+      stateChange: noble.listenerCount('stateChange')
+    };
+    
+    const totalListeners = listeners.scanStop + listeners.discover + listeners.stateChange;
+    if (totalListeners > 0) {
+      console.log('[NobleTransport] Force cleanup removing listeners:', listeners, `(total: ${totalListeners})`);
+    }
+    
     // Remove all listeners
     noble.removeAllListeners();
     
@@ -587,11 +599,19 @@ export class NobleTransport {
     this.logger.debug('[NobleTransport] Subscribed to notifications');
     
     // Handle unexpected disconnect
-    peripheral.once('disconnect', async () => {
+    const unexpectedDisconnectHandler = async () => {
       this.logger.debug('[NobleTransport] Device disconnected unexpectedly');
-      await this.performCompleteCleanup('unexpected-disconnect');
-      callbacks.onDisconnected();
-    });
+      // Immediately remove data handler to stop receiving notifications
+      if (this.notifyChar) {
+        this.notifyChar.removeAllListeners('data');
+      }
+      // Only perform cleanup if we're not already cleaning up
+      if (this.state !== ConnectionState.DISCONNECTING) {
+        await this.performCompleteCleanup('unexpected-disconnect');
+        callbacks.onDisconnected();
+      }
+    };
+    peripheral.once('disconnect', unexpectedDisconnectHandler);
     
     this.logger.debug('[NobleTransport] Connection complete');
     this.state = ConnectionState.CONNECTED;
@@ -644,23 +664,42 @@ export class NobleTransport {
       this.notifyChar = null;
     }
     
-    // Step 3: Clean up peripheral listeners
+    // Step 3: Disconnect peripheral if still connected
     if (this.peripheral) {
-      this.peripheral.removeAllListeners('connect');
-      this.peripheral.removeAllListeners('disconnect');
-      this.peripheral.removeAllListeners('servicesDiscover');
-      this.peripheral.removeAllListeners('characteristicsDiscover');
-      
-      // Step 4: Disconnect peripheral if still connected
       if (this.peripheral.state === 'connected') {
         try {
+          // Set up a one-time disconnect listener to wait for actual disconnect
+          const disconnectPromise = new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              this.logger.debug('[NobleTransport] Disconnect event timeout - forcing cleanup');
+              resolve();
+            }, 2000); // 2 second timeout
+            
+            this.peripheral!.once('disconnect', () => {
+              clearTimeout(timeout);
+              this.logger.debug('[NobleTransport] Disconnect event received');
+              resolve();
+            });
+          });
+          
+          // Request disconnect
           await this.peripheral.disconnectAsync();
-          this.logger.debug('[NobleTransport] Disconnected peripheral');
+          this.logger.debug('[NobleTransport] Disconnect requested, waiting for event...');
+          
+          // Wait for the actual disconnect event
+          await disconnectPromise;
+          this.logger.debug('[NobleTransport] Peripheral disconnected');
         } catch (e) {
           // Ignore disconnect errors
           this.logger.debug('[NobleTransport] Error disconnecting peripheral (may be expected):', e);
         }
       }
+      
+      // Step 4: Clean up peripheral listeners AFTER disconnect
+      this.peripheral.removeAllListeners('connect');
+      this.peripheral.removeAllListeners('disconnect');
+      this.peripheral.removeAllListeners('servicesDiscover');
+      this.peripheral.removeAllListeners('characteristicsDiscover');
       
       this.peripheral = null;
     }
@@ -668,7 +707,23 @@ export class NobleTransport {
     // Step 5: Clear other references
     this.writeChar = null;
     
-    // Step 6: Final state update
+    // Step 6: Clean up any lingering Noble scan listeners
+    // This handles cases where scan was interrupted
+    const scanStopCount = noble.listenerCount('scanStop');
+    const discoverCount = noble.listenerCount('discover');
+    if (scanStopCount > 0 || discoverCount > 0) {
+      this.logger.debug(`[NobleTransport] Cleaning up scan listeners: ${scanStopCount} scanStop, ${discoverCount} discover`);
+      // Stop any ongoing scan
+      try {
+        await noble.stopScanningAsync();
+      } catch (e) {
+        // Ignore errors if not scanning
+      }
+      // Note: We can't safely removeAllListeners here as it might affect other instances
+      // The scan method should handle its own cleanup
+    }
+    
+    // Step 7: Final state update
     this.state = ConnectionState.DISCONNECTED;
     
     this.logger.debug('[NobleTransport] Complete cleanup finished');
@@ -677,10 +732,12 @@ export class NobleTransport {
   async disconnect(): Promise<void> {
     this.logger.debug(`[NobleTransport] Disconnect requested from state: ${this.state}`);
     
-    // If already disconnected or disconnecting, return early
-    if (this.state === ConnectionState.DISCONNECTED || 
-        this.state === ConnectionState.DISCONNECTING) {
-      this.logger.debug('[NobleTransport] Already disconnected/disconnecting, skipping');
+    // Always perform cleanup to ensure no orphaned connections
+    // Even if state says disconnected, peripheral might still be connected
+    if (this.state === ConnectionState.DISCONNECTING) {
+      this.logger.debug('[NobleTransport] Already disconnecting, waiting...');
+      // Wait a bit for ongoing disconnect to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       return;
     }
     
@@ -812,7 +869,7 @@ export class NobleTransport {
       this.logger.debug(`[NobleTransport] Starting scan for device prefix: ${devicePrefix}`);
       
       // Start fresh scanning each time
-      await noble.startScanningAsync([], true);
+      await noble.startScanningAsync([], false);
       this.logger.debug('[NobleTransport] Scanning started');
       
       const generator = noble.discoverAsync();
@@ -836,21 +893,29 @@ export class NobleTransport {
           this.logger.debug(`[NobleTransport] Found matching device by name: ${name}`);
           peripheral = device;
           break;
-        } else if (deviceId === devicePrefix) {
-          // If devicePrefix is a device ID (no name match), match by exact ID
+        } else if (deviceId === devicePrefix || deviceId.toLowerCase() === devicePrefix.toLowerCase()) {
+          // If devicePrefix is a device ID (no name match), match by exact ID (case-insensitive)
           this.logger.debug(`[NobleTransport] Found matching device by ID: ${deviceId}`);
+          peripheral = device;
+          break;
+        } else if (!name && deviceId.startsWith(devicePrefix)) {
+          // On Linux, devices may not have names, so allow partial ID match
+          this.logger.debug(`[NobleTransport] Found matching device by ID prefix: ${deviceId} (no name available)`);
           peripheral = device;
           break;
         }
         
-        // Clean up excessive scanStop listeners during long scans
-        // Noble's discoverAsync adds 3 listeners per next() call
+        // Clean up excessive listeners during long scans
+        // Noble's discoverAsync adds listeners per next() call
         const scanStopCount = noble.listenerCount('scanStop');
-        if (scanStopCount > 15) {  // Lower threshold for more aggressive cleanup
+        const discoverCount = noble.listenerCount('discover');
+        
+        if (scanStopCount > 15 || discoverCount > 15) {  // Lower threshold for more aggressive cleanup
           if (this.logLevel === 'debug') {
-            this.logger.debug(`[NobleTransport] Mid-scan cleanup of ${scanStopCount} scanStop listeners`);
+            this.logger.debug(`[NobleTransport] Mid-scan cleanup: ${scanStopCount} scanStop, ${discoverCount} discover listeners`);
           }
-          noble.removeAllListeners('scanStop');
+          if (scanStopCount > 15) noble.removeAllListeners('scanStop');
+          if (discoverCount > 15) noble.removeAllListeners('discover');
         }
       }
       
@@ -858,16 +923,19 @@ export class NobleTransport {
       await noble.stopScanningAsync();
       generator.return();
       
-      // Clean up scanStop listeners that discoverAsync() adds
-      // Each call to generator.next() adds 3 scanStop listeners that aren't removed
+      // Clean up listeners that discoverAsync() adds
+      // Each call to generator.next() adds listeners that aren't removed
       // This is a Noble bug - the async generator leaks event listeners
       // We clean them up after each scan to prevent accumulation
       const scanStopCount = noble.listenerCount('scanStop');
-      if (scanStopCount > 0) {
+      const discoverCount = noble.listenerCount('discover');
+      
+      if (scanStopCount > 0 || discoverCount > 0) {
         if (this.logLevel === 'debug') {
-          this.logger.debug(`[NobleTransport] Cleaning up ${scanStopCount} scanStop listeners from discoverAsync`);
+          this.logger.debug(`[NobleTransport] Cleaning up listeners from discoverAsync: ${scanStopCount} scanStop, ${discoverCount} discover`);
         }
-        noble.removeAllListeners('scanStop');
+        if (scanStopCount > 0) noble.removeAllListeners('scanStop');
+        if (discoverCount > 0) noble.removeAllListeners('discover');
       }
       
       if (!peripheral) {
@@ -916,7 +984,7 @@ export class NobleTransport {
       }
       
       // Start scanning
-      await noble.startScanningAsync([], true);
+      await noble.startScanningAsync([], false);
       
       // Collect devices for the specified duration
       const generator = noble.discoverAsync();
@@ -949,11 +1017,11 @@ export class NobleTransport {
       await noble.stopScanningAsync();
       generator.return();
       
-      // Clean up scanStop listeners from discoverAsync (Noble bug)
+      // Clean up listeners from discoverAsync (Noble bug)
       const scanStopCount = noble.listenerCount('scanStop');
-      if (scanStopCount > 0) {
-        noble.removeAllListeners('scanStop');
-      }
+      const discoverCount = noble.listenerCount('discover');
+      if (scanStopCount > 0) noble.removeAllListeners('scanStop');
+      if (discoverCount > 0) noble.removeAllListeners('discover');
       
     } catch (error) {
       // Stop scanning on error
