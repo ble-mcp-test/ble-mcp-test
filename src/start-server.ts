@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { BridgeServer } from './bridge-server.js';
+import { ObservabilityServer } from './observability-server.js';
+import { SharedState } from './shared-state.js';
 import { normalizeLogLevel } from './utils.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { createHttpApp, startHttpServer } from './mcp-http-transport.js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
@@ -12,22 +12,17 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 // Parse command line arguments
 const args = process.argv.slice(2);
-// MCP is always enabled - it's in our product name!
 
-const port = parseInt(process.env.BLE_MCP_WS_PORT || '8080', 10);
+const wsPort = parseInt(process.env.BLE_MCP_WS_PORT || '8080', 10);
 const host = process.env.BLE_MCP_WS_HOST || '0.0.0.0';
 const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
-const mcpToken = process.env.BLE_MCP_HTTP_TOKEN;
+const httpPort = parseInt(process.env.BLE_MCP_HTTP_PORT || '8081', 10);
 
-// Only enable HTTP transport if explicitly requested
-const httpPort = process.env.BLE_MCP_HTTP_PORT;
-const enableHttpTransport = args.includes('--mcp-http') || !!httpPort || !!mcpToken;
-
-console.log('🚀 Starting ble-mcp-test Server');
-console.log('\n📡 Bridge Configuration:');
-console.log(`   WebSocket: ${host}:${port}`);
-console.log(`   Log level: ${logLevel}`);
-console.log('   Device-agnostic - UUIDs provided by client');
+console.log('🚀 Starting ble-mcp-test Services');
+console.log('\n📡 Service 1: WebSocket Bridge');
+console.log(`   Port: ${wsPort}`);
+console.log(`   Host: ${host}`);
+console.log(`   Purpose: BLE byte tunneling`);
 
 // Show any BLE timing overrides
 const bleOverrides = [
@@ -43,59 +38,43 @@ if (bleOverrides.length > 0) {
   });
 }
 
-// Show MCP configuration
-console.log('\n🔌 MCP Server Configuration:');
+console.log('\n📊 Service 2: Observability Server');
+console.log(`   Port: ${httpPort}`);
+console.log(`   Health check: http://localhost:${httpPort}/health`);
+console.log(`   MCP tools: http://localhost:${httpPort}/mcp/info`);
 
-// Check if we have TTY for stdio
-const hasTty = process.stdin.isTTY && process.stdout.isTTY;
-const stdioDisabled = process.env.BLE_MCP_STDIO_DISABLED === 'true';
-if (hasTty && !stdioDisabled) {
-  console.log('   Stdio transport: Enabled (default)');
-} else if (stdioDisabled) {
-  console.log('   Stdio transport: Disabled (BLE_MCP_STDIO_DISABLED set)');
+if (process.env.BLE_MCP_HTTP_TOKEN) {
+  console.log('   Authentication: Bearer token required');
 } else {
-  console.log('   Stdio transport: Disabled (no TTY)');
-}
-
-if (enableHttpTransport) {
-  console.log(`   HTTP transport: Port ${httpPort || '8081'}`);
-  if (mcpToken) {
-    console.log('   Authentication: Bearer token required');
-  } else {
-    console.log('   Authentication: ⚠️  None (local network only!)');
-  }
-} else {
-  console.log('   HTTP transport: Disabled (use --mcp-http or set BLE_MCP_HTTP_TOKEN/BLE_MCP_HTTP_PORT to enable)');
+  console.log('   Authentication: ⚠️  None (local network only!)');
 }
 
 console.log('\n   Press Ctrl+C to stop\n');
 
-const server = new BridgeServer(logLevel);
+// Create shared state for both services
+const sharedState = new SharedState();
 
-// Start server and handle startup errors
-server.start(port).catch(error => {
-  console.error('Failed to start server:', error);
+// Start Service 1: WebSocket Bridge
+const bridgeServer = new BridgeServer(logLevel, sharedState);
+bridgeServer.start(wsPort).catch(error => {
+  console.error('Failed to start bridge server:', error);
   process.exit(1);
 });
 
-// Initialize MCP transports - always enabled
-const mcpServer = server.getMcpServer();
+// Start Service 2: Observability Server
+const observabilityServer = new ObservabilityServer(sharedState);
+observabilityServer.connectToBridge(bridgeServer);
 
-// Auto-detect TTY and enable stdio transport (default)
-if (hasTty && !stdioDisabled) {
-  const stdioTransport = new StdioServerTransport();
-  mcpServer.connect(stdioTransport).then(() => {
-    console.log('[MCP] Stdio transport connected');
-  }).catch((error: any) => {
-    console.error('[MCP] Failed to connect stdio transport:', error);
-  });
-}
+// Start HTTP server for health checks and MCP
+observabilityServer.startHttp(httpPort).catch(error => {
+  console.error('Failed to start observability server:', error);
+  process.exit(1);
+});
 
-// Start HTTP transport only if explicitly enabled
-if (enableHttpTransport) {
-  const httpApp = createHttpApp(mcpServer, mcpToken);
-  startHttpServer(httpApp);
-}
+// Connect stdio transport if available
+observabilityServer.connectStdio().catch(error => {
+  console.error('Failed to connect stdio transport:', error);
+});
 
 // Handle uncaught errors to prevent server crash
 process.on('uncaughtException', (error) => {
@@ -113,11 +92,13 @@ process.on('unhandledRejection', (reason, promise) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down...');
-  server.stop();
+  bridgeServer.stop();
+  sharedState.restoreConsole();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  server.stop();
+  bridgeServer.stop();
+  sharedState.restoreConsole();
   process.exit(0);
 });

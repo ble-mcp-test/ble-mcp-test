@@ -1,21 +1,30 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { BridgeServer } from '../../src/bridge-server.js';
+import { ObservabilityServer } from '../../src/observability-server.js';
+import { SharedState } from '../../src/shared-state.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 describe('MCP Tools Integration Tests', () => {
-  let server: BridgeServer;
+  let bridgeServer: BridgeServer;
+  let observabilityServer: ObservabilityServer;
   let mcpServer: McpServer;
   
   beforeAll(async () => {
-    server = new BridgeServer('info');
-    mcpServer = server.getMcpServer();
+    // Create shared state
+    const sharedState = new SharedState(false); // Disable console interception for tests
     
-    // Start the WebSocket server (but not MCP transports)
-    await server.start(0); // Use port 0 for random port
+    // Start bridge server
+    bridgeServer = new BridgeServer('info', sharedState);
+    await bridgeServer.start(0); // Use port 0 for random port
+    
+    // Start observability server
+    observabilityServer = new ObservabilityServer(sharedState);
+    observabilityServer.connectToBridge(bridgeServer);
+    mcpServer = observabilityServer.getMcpServer();
   });
   
   afterAll(async () => {
-    await server.stop();
+    await bridgeServer.stop();
   });
   
   it('should have all 5 tools registered', () => {
@@ -34,13 +43,13 @@ describe('MCP Tools Integration Tests', () => {
   
   it('should execute get_logs tool', async () => {
     // Get the log buffer and clear it before test
-    const logBuffer = server.getLogBuffer();
+    const logBuffer = observabilityServer.getLogBuffer();
     (logBuffer as any).buffer = []; // Clear existing logs
     (logBuffer as any).sequenceCounter = 0; // Reset sequence counter
     
     // Add some test data to the log buffer
-    logBuffer.push('TX', new Uint8Array([0x01, 0x02, 0x03]));
-    logBuffer.push('RX', new Uint8Array([0x04, 0x05, 0x06]));
+    logBuffer.logPacket('TX', new Uint8Array([0x01, 0x02, 0x03]));
+    logBuffer.logPacket('RX', new Uint8Array([0x04, 0x05, 0x06]));
     
     // Get the tool
     const tools = (mcpServer as any)._registeredTools;
@@ -68,14 +77,14 @@ describe('MCP Tools Integration Tests', () => {
   
   it('should execute search_packets tool', async () => {
     // Get the log buffer and clear it before test
-    const logBuffer = server.getLogBuffer();
+    const logBuffer = observabilityServer.getLogBuffer();
     (logBuffer as any).buffer = []; // Clear existing logs
     (logBuffer as any).sequenceCounter = 0; // Reset sequence counter
     
     // Add test data
-    logBuffer.push('TX', new Uint8Array([0xA7, 0xB3, 0x01]));
-    logBuffer.push('RX', new Uint8Array([0x02, 0x03, 0x04]));
-    logBuffer.push('TX', new Uint8Array([0xA7, 0xB3, 0x02]));
+    logBuffer.logPacket('TX', new Uint8Array([0xA7, 0xB3, 0x01]));
+    logBuffer.logPacket('RX', new Uint8Array([0x02, 0x03, 0x04]));
+    logBuffer.logPacket('TX', new Uint8Array([0xA7, 0xB3, 0x02]));
     
     const tools = (mcpServer as any)._registeredTools;
     const searchTool = tools['search_packets'];
@@ -142,8 +151,8 @@ describe('MCP Tools Integration Tests', () => {
       expect(scanResult.devices).toBeDefined();
       expect(Array.isArray(scanResult.devices)).toBe(true);
     } catch (error: any) {
-      // Expected in test environment
-      expect(error.message).toMatch(/Bluetooth|Noble/);
+      // Expected error from ultra-simple mode
+      expect(error.message).toBe('Device scanning not available in ultra-simple mode');
     }
   });
 });

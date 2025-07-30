@@ -2,22 +2,34 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import request from 'supertest';
 import { Express } from 'express';
 import { BridgeServer } from '../../src/bridge-server.js';
+import { ObservabilityServer } from '../../src/observability-server.js';
+import { SharedState } from '../../src/shared-state.js';
 import { createHttpApp } from '../../src/mcp-http-transport.js';
 import { getPackageMetadata } from '../../src/utils.js';
 
 describe('MCP Dynamic Registration Endpoints', () => {
-  let server: BridgeServer;
+  // Test the observability server's MCP endpoints
+  let bridgeServer: BridgeServer;
+  let observabilityServer: ObservabilityServer;
   let app: Express;
   const testToken = 'test-token-123';
   
   beforeAll(async () => {
-    server = new BridgeServer('info');
-    await server.start(0);
-    app = createHttpApp(server.getMcpServer(), testToken);
+    // Create shared state
+    const sharedState = new SharedState(false); // Disable console interception for tests
+    
+    // Start bridge server
+    bridgeServer = new BridgeServer('info', sharedState);
+    await bridgeServer.start(0);
+    
+    // Start observability server
+    observabilityServer = new ObservabilityServer(sharedState);
+    observabilityServer.connectToBridge(bridgeServer);
+    app = createHttpApp(observabilityServer.getMcpServer(), testToken);
   });
   
   afterAll(async () => {
-    await server.stop();
+    await bridgeServer.stop();
   });
   
   describe('GET /mcp/info', () => {

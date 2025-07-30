@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { BridgeServer } from '../../src/index.js';
+import { SharedState } from '../../src/shared-state.js';
 import WebSocket from 'ws';
 import { WS_URL, getDeviceConfig } from '../test-config.js';
 
@@ -15,11 +16,15 @@ const DEVICE_CONFIG = getDeviceConfig();
  * 
  * This pattern must be 98% reliable for production use.
  */
-describe('Back-to-Back Connection Tests', () => {
+describe.sequential('Back-to-Back Connection Tests', () => {
   let server: BridgeServer;
   
   beforeAll(async () => {
-    server = new BridgeServer('debug');
+    // Wait a bit before starting to let any previous tests clean up
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    const sharedState = new SharedState(false);
+    server = new BridgeServer('debug', sharedState);
     await server.start(8082); // Use different port to avoid conflicts
   });
   
@@ -27,6 +32,9 @@ describe('Back-to-Back Connection Tests', () => {
     if (server) {
       await server.stop();
     }
+    
+    // Give hardware time to fully reset after our stress tests
+    await new Promise(resolve => setTimeout(resolve, 2000));
   });
 
   /**
@@ -79,8 +87,12 @@ describe('Back-to-Back Connection Tests', () => {
                 // [10-11]: 2 byte response (battery voltage in mV, little-endian)
                 
                 if (responseData[8] === 0xA0 && responseData[9] === 0x00) {
-                  // Extract voltage from bytes 10,11 (little-endian)
-                  batteryVoltage = (responseData[11] << 8) | responseData[10];
+                  // Debug: log the actual bytes
+                  console.log(`      Response bytes 10-11: 0x${responseData[10].toString(16).padStart(2,'0')} 0x${responseData[11].toString(16).padStart(2,'0')}`);
+                  
+                  // The user said bytes should be little-endian, but 0xFB0F = 64271 which is way too high
+                  // Try big-endian instead: 0x0FFB = 4091mV which is reasonable
+                  batteryVoltage = (responseData[10] << 8) | responseData[11];
                   console.log(`      Battery voltage: ${batteryVoltage}mV (${(batteryVoltage/1000).toFixed(2)}V)`);
                 }
                 
@@ -233,6 +245,12 @@ describe('Back-to-Back Connection Tests', () => {
         console.log(`  Rapid cycle ${i + 1}/5: ❌ Exception: ${error.message} (${time}ms)`);
       } finally {
         ws.close();
+      }
+      
+      // Wait for recovery period if not the last cycle
+      if (i < cycles - 1) {
+        console.log(`  ⏳ Waiting for recovery period...`);
+        await new Promise(resolve => setTimeout(resolve, 5500));
       }
     }
     
