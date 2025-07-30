@@ -29,7 +29,7 @@
   "homepage": "https://github.com/ble-mcp-test/ble-mcp-test",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ble-mcp-test/ble-mcp-test.git"
+    "url": "git+https://github.com/ble-mcp-test/ble-mcp-test.git"
   },
   "bugs": {
     "url": "https://github.com/ble-mcp-test/ble-mcp-test/issues"
@@ -44,7 +44,7 @@
   "main": "./dist/index.js",
   "browser": "./dist/web-ble-mock.bundle.js",
   "bin": {
-    "ble-mcp-test": "./dist/start-server.js"
+    "ble-mcp-test": "dist/start-server.js"
   },
   "exports": {
     ".": "./dist/index.js",
