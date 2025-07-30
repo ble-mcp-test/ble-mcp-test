@@ -53,10 +53,18 @@ export class ConnectionFactory {
         }
         
         // Check if error is retryable
-        if (result.error?.includes('Another connection is active')) {
-          console.log(`[ConnectionFactory] Attempt ${attempt}/${maxRetries}: Connection busy, retrying in ${retryDelay}ms...`);
+        if (result.error?.includes('Another connection is active') || 
+            result.error?.includes('disconnecting') ||
+            result.error?.includes('only ready state accepts connections')) {
+          
+          // If stuck in disconnecting state, wait longer to allow escalation cleanup
+          const waitTime = result.error?.includes('disconnecting') ? 
+            Math.max(retryDelay, 15000) : // Wait at least 15s for full escalation
+            retryDelay;
+            
+          console.log(`[ConnectionFactory] Attempt ${attempt}/${maxRetries}: ${result.error}, retrying in ${waitTime}ms...`);
           lastError = result.error;
-          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
         

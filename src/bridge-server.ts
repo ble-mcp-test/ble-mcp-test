@@ -23,6 +23,11 @@ export class BridgeServer {
   private recoveryDelay = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
   private sharedState: SharedState | null = null;
   private recoveryTimer: NodeJS.Timeout | null = null;
+  private stuckStateTimer: NodeJS.Timeout | null = null;
+  private escalationTimer: NodeJS.Timeout | null = null;
+  private consecutiveFailures = 0;
+  private maxRecoveryDelay = 30000; // Max 30s recovery delay
+  private stuckStateCount = 0;
   
   constructor(logLevel?: string, sharedState?: SharedState) {
     // Ultra simple - just log level for compatibility
@@ -84,7 +89,8 @@ export class BridgeServer {
         
         clearTimeout(timeoutHandle);
         
-        // Connected! Transition to active state
+        // Connected! Reset failure count and transition to active state
+        this.consecutiveFailures = 0;
         console.log(`[Bridge] ✓ State transition: connecting → active`);
         this.state = 'active';
         const deviceName = this.peripheral?.advertisement?.localName || this.peripheral?.id || 'Unknown';
@@ -124,6 +130,8 @@ export class BridgeServer {
         
       } catch (error: any) {
         console.error('[Bridge] Connection error:', error.message);
+        // Increment failure count on connection error
+        this.consecutiveFailures++;
         // Ensure Noble is cleaned up on error
         await noble.stopScanningAsync().catch(() => {});
         ws.send(JSON.stringify({ type: 'error', error: error.message }));
@@ -228,6 +236,9 @@ export class BridgeServer {
     console.log(`[Bridge] ✓ State transition: ${this.state} → disconnecting`);
     this.state = 'disconnecting';
     
+    // Set up escalating stuck state detection
+    this.setupEscalatingCleanup();
+    
     // Clean up BLE
     if (this.peripheral) {
       try {
@@ -239,8 +250,14 @@ export class BridgeServer {
         // Ignore cleanup errors during disconnect
       }
       
-      // Start recovery period to let device settle
-      console.log(`[Bridge] Starting ${this.recoveryDelay}ms recovery period`);
+      // Calculate recovery delay with exponential backoff for consecutive failures
+      const baseDelay = this.recoveryDelay;
+      const currentDelay = Math.min(
+        baseDelay * Math.pow(1.5, this.consecutiveFailures),
+        this.maxRecoveryDelay
+      );
+      
+      console.log(`[Bridge] Starting ${Math.round(currentDelay)}ms recovery period (failures: ${this.consecutiveFailures})`);
       this.sharedState?.setConnectionState({ recovering: true });
       
       // Clear any existing recovery timer
@@ -258,13 +275,16 @@ export class BridgeServer {
           console.error(`[Bridge] Error during Noble cleanup: ${error}`);
         }
         
+        // Clear all escalation timers
+        this.clearEscalationTimers();
+        
         // Transition back to ready state - ready for new connections
         console.log(`[Bridge] ✓ State transition: disconnecting → ready`);
         this.state = 'ready';
         this.sharedState?.setConnectionState({ recovering: false });
         console.log(`[Bridge] Recovery complete, ready for new connections`);
         this.recoveryTimer = null;
-      }, this.recoveryDelay);
+      }, currentDelay);
     }
     
     this.peripheral = null;
@@ -277,6 +297,196 @@ export class BridgeServer {
       console.log(`[Bridge] ✓ State transition: disconnecting → ready (no recovery needed)`);
       this.state = 'ready';
       this.sharedState?.setConnectionState({ recovering: false });
+      
+      // Clear all escalation timers
+      this.clearEscalationTimers();
+    }
+  }
+  
+  private forceReset() {
+    console.log(`[Bridge] 🔄 Force reset - clearing all timers and state`);
+    
+    // Clear all timers
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+    }
+    if (this.stuckStateTimer) {
+      clearTimeout(this.stuckStateTimer);
+      this.stuckStateTimer = null;
+    }
+    
+    // Increment failure count
+    this.consecutiveFailures++;
+    console.log(`[Bridge] Consecutive failures: ${this.consecutiveFailures}`);
+    
+    // Force state to ready
+    this.state = 'ready';
+    this.sharedState?.setConnectionState({ recovering: false });
+    
+    // Clean up any remaining connections
+    this.peripheral = null;
+    this.writeChar = null;
+    this.notifyChar = null;
+    this.activeConnection = null;
+    
+    console.log(`[Bridge] Force reset complete, ready for new connections`);
+  }
+  
+  private setupEscalatingCleanup() {
+    // Clear any existing escalation
+    this.clearEscalationTimers();
+    
+    // Level 1: Basic stuck detection (3 seconds)
+    this.stuckStateTimer = setTimeout(() => {
+      if (this.state === 'disconnecting') {
+        console.log(`[Bridge] 🟨 Level 1: Basic stuck detection - attempting gentle cleanup`);
+        this.escalateCleanup(1);
+      }
+    }, 3000);
+  }
+  
+  private escalateCleanup(level: number) {
+    if (this.state !== 'disconnecting') return;
+    
+    this.stuckStateCount++;
+    
+    switch (level) {
+      case 1:
+        console.log(`[Bridge] 🔧 Level 1 cleanup: Force peripheral disconnect`);
+        // Try to force disconnect the peripheral
+        if (this.peripheral) {
+          try {
+            this.peripheral.disconnect();
+          } catch (e) {
+            console.log(`[Bridge] Peripheral disconnect failed: ${e}`);
+          }
+        }
+        
+        // Schedule Level 2 if still stuck
+        this.escalationTimer = setTimeout(() => {
+          if (this.state === 'disconnecting') {
+            this.escalateCleanup(2);
+          }
+        }, 5000);
+        break;
+        
+      case 2:
+        console.log(`[Bridge] 🔨 Level 2 cleanup: Noble restart + force cleanup`);
+        // More aggressive Noble and peripheral cleanup
+        this.aggressiveNobleCleanup();
+        
+        // Schedule Level 3 if still stuck
+        this.escalationTimer = setTimeout(() => {
+          if (this.state === 'disconnecting') {
+            this.escalateCleanup(3);
+          }
+        }, 5000);
+        break;
+        
+      case 3:
+        console.log(`[Bridge] 💥 Level 3 cleanup: Nuclear option - complete reset`);
+        this.nuclearReset();
+        break;
+    }
+  }
+  
+  private async aggressiveNobleCleanup() {
+    try {
+      console.log(`[Bridge] 🔨 Aggressive Noble cleanup starting`);
+      
+      // Stop scanning aggressively
+      await noble.stopScanningAsync().catch(() => {});
+      
+      // Remove all listeners
+      noble.removeAllListeners();
+      
+      // If peripheral exists, try multiple disconnect approaches
+      if (this.peripheral) {
+        try {
+          // Try sync disconnect first
+          this.peripheral.disconnect();
+        } catch (e) {
+          console.log(`[Bridge] Sync disconnect failed: ${e}`);
+        }
+        
+        try {
+          // Try async disconnect
+          await this.peripheral.disconnectAsync().catch(() => {});
+        } catch (e) {
+          console.log(`[Bridge] Async disconnect failed: ${e}`);
+        }
+        
+        // Remove all peripheral listeners
+        this.peripheral.removeAllListeners();
+      }
+      
+      // Clean up characteristics
+      if (this.notifyChar) {
+        try {
+          await this.notifyChar.unsubscribeAsync().catch(() => {});
+          this.notifyChar.removeAllListeners();
+        } catch (e) {
+          console.log(`[Bridge] Notify char cleanup failed: ${e}`);
+        }
+      }
+      
+      console.log(`[Bridge] 🔨 Aggressive cleanup complete`);
+    } catch (error) {
+      console.error(`[Bridge] Aggressive cleanup error: ${error}`);
+    }
+  }
+  
+  private nuclearReset() {
+    console.log(`[Bridge] 💥 Nuclear reset: Force reset everything`);
+    
+    // Clear ALL timers
+    this.clearEscalationTimers();
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+    }
+    
+    // Force state reset
+    this.state = 'ready';
+    this.sharedState?.setConnectionState({ 
+      connected: false, 
+      deviceName: null, 
+      recovering: false 
+    });
+    
+    // Nuclear cleanup of all resources
+    this.peripheral = null;
+    this.writeChar = null;
+    this.notifyChar = null;
+    this.activeConnection = null;
+    
+    // Increment failure count significantly for nuclear reset
+    this.consecutiveFailures += 2;
+    this.stuckStateCount = 0;
+    
+    console.log(`[Bridge] 💥 Nuclear reset complete - consecutive failures: ${this.consecutiveFailures}`);
+    console.log(`[Bridge] Ready for new connections (with increased backoff)`);
+    
+    // Try to clean up Noble as best we can
+    setTimeout(async () => {
+      try {
+        await noble.stopScanningAsync().catch(() => {});
+        noble.removeAllListeners();
+      } catch (e) {
+        console.log(`[Bridge] Post-nuclear Noble cleanup: ${e}`);
+      }
+    }, 1000);
+  }
+  
+  private clearEscalationTimers() {
+    if (this.stuckStateTimer) {
+      clearTimeout(this.stuckStateTimer);
+      this.stuckStateTimer = null;
+    }
+    if (this.escalationTimer) {
+      clearTimeout(this.escalationTimer);
+      this.escalationTimer = null;
     }
   }
   
