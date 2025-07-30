@@ -171,7 +171,7 @@ export class BridgeServer {
         this.logger.warn(`Rejecting connection - server state: ${this.stateMachine.getState()}`);
         ws.send(JSON.stringify({ 
           type: 'error', 
-          error: 'Server is not available for new connections' 
+          error: 'Another connection is active' 
         }));
         ws.close();
         return;
