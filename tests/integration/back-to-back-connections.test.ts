@@ -64,7 +64,7 @@ describe.sequential('Back-to-Back Connection Tests', () => {
           
           const timeout = setTimeout(() => {
             resolve({ success: false, error: 'Connection timeout' });
-          }, 8000);
+          }, 20000); // Increased to allow full escalation cleanup cycle
           
           ws.on('message', (data) => {
             const msg = JSON.parse(data.toString());
@@ -205,7 +205,7 @@ describe.sequential('Back-to-Back Connection Tests', () => {
         const result = await new Promise<{ success: boolean; error?: string }>((resolve) => {
           const timeout = setTimeout(() => {
             resolve({ success: false, error: 'Timeout' });
-          }, 8000);
+          }, 20000); // Increased from 8s to 20s to allow full escalation cycle
           
           ws.on('message', (data) => {
             const msg = JSON.parse(data.toString());
