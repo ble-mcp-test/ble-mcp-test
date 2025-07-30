@@ -1,29 +1,38 @@
 {
-  "name": "@ble-mcp/bridge",
+  "name": "ble-mcp-test",
   "version": "0.4.0",
-  "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
+  "description": "A WebSocket bridge server and Web Bluetooth API mock for testing BLE devices in any environment. Enables Playwright and E2E testing of Web Bluetooth applications without browser support.",
   "keywords": [
-    "bluetooth",
-    "ble",
-    "web-bluetooth",
-    "noble",
-    "websocket",
-    "bridge",
     "mcp",
     "model-context-protocol",
+    "ble",
+    "bluetooth",
+    "bluetooth-low-energy",
+    "web-bluetooth",
+    "testing",
+    "mock",
+    "playwright",
+    "e2e",
+    "e2e-testing",
+    "bridge",
+    "websocket",
+    "noble",
+    "packet-inspection",
+    "ble-testing",
+    "web-bluetooth-mock",
     "claude",
     "ai",
     "coding-assistant"
   ],
   "author": "Michael Hayes",
   "license": "MIT",
-  "homepage": "https://github.com/ble-mcp/bridge",
+  "homepage": "https://github.com/ble-mcp-test/ble-mcp-test",
   "repository": {
     "type": "git",
-    "url": "https://github.com/ble-mcp/bridge.git"
+    "url": "https://github.com/ble-mcp-test/ble-mcp-test.git"
   },
   "bugs": {
-    "url": "https://github.com/ble-mcp/bridge/issues"
+    "url": "https://github.com/ble-mcp-test/ble-mcp-test/issues"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -35,7 +44,7 @@
   "main": "./dist/index.js",
   "browser": "./dist/web-ble-mock.bundle.js",
   "bin": {
-    "ble-mcp-bridge": "./dist/start-server.js"
+    "ble-mcp-test": "./dist/start-server.js"
   },
   "exports": {
     ".": "./dist/index.js",
