@@ -97,12 +97,7 @@ interface BLEConfig {
   notifyUuid: string;
 }
 
-export enum ConnectionState {
-  DISCONNECTED = 'disconnected',
-  CONNECTING = 'connecting',
-  CONNECTED = 'connected',
-  DISCONNECTING = 'disconnecting'
-}
+// Transport is now purely operational - no state machine needed
 
 // Platform-aware UUID normalization for Noble.js
 // macOS Noble expects short UUIDs (4 chars)
@@ -161,7 +156,6 @@ export class NobleTransport {
   private writeChar: any = null;
   private notifyChar: any = null;
   private deviceName = '';
-  private state: ConnectionState = ConnectionState.DISCONNECTED;
   private isScanning = false;
   private logLevel: LogLevel;
   private logger: Logger;
@@ -315,24 +309,18 @@ export class NobleTransport {
     };
   })();
 
-  getState(): ConnectionState {
-    return this.state;
-  }
-
-  // Atomically check and claim connection
-  tryClaimConnection(): boolean {
-    if (this.state !== ConnectionState.DISCONNECTED) {
-      return false;
-    }
-    
-    this.state = ConnectionState.CONNECTING;
-    return true;
+  // Simple operational check - is transport ready for use?
+  isConnected(): boolean {
+    return this.peripheral !== null && 
+           this.peripheral.state === 'connected' && 
+           this.writeChar !== null && 
+           this.notifyChar !== null;
   }
 
   async connect(config: BLEConfig, callbacks: Callbacks): Promise<void> {
-    // State should already be CONNECTING from tryClaimConnection
-    if (this.state !== ConnectionState.CONNECTING) {
-      throw new Error(`Invalid state for connect: ${this.state}`);
+    // Simple guard - don't connect if already connected
+    if (this.isConnected()) {
+      throw new Error('Transport already connected');
     }
     
     let peripheral: any = null;
@@ -583,27 +571,16 @@ export class NobleTransport {
       if (this.notifyChar) {
         this.notifyChar.removeAllListeners('data');
       }
-      // Only perform cleanup if we're not already cleaning up
-      if (this.state !== ConnectionState.DISCONNECTING) {
-        await this.performCompleteCleanup('unexpected-disconnect');
-        callbacks.onDisconnected();
-      }
+      // Clean up and notify
+      await this.cleanup('unexpected-disconnect');
+      callbacks.onDisconnected();
     };
     peripheral.once('disconnect', unexpectedDisconnectHandler);
     
     this.logger.debug('[NobleTransport] Connection complete');
-    this.state = ConnectionState.CONNECTED;
     } catch (error) {
-      // CRITICAL: Perform complete cleanup on ANY error
-      await this.performCompleteCleanup('connection-error');
-      
-      // If we have a peripheral reference, it should already be disconnected
-      // by performCompleteCleanup, but log if somehow it's not
-      if (this.peripheral?.state === 'connected') {
-        this.logger.error('[NobleTransport] Peripheral still connected after cleanup!');
-      }
-      
-      this.state = ConnectionState.DISCONNECTED;
+      // Clean up on any error
+      await this.cleanup('connection-error');
       throw error;
     }
   }
@@ -614,209 +591,60 @@ export class NobleTransport {
   }
   
   /**
-   * Performs complete cleanup of BLE connection and all resources.
-   * This is the single source of truth for cleanup logic.
+   * Simple cleanup - disconnect and clear all references.
    * Safe to call multiple times (idempotent).
    */
-  async performCompleteCleanup(reason: string = 'unknown'): Promise<void> {
-    this.logger.debug(`[NobleTransport] Performing complete cleanup (reason: ${reason}, current state: ${this.state})`);
+  async cleanup(reason: string = 'unknown'): Promise<void> {
+    this.logger.debug(`[NobleTransport] Cleanup requested (reason: ${reason})`);
     
-    // Mark state early to prevent concurrent operations
-    if (this.state !== ConnectionState.DISCONNECTED) {
-      this.state = ConnectionState.DISCONNECTING;
-    }
-    
-    // Step 1: Unsubscribe from BLE notifications first
-    // This prevents any more data events from the hardware
+    // Step 1: Unsubscribe from notifications first
     if (this.notifyChar) {
       try {
         await this.notifyChar.unsubscribeAsync();
-        this.logger.debug('[NobleTransport] Unsubscribed from BLE notifications');
+        this.logger.debug('[NobleTransport] Unsubscribed from notifications');
       } catch (e) {
         // Expected if already disconnected
-        this.logger.debug('[NobleTransport] Error unsubscribing (may be expected):', e);
+        this.logger.debug('[NobleTransport] Unsubscribe error (expected):', e);
       }
-      
-      // Step 2: Remove all JavaScript event listeners
       this.notifyChar.removeAllListeners('data');
       this.notifyChar = null;
     }
     
-    // Step 3: Disconnect peripheral if still connected
+    // Step 2: Disconnect peripheral
     if (this.peripheral) {
       if (this.peripheral.state === 'connected') {
         try {
-          // Set up a one-time disconnect listener to wait for actual disconnect
-          const disconnectPromise = new Promise<void>((resolve) => {
-            const timeout = setTimeout(() => {
-              this.logger.debug('[NobleTransport] Disconnect event timeout - forcing cleanup');
-              resolve();
-            }, 2000); // 2 second timeout
-            
-            this.peripheral!.once('disconnect', () => {
-              clearTimeout(timeout);
-              this.logger.debug('[NobleTransport] Disconnect event received');
-              resolve();
-            });
-          });
-          
-          // Request disconnect
           await this.peripheral.disconnectAsync();
-          this.logger.debug('[NobleTransport] Disconnect requested, waiting for event...');
-          
-          // Wait for the actual disconnect event
-          await disconnectPromise;
           this.logger.debug('[NobleTransport] Peripheral disconnected');
         } catch (e) {
-          // Ignore disconnect errors
-          this.logger.debug('[NobleTransport] Error disconnecting peripheral (may be expected):', e);
+          this.logger.debug('[NobleTransport] Disconnect error (expected):', e);
         }
       }
       
-      // Step 4: Clean up peripheral listeners AFTER disconnect
-      this.peripheral.removeAllListeners('connect');
-      this.peripheral.removeAllListeners('disconnect');
-      this.peripheral.removeAllListeners('servicesDiscover');
-      this.peripheral.removeAllListeners('characteristicsDiscover');
-      
+      // Clean up listeners
+      this.peripheral.removeAllListeners();
       this.peripheral = null;
     }
     
-    // Step 5: Clear other references
+    // Step 3: Clear references
     this.writeChar = null;
+    this.peripheralId = '';
+    this.deviceName = '';
     
-    // Step 6: Clean up any lingering Noble scan listeners
-    // This handles cases where scan was interrupted
-    const scanStopCount = noble.listenerCount('scanStop');
-    const discoverCount = noble.listenerCount('discover');
-    if (scanStopCount > 0 || discoverCount > 0) {
-      this.logger.debug(`[NobleTransport] Cleaning up scan listeners: ${scanStopCount} scanStop, ${discoverCount} discover`);
-      // Stop any ongoing scan
-      try {
-        await noble.stopScanningAsync();
-      } catch {
-        // Ignore errors if not scanning
-      }
-      // Note: We can't safely removeAllListeners here as it might affect other instances
-      // The scan method should handle its own cleanup
-    }
-    
-    // Step 7: Final state update
-    this.state = ConnectionState.DISCONNECTED;
-    
-    this.logger.debug('[NobleTransport] Complete cleanup finished');
+    this.logger.debug('[NobleTransport] Cleanup complete');
   }
 
   async disconnect(): Promise<void> {
-    this.logger.debug(`[NobleTransport] Disconnect requested from state: ${this.state}`);
+    this.logger.debug('[NobleTransport] Disconnect requested');
     
-    // Always perform cleanup to ensure no orphaned connections
-    // Even if state says disconnected, peripheral might still be connected
-    if (this.state === ConnectionState.DISCONNECTING) {
-      this.logger.debug('[NobleTransport] Already disconnecting, waiting...');
-      // Wait a bit for ongoing disconnect to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-      return;
-    }
+    // Simple cleanup with recovery delay
+    await this.cleanup('explicit-disconnect');
     
-    try {
-      // Use our centralized cleanup method
-      await this.performCompleteCleanup('explicit-disconnect');
-    } finally {
-      // Clear references
-      this.peripheral = null;
-      this.writeChar = null;
-      this.notifyChar = null;
-      
-      // Calculate dynamic cooldown based on listener pressure
-      // Use a shorter delay for disconnect (1/5 of full recovery delay for Noble reset)
-      const baseCooldown = Math.max(200, NobleTransport.TIMINGS.RECOVERY_DELAY / 5);
-      
-      // Track multiple pressure indicators for a complete picture
-      
-      // 1. Noble event listeners (your current approach)
-      const eventNames = noble.eventNames();
-      let nobleListeners = 0;
-      eventNames.forEach(event => {
-        nobleListeners += noble.listenerCount(event as string | symbol);
-      });
-      
-      // 2. HCI bindings listeners (where the real pressure builds)
-      let bindingsListeners = 0;
-      const bindings = (noble as any)._bindings;
-      if (bindings && bindings.eventNames) {
-        const bindingEvents = bindings.eventNames();
-        bindingEvents.forEach((event: any) => {
-          bindingsListeners += bindings.listenerCount(event);
-        });
-      }
-      
-      // 3. Peripheral count and their listeners
-      const peripherals = (noble as any)._peripherals || {};
-      const peripheralCount = Object.keys(peripherals).length;
-      let peripheralListeners = 0;
-      Object.values(peripherals).forEach((p: any) => {
-        if (p.eventNames) {
-          p.eventNames().forEach((event: any) => {
-            peripheralListeners += p.listenerCount(event);
-          });
-        }
-      });
-      
-      // 4. Track active scanner count (class-level)
-      const activeScanners = NobleTransport.activeScanners;
-      
-      // 5. Check for specific high-pressure indicators
-      const scanStopListeners = noble.listenerCount('scanStop');
-      
-      // Calculate total pressure from all sources
-      const totalListeners = nobleListeners + bindingsListeners + peripheralListeners;
-      
-      // Use multiple pressure calculations
-      const listenerPressure = Math.floor(totalListeners / 10); // Every 10 listeners = 1 pressure unit
-      const peripheralPressure = Math.floor(peripheralCount / 3); // Every 3 peripherals = 1 pressure unit
-      const scannerPressure = Math.floor(activeScanners / 2); // Every 2 active scanners = 1 pressure unit
-      const criticalPressure = scanStopListeners > 10 ? Math.floor(scanStopListeners / 10) : 0; // Critical indicator
-      
-      // Use the highest pressure indicator
-      const pressureMultiplier = Math.max(
-        listenerPressure, 
-        peripheralPressure, 
-        scannerPressure,
-        criticalPressure
-      );
-      
-      // Dynamic cooldown: increase by 1000ms per pressure unit (more aggressive)
-      const dynamicCooldown = baseCooldown + (pressureMultiplier * 1000);
-      
-      // Additional cleanup if pressure is high
-      if (pressureMultiplier > 2) {
-        this.logger.debug('[NobleTransport] High pressure detected, performing aggressive cleanup');
-        // Remove all peripheral references from Noble's cache
-        const peripherals = (noble as any)._peripherals || {};
-        Object.keys(peripherals).forEach(id => {
-          if (peripherals[id]) {
-            peripherals[id].removeAllListeners();
-            delete peripherals[id];
-          }
-        });
-      }
-      
-      
-      if (pressureMultiplier > 0) {
-        this.logger.debug(`[NobleTransport] Resource pressure detected (listeners: ${totalListeners}, peripherals: ${peripheralCount})`);
-        this.logger.debug(`[NobleTransport] Dynamic cooldown: ${dynamicCooldown}ms (base: ${baseCooldown}ms + pressure: ${dynamicCooldown - baseCooldown}ms)`);
-        if (this.logLevel === 'debug') {
-          this.logger.debug(`[NobleTransport]   Details: Noble=${nobleListeners}, HCI=${bindingsListeners}, scanStop=${scanStopListeners}`);
-        }
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, dynamicCooldown));
-      
-      // Now safe to mark as disconnected
-      this.state = ConnectionState.DISCONNECTED;
-      this.logger.debug('[NobleTransport] Disconnection complete');
-    }
+    // Basic recovery delay to let Noble settle
+    const recoveryDelay = Math.max(1000, NobleTransport.TIMINGS.RECOVERY_DELAY / 5);
+    await new Promise(resolve => setTimeout(resolve, recoveryDelay));
+    
+    this.logger.debug('[NobleTransport] Disconnect complete');
   }
   
   getDeviceName(): string {

@@ -118,27 +118,28 @@ export class ConnectionContext {
   }
   
   async performCleanup(reason: string = 'unknown'): Promise<void> {
-    if (this.cleanupComplete) {
-      this.logger.debug('Cleanup already complete, skipping');
-      return;
-    }
-    
     this.logger.info(`Performing cleanup (reason: ${reason})`);
-    this.cleanupComplete = true;
     
+    // Always clear timers and release mutex, even if cleanup was already called
     this.clearTimers();
     
-    if (this.bleTransport) {
-      await this.bleTransport.disconnect();
-      this.bleTransport = null;
+    // Only perform transport cleanup once
+    if (!this.cleanupComplete) {
+      this.cleanupComplete = true;
+      
+      if (this.bleTransport) {
+        await this.bleTransport.disconnect();
+        this.bleTransport = null;
+      }
+      
+      if (this.wsConnection) {
+        this.wsConnection.close();
+        this.wsConnection = null;
+      }
     }
     
+    // ALWAYS release mutex - this is critical for next connection
     this.mutex.releaseConnection(this.token);
-    
-    if (this.wsConnection) {
-      this.wsConnection.close();
-      this.wsConnection = null;
-    }
     
     this.logger.debug('Cleanup complete');
   }
