@@ -1,23 +1,5 @@
 import { describe, it, expect } from 'vitest';
-
-// Manually implement the same logic as in noble-transport.ts
-// This avoids complex extraction and makes tests more stable
-function normalizeUuid(uuid: string): string {
-  // Remove dashes and convert to lowercase
-  const cleaned = uuid.toLowerCase().replace(/-/g, '');
-  
-  // If already 32 chars (full UUID without dashes), return as-is
-  if (cleaned.length === 32) return cleaned;
-  
-  // If 4-char short UUID, expand to full 128-bit
-  if (cleaned.length === 4) {
-    return `0000${cleaned}00001000800000805f9b34fb`;
-  }
-  
-  // Handle other lengths by padding and taking last 4 chars
-  const shortId = cleaned.padStart(4, '0').slice(-4);
-  return `0000${shortId}00001000800000805f9b34fb`;
-}
+import { normalizeUuid } from '../../src/utils.js';
 
 describe('UUID Normalization', () => {
   describe('Short UUIDs (16-bit)', () => {
