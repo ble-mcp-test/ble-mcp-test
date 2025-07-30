@@ -21,9 +21,12 @@ if (!deviceIdentifier) {
   process.exit(1);
 }
 
-console.log(`🔍 Checking for BLE device: ${deviceIdentifier}`);
+// Use configured recovery delay as timeout, or 5s default
+const timeoutMs = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
 
-async function checkDevice(timeoutMs = 5000) {
+console.log(`🔍 Checking for BLE device: ${deviceIdentifier} (timeout: ${timeoutMs/1000}s)`);
+
+async function checkDevice() {
   // Wait for Bluetooth adapter to be powered on
   if (noble.state !== 'poweredOn') {
     console.log('⏳ Waiting for Bluetooth to power on...');
