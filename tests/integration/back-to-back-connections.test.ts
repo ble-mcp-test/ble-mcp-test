@@ -72,22 +72,16 @@ describe('Back-to-Back Connection Tests', () => {
             } else if (msg.type === 'data' && connected) {
               // Parse battery response
               const responseData = new Uint8Array(msg.data);
-              if (responseData.length >= 8 && responseData[0] === 0xA7 && responseData[1] === 0xB3) {
-                // Extract voltage from CS108 response
-                // Response format might have header/length before data
-                // Let's check multiple positions to debug
-                console.log(`      Full response: ${Array.from(responseData).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ')}`);
+              if (responseData.length >= 12 && responseData[0] === 0xA7 && responseData[1] === 0xB3) {
+                // CS108 response format:
+                // [0-7]: 8 byte header (starts with 0xA7 0xB3)
+                // [8-9]: 2 byte command (0xA0 0x00)
+                // [10-11]: 2 byte response (battery voltage in mV, little-endian)
                 
-                // Try different positions (CS108 might have different response format)
-                if (responseData.length >= 8) {
-                  const pos6 = (responseData[7] << 8) | responseData[6]; // LE at 6,7
-                  const pos4 = (responseData[5] << 8) | responseData[4]; // LE at 4,5
-                  const pos2 = (responseData[3] << 8) | responseData[2]; // LE at 2,3
-                  
-                  console.log(`      Possible voltages: pos2,3=${pos2}mV, pos4,5=${pos4}mV, pos6,7=${pos6}mV`);
-                  
-                  // Use position 6,7 for now
-                  batteryVoltage = pos6;
+                if (responseData[8] === 0xA0 && responseData[9] === 0x00) {
+                  // Extract voltage from bytes 10,11 (little-endian)
+                  batteryVoltage = (responseData[11] << 8) | responseData[10];
+                  console.log(`      Battery voltage: ${batteryVoltage}mV (${(batteryVoltage/1000).toFixed(2)}V)`);
                 }
                 
                 // Force cleanup to test the critical disconnect path
