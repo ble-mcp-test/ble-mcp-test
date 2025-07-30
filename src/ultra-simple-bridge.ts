@@ -1,47 +1,42 @@
-import { WebSocketServer } from 'ws';
-import noble from '@stoprocent/noble';
-
+#!/usr/bin/env node
 /**
- * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.0
+ * ULTRA SIMPLE WebSocket-to-BLE Bridge
  * 
- * One connection, one device, pure plumbing.
- * No state machines, no tokens, no timers, no managers.
+ * Everything in one file. No abstractions. No separation.
+ * Just WebSocket + Noble + device. Pure plumbing.
+ * 
  * Target: <200 lines total
  */
 
-export class BridgeServer {
+import { WebSocketServer } from 'ws';
+import noble from '@stoprocent/noble';
+
+export class UltraSimpleBridge {
   private wss: WebSocketServer | null = null;
   private activeConnection: any = null; // WebSocket | null
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
-  private isRecovering = false;
-  private recoveryDelay = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
   
-  constructor(logLevel?: string) {
-    // Ultra simple - just log level for compatibility
-    console.log(`[Bridge] Recovery delay configured: ${this.recoveryDelay}ms`);
-  }
   async start(port = 8080) {
     this.wss = new WebSocketServer({ port });
     console.log(`🚀 Ultra simple bridge listening on port ${port}`);
     
     this.wss.on('connection', async (ws, req) => {
-      // Health check endpoint
+      // Health check
       const url = new URL(req.url || '', 'http://localhost');
       if (url.searchParams.get('command') === 'health') {
         ws.send(JSON.stringify({
           type: 'health',
           status: 'ok',
-          free: !this.activeConnection && !this.isRecovering,
-          recovering: this.isRecovering,
+          free: !this.activeConnection,
           timestamp: new Date().toISOString()
         }));
         ws.close();
         return;
       }
       
-      // One connection rule: if busy or recovering, reject immediately
+      // One connection rule
       if (this.activeConnection) {
         console.log(`[Bridge] Connection rejected - busy`);
         ws.send(JSON.stringify({ type: 'error', error: 'Another connection is active' }));
@@ -49,14 +44,7 @@ export class BridgeServer {
         return;
       }
       
-      if (this.isRecovering) {
-        console.log(`[Bridge] Connection rejected - recovering from previous connection`);
-        ws.send(JSON.stringify({ type: 'error', error: 'Bridge is recovering, please try again in a few seconds' }));
-        ws.close();
-        return;
-      }
-      
-      // Parse BLE config from URL
+      // Parse BLE config
       const config = {
         devicePrefix: url.searchParams.get('device') || '',
         serviceUuid: url.searchParams.get('service') || '',
@@ -74,13 +62,8 @@ export class BridgeServer {
       this.activeConnection = ws;
       
       try {
-        // Connect to BLE device directly with timeout
-        await Promise.race([
-          this.connectToBLE(config),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Connection timeout')), 8000)
-          )
-        ]);
+        // Connect to BLE device directly
+        await this.connectToBLE(config);
         
         // Connected!
         const deviceName = this.peripheral?.advertisement?.localName || this.peripheral?.id || 'Unknown';
@@ -95,9 +78,6 @@ export class BridgeServer {
               const data = new Uint8Array(msg.data);
               console.log(`[Bridge] TX ${data.length} bytes`);
               await this.writeChar.writeAsync(Buffer.from(data), false);
-            } else if (msg.type === 'force_cleanup') {
-              ws.send(JSON.stringify({ type: 'force_cleanup_complete', message: 'Cleanup complete' }));
-              this.cleanup();
             }
           } catch (error) {
             console.error('[Bridge] Message error:', error);
@@ -107,12 +87,6 @@ export class BridgeServer {
         // Handle WebSocket close
         ws.on('close', () => {
           console.log(`[Bridge] WebSocket closed`);
-          this.cleanup();
-        });
-        
-        // Handle WebSocket errors
-        ws.on('error', (error) => {
-          console.log(`[Bridge] WebSocket error: ${error.message}`);
           this.cleanup();
         });
         
@@ -145,7 +119,7 @@ export class BridgeServer {
         const name = device.advertisement.localName || '';
         const id = device.id;
         
-        if ((name && name.startsWith(config.devicePrefix)) || id === config.devicePrefix) {
+        if (name.startsWith(config.devicePrefix) || id === config.devicePrefix) {
           clearTimeout(timeout);
           noble.removeListener('discover', onDiscover);
           noble.stopScanningAsync();
@@ -218,15 +192,6 @@ export class BridgeServer {
         }
         this.peripheral.disconnectAsync().catch(() => {});
       } catch {}
-      
-      // Start recovery period to let device settle
-      this.isRecovering = true;
-      console.log(`[Bridge] Starting ${this.recoveryDelay}ms recovery period`);
-      
-      setTimeout(() => {
-        this.isRecovering = false;
-        console.log(`[Bridge] Recovery complete, ready for new connections`);
-      }, this.recoveryDelay);
     }
     
     this.peripheral = null;
@@ -242,21 +207,16 @@ export class BridgeServer {
       this.wss.close();
     }
   }
+}
+
+// If running directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const bridge = new UltraSimpleBridge();
+  bridge.start(8080);
   
-  // Compatibility methods for tests
-  getConnectionState(): { connected: boolean } {
-    return { connected: !!this.activeConnection };
-  }
-  
-  getMcpServer(): any {
-    return null; // Ultra simple - no MCP
-  }
-  
-  getLogBuffer(): any {
-    return null; // Ultra simple - no log buffer
-  }
-  
-  async scanDevices(): Promise<any[]> {
-    return []; // Ultra simple - no scanning
-  }
+  process.on('SIGINT', () => {
+    console.log('\\n[Bridge] Shutting down...');
+    bridge.stop();
+    process.exit(0);
+  });
 }
