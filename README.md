@@ -510,13 +510,20 @@ ble-mcp-test --mcp-http
 - JWT token validation
 - Configurable authentication middleware
 
-### v0.7.0 - CLI Tools
+### v0.7.0 - Standard Test Hardware (nRF52)
+- Transition all examples from CS108 to Nordic nRF52
+- Update test suite for nRF52 compatibility
+- Provide example firmware for nRF52 test device
+- Document standard test services and characteristics
+- Make examples reproducible for all developers ($40 vs $600+)
+
+### v0.8.0 - CLI Tools
 - `ble-mcp-test scan` - Scan for nearby BLE devices
 - `ble-mcp-test test <device>` - Test connection to a device
 - `ble-mcp-test monitor` - Live connection dashboard
 - CLI as MCP client for enhanced capabilities
 
-### v0.8.0 - Multi-Device Support
+### v0.9.0 - Multi-Device Support
 - Support multiple simultaneous BLE connections
 - Route WebSocket clients to specific devices
 - Connection pooling and management
@@ -540,4 +547,4 @@ MIT
 
 ---
 
-**TODO**: Update all examples to use Nordic nRF52 UUIDs once the development board arrives. The nRF52 is a more accessible platform for developers ($40 vs $600+) and will make the examples reproducible for anyone wanting to try the bridge.
+*Note: Examples currently use CS108 RFID reader for testing. See roadmap v0.7.0 for planned transition to Nordic nRF52 standard test hardware.*
