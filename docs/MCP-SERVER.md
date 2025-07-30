@@ -35,17 +35,17 @@ Secure local transport for terminal/CLI access:
 
 - **Auto-enabled**: When `process.stdin.isTTY` is true
 - **Disabled**: In cloud/Docker environments without TTY
-- **Force disable**: Set `DISABLE_STDIO=true`
+- **Force disable**: Set `BLE_MCP_STDIO_DISABLED=true`
 - **Security**: No network ports opened
 
 ### HTTP/SSE Transport (Optional)
 
 Network transport for remote access from VMs, containers, and other machines:
 
-- **Enable**: Set `MCP_PORT`, `MCP_TOKEN`, or use `--mcp-http` flag
-- **Port**: 8081 (configurable via `MCP_PORT`)
+- **Enable**: Set `BLE_MCP_HTTP_PORT`, `BLE_MCP_HTTP_TOKEN`, or use `--mcp-http` flag
+- **Port**: 8081 (configurable via `BLE_MCP_HTTP_PORT`)
 - **Protocol**: HTTP with Server-Sent Events (SSE)
-- **Authentication**: Bearer token (when `MCP_TOKEN` is set)
+- **Authentication**: Bearer token (when `BLE_MCP_HTTP_TOKEN` is set)
 - **CORS**: Permissive for local network use
 
 ## Available Tools
@@ -214,7 +214,7 @@ When running with HTTP transport (`--mcp-http`), the following endpoints are ava
 Returns server metadata and available tools. No authentication required.
 
 ### POST /mcp/register  
-Client registration endpoint. Returns server capabilities. Requires authentication if MCP_TOKEN is set.
+Client registration endpoint. Returns server capabilities. Requires authentication if BLE_MCP_HTTP_TOKEN is set.
 
 ### POST /mcp
 Main MCP protocol endpoint for tool execution.
@@ -230,8 +230,8 @@ See [API Documentation](./API.md#mcp-http-endpoints) for detailed endpoint speci
 
 ```bash
 # MCP Server Configuration
-MCP_PORT=8081              # HTTP transport port (enables HTTP when set)
-MCP_TOKEN=secret123        # Bearer token (enables HTTP when set)
+BLE_MCP_HTTP_PORT=8081     # HTTP transport port (enables HTTP when set)
+BLE_MCP_HTTP_TOKEN=secret123  # Bearer token (enables HTTP when set)
 LOG_BUFFER_SIZE=50000      # Circular buffer size (default: 10000)
 
 # Transport control
@@ -248,10 +248,10 @@ For local network security:
 pnpm start:ci
 
 # Option 2: Set explicit token with HTTP
-MCP_TOKEN=your-secret-token pnpm start:http
+BLE_MCP_HTTP_TOKEN=your-secret-token pnpm start:http
 
 # Option 3: Use .env.local
-echo "MCP_TOKEN=your-secret-token" >> .env.local
+echo "BLE_MCP_HTTP_TOKEN=your-secret-token" >> .env.local
 pnpm start:http
 ```
 
@@ -321,7 +321,7 @@ uvx mcp-cli chat --server ble-mcp-test
 
 1. **Always use authentication** for network access:
    ```bash
-   MCP_TOKEN=strong-random-token pnpm start
+   BLE_MCP_HTTP_TOKEN=strong-random-token pnpm start
    ```
 
 2. **Firewall rules** to restrict access:
@@ -352,7 +352,7 @@ curl -H "Authorization: Bearer your-token" http://localhost:8081/health
 
 ```bash
 # Start with debug logging
-LOG_LEVEL=debug pnpm start
+BLE_MCP_LOG_LEVEL=debug pnpm start
 
 # Watch for MCP-specific logs
 [MCP HTTP] Server listening on port 8081
@@ -370,7 +370,7 @@ LOG_LEVEL=debug pnpm start
    - Must accept both `application/json` and `text/event-stream`
 
 3. **"Unauthorized"**
-   - Check MCP_TOKEN matches between server and client
+   - Check BLE_MCP_HTTP_TOKEN matches between server and client
    - Include "Bearer " prefix in Authorization header
 
 ## Examples
