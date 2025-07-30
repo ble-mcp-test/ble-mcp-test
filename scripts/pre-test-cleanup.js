@@ -110,9 +110,14 @@ async function cleanup() {
     try {
       execSync('node scripts/check-device-available.js', { stdio: 'inherit' });
     } catch (e) {
-      console.error('\n❌ BLE device check failed!');
-      console.error('Tests will likely fail without hardware available.');
-      console.error('\nPlease ensure the CS108 device is powered on and in range.');
+      console.error('\n' + '='.repeat(60));
+      console.error('🚨 HARDWARE CHECK FAILED - ACTION REQUIRED 🚨');
+      console.error('='.repeat(60));
+      console.error('\nThe BLE device is not responding to scans.');
+      console.error('\n⚠️  DO NOT PROCEED WITHOUT ASKING THE USER!');
+      console.error('⚠️  DO NOT ASSUME HARDWARE IS UNAVAILABLE!');
+      console.error('⚠️  THE HARDWARE EXISTS - IT NEEDS ATTENTION!');
+      console.error('\n' + '='.repeat(60) + '\n');
       process.exit(1);
     }
   }
