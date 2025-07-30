@@ -303,36 +303,6 @@ export class BridgeServer {
     }
   }
   
-  private forceReset() {
-    console.log(`[Bridge] 🔄 Force reset - clearing all timers and state`);
-    
-    // Clear all timers
-    if (this.recoveryTimer) {
-      clearTimeout(this.recoveryTimer);
-      this.recoveryTimer = null;
-    }
-    if (this.stuckStateTimer) {
-      clearTimeout(this.stuckStateTimer);
-      this.stuckStateTimer = null;
-    }
-    
-    // Increment failure count
-    this.consecutiveFailures++;
-    console.log(`[Bridge] Consecutive failures: ${this.consecutiveFailures}`);
-    
-    // Force state to ready
-    this.state = 'ready';
-    this.sharedState?.setConnectionState({ recovering: false });
-    
-    // Clean up any remaining connections
-    this.peripheral = null;
-    this.writeChar = null;
-    this.notifyChar = null;
-    this.activeConnection = null;
-    
-    console.log(`[Bridge] Force reset complete, ready for new connections`);
-  }
-  
   private setupEscalatingCleanup() {
     // Clear any existing escalation
     this.clearEscalationTimers();
@@ -350,133 +320,81 @@ export class BridgeServer {
     if (this.state !== 'disconnecting') return;
     
     this.stuckStateCount++;
+    console.log(`[Bridge] ${'🔧🔨💥'[level-1]} Level ${level} cleanup:`);
     
-    switch (level) {
-      case 1:
-        console.log(`[Bridge] 🔧 Level 1 cleanup: Force peripheral disconnect`);
-        // Try to force disconnect the peripheral
-        if (this.peripheral) {
-          try {
-            this.peripheral.disconnect();
-          } catch (e) {
-            console.log(`[Bridge] Peripheral disconnect failed: ${e}`);
-          }
+    // Each level performs previous levels + additional steps (cascading)
+    if (level >= 1) this.gentleDisconnect();
+    if (level >= 2) this.aggressiveCleanup();
+    if (level >= 3) this.forceReady();
+    
+    // Schedule next level if not nuclear (level 3)
+    if (level < 3) {
+      this.escalationTimer = setTimeout(() => {
+        if (this.state === 'disconnecting') {
+          this.escalateCleanup(level + 1);
         }
-        
-        // Schedule Level 2 if still stuck
-        this.escalationTimer = setTimeout(() => {
-          if (this.state === 'disconnecting') {
-            this.escalateCleanup(2);
-          }
-        }, 5000);
-        break;
-        
-      case 2:
-        console.log(`[Bridge] 🔨 Level 2 cleanup: Noble restart + force cleanup`);
-        // More aggressive Noble and peripheral cleanup
-        this.aggressiveNobleCleanup();
-        
-        // Schedule Level 3 if still stuck
-        this.escalationTimer = setTimeout(() => {
-          if (this.state === 'disconnecting') {
-            this.escalateCleanup(3);
-          }
-        }, 5000);
-        break;
-        
-      case 3:
-        console.log(`[Bridge] 💥 Level 3 cleanup: Nuclear option - complete reset`);
-        this.nuclearReset();
-        break;
+      }, 5000);
     }
   }
   
-  private async aggressiveNobleCleanup() {
+  private gentleDisconnect() {
+    if (this.peripheral) {
+      try {
+        this.peripheral.disconnect();
+      } catch (e) {
+        console.log(`[Bridge] Gentle disconnect failed: ${e}`);
+      }
+    }
+  }
+  
+  private async aggressiveCleanup() {
     try {
-      console.log(`[Bridge] 🔨 Aggressive Noble cleanup starting`);
-      
-      // Stop scanning aggressively
+      // Stop scanning and remove listeners
       await noble.stopScanningAsync().catch(() => {});
-      
-      // Remove all listeners
       noble.removeAllListeners();
       
-      // If peripheral exists, try multiple disconnect approaches
+      // Multiple disconnect attempts
       if (this.peripheral) {
         try {
-          // Try sync disconnect first
-          this.peripheral.disconnect();
-        } catch (e) {
-          console.log(`[Bridge] Sync disconnect failed: ${e}`);
-        }
-        
-        try {
-          // Try async disconnect
           await this.peripheral.disconnectAsync().catch(() => {});
+          this.peripheral.removeAllListeners();
         } catch (e) {
-          console.log(`[Bridge] Async disconnect failed: ${e}`);
+          console.log(`[Bridge] Aggressive disconnect failed: ${e}`);
         }
-        
-        // Remove all peripheral listeners
-        this.peripheral.removeAllListeners();
       }
       
       // Clean up characteristics
       if (this.notifyChar) {
-        try {
-          await this.notifyChar.unsubscribeAsync().catch(() => {});
-          this.notifyChar.removeAllListeners();
-        } catch (e) {
-          console.log(`[Bridge] Notify char cleanup failed: ${e}`);
-        }
+        await this.notifyChar.unsubscribeAsync().catch(() => {});
+        this.notifyChar.removeAllListeners();
       }
-      
-      console.log(`[Bridge] 🔨 Aggressive cleanup complete`);
     } catch (error) {
       console.error(`[Bridge] Aggressive cleanup error: ${error}`);
     }
   }
   
-  private nuclearReset() {
-    console.log(`[Bridge] 💥 Nuclear reset: Force reset everything`);
-    
-    // Clear ALL timers
+  private forceReady() {
+    // Clear all timers and force state
     this.clearEscalationTimers();
     if (this.recoveryTimer) {
       clearTimeout(this.recoveryTimer);
       this.recoveryTimer = null;
     }
     
-    // Force state reset
     this.state = 'ready';
-    this.sharedState?.setConnectionState({ 
-      connected: false, 
-      deviceName: null, 
-      recovering: false 
-    });
+    this.sharedState?.setConnectionState({ connected: false, deviceName: null, recovering: false });
     
-    // Nuclear cleanup of all resources
+    // Clean up resources
     this.peripheral = null;
     this.writeChar = null;
     this.notifyChar = null;
     this.activeConnection = null;
     
-    // Increment failure count significantly for nuclear reset
+    // Significant failure penalty for nuclear reset
     this.consecutiveFailures += 2;
     this.stuckStateCount = 0;
     
-    console.log(`[Bridge] 💥 Nuclear reset complete - consecutive failures: ${this.consecutiveFailures}`);
-    console.log(`[Bridge] Ready for new connections (with increased backoff)`);
-    
-    // Try to clean up Noble as best we can
-    setTimeout(async () => {
-      try {
-        await noble.stopScanningAsync().catch(() => {});
-        noble.removeAllListeners();
-      } catch (e) {
-        console.log(`[Bridge] Post-nuclear Noble cleanup: ${e}`);
-      }
-    }, 1000);
+    console.log(`[Bridge] Ready for new connections (failures: ${this.consecutiveFailures})`);
   }
   
   private clearEscalationTimers() {
