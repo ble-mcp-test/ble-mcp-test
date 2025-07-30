@@ -8,3 +8,6 @@ export { Logger } from './logger.js';
 export { LogBuffer, type LogEntry } from './log-buffer.js';
 export { registerMcpTools } from './mcp-tools.js';
 export { createHttpApp, startHttpServer, cleanupHttpTransports } from './mcp-http-transport.js';
+export { StateMachine, ServerState } from './state-machine.js';
+export { ConnectionMutex } from './connection-mutex.js';
+export { ConnectionContext } from './connection-context.js';

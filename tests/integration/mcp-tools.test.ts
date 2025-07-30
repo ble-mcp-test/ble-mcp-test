@@ -118,7 +118,7 @@ describe('MCP Tools Integration Tests', () => {
     );
     
     const status = JSON.parse(result.content[0].text);
-    expect(status.version).toBe('0.3.1');
+    expect(status.version).toBe('0.4.0');
     expect(status.uptime).toBeGreaterThan(0);
     expect(status.wsPort).toBeDefined();
     expect(status.mcpTransports).toBeDefined();

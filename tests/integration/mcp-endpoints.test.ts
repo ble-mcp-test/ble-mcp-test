@@ -117,8 +117,8 @@ describe('MCP Dynamic Registration Endpoints', () => {
         .get('/mcp/info')
         .expect(200);
       
-      // Should be 0.3.1 after update, not hardcoded 0.3.0
-      expect(response.body.version).toBe('0.3.1');
+      // Should be 0.4.0 after update
+      expect(response.body.version).toBe('0.4.0');
     });
   });
 });

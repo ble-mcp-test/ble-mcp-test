@@ -5,6 +5,9 @@ import { LogBuffer } from './log-buffer.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerMcpTools } from './mcp-tools.js';
 import { Logger } from './logger.js';
+import { StateMachine, ServerState } from './state-machine.js';
+import { ConnectionMutex } from './connection-mutex.js';
+import { ConnectionContext } from './connection-context.js';
 
 /**
  * WebSocket API Commands:
@@ -17,18 +20,21 @@ import { Logger } from './logger.js';
  * - { type: 'data', data: number[] } - Send data to BLE device
  * - { type: 'disconnect' } - Disconnect from BLE device gracefully
  * - { type: 'cleanup' } - Perform complete BLE cleanup (unsubscribe + disconnect)
- * - { type: 'force_cleanup' } - Force Noble.js global cleanup (use with caution)
+ * - { type: 'force_cleanup', token: string } - Token-validated force cleanup
  * - { type: 'check_pressure' } - Get current Noble.js listener pressure metrics
+ * - { type: 'keepalive' } - Reset idle timer without side effects
  * 
  * Incoming messages (server -> client):
- * - { type: 'connected', device: string } - Connected to BLE device
+ * - { type: 'connected', device: string, token: string } - Connected with token
  * - { type: 'disconnected' } - Disconnected from BLE device
  * - { type: 'data', data: number[] } - Data received from BLE device
  * - { type: 'error', error: string } - Error occurred
  * - { type: 'cleanup_complete', message: string } - Cleanup completed
  * - { type: 'force_cleanup_complete', message: string } - Force cleanup completed
  * - { type: 'pressure_report', pressure: object } - Listener pressure metrics
- * - { type: 'health', status: string, free: boolean, ... } - Health check response
+ * - { type: 'health', status: string, free: boolean, state: string, ... } - Health check
+ * - { type: 'eviction_warning', grace_period_ms: number, reason: string } - Timeout warning
+ * - { type: 'keepalive_ack', timestamp: string } - Keepalive acknowledgment
  */
 
 export class BridgeServer {
@@ -39,18 +45,24 @@ export class BridgeServer {
   private logBuffer: LogBuffer;
   private logger: Logger;
   private mcpServer: McpServer;
-  private connectionState: {
-    connected: boolean;
-    deviceName?: string;
-    connectedAt?: string;
-    lastActivity?: string;
-  } = { connected: false };
+  private stateMachine: StateMachine;
+  private connectionMutex: ConnectionMutex;
+  private activeConnection: ConnectionContext | null = null;
+  private idleTimeout: number;
   private isCleaningUp = false;  // Track if cleanup is in progress
   
   constructor(logLevel: LogLevel = 'debug') {
     this.logLevel = logLevel;
     this.logger = new Logger('BridgeServer');
     this.logBuffer = new LogBuffer();
+    
+    // Initialize state management components
+    this.stateMachine = new StateMachine();
+    this.connectionMutex = new ConnectionMutex();
+    
+    // Get idle timeout from environment or use default
+    this.idleTimeout = parseInt(process.env.CLIENT_IDLE_TIMEOUT || '45000', 10);
+    this.logger.info(`Client idle timeout configured: ${this.idleTimeout}ms`);
     
     // Initialize MCP server
     const metadata = getPackageMetadata();
@@ -98,14 +110,16 @@ export class BridgeServer {
       // Check if this is a health check connection
       if (url.searchParams.get('command') === 'health') {
         // "Are you free, Mr. Bridge Server?"
-        const isFree = !this.transport || this.transport.getState() !== 'connected';
+        const isFree = this.connectionMutex.isFree();
+        const serverState = this.stateMachine.getState();
         ws.send(JSON.stringify({ 
           type: 'health',
           status: 'ok',
           free: isFree,
-          state: this.transport?.getState() || 'no-transport',
+          state: serverState,
+          transportState: this.transport?.getState() || 'no-transport',
           message: isFree ? "I'm free!" : "I'm with a customer",
-          connectionState: this.connectionState,
+          connectionInfo: this.activeConnection?.getConnectionInfo() || null,
           timestamp: new Date().toISOString()
         }));
         ws.close();
@@ -152,12 +166,62 @@ export class BridgeServer {
         return;
       }
 
-      // Try to claim the connection atomically
-      if (!this.transport.tryClaimConnection()) {
-        this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
+      // Check server state
+      if (this.stateMachine.getState() !== ServerState.IDLE) {
+        this.logger.warn(`Rejecting connection - server state: ${this.stateMachine.getState()}`);
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          error: 'Server is not available for new connections' 
+        }));
+        ws.close();
+        return;
+      }
+
+      // Create connection context
+      const connectionContext = new ConnectionContext(
+        this.connectionMutex,
+        this.stateMachine,
+        {
+          idleTimeout: this.idleTimeout,
+          onEvictionWarning: (gracePeriodMs) => {
+            ws.send(JSON.stringify({
+              type: 'eviction_warning',
+              grace_period_ms: gracePeriodMs,
+              reason: 'idle_timeout'
+            }));
+          },
+          onForceCleanup: () => {
+            ws.send(JSON.stringify({
+              type: 'disconnected'
+            }));
+            ws.close();
+          }
+        }
+      );
+
+      // Try to claim the connection with the context's token
+      if (!this.connectionMutex.tryClaimConnection(connectionContext.getToken())) {
+        this.logger.warn('Failed to claim connection mutex');
         ws.send(JSON.stringify({ 
           type: 'error', 
           error: 'Another connection is active' 
+        }));
+        ws.close();
+        return;
+      }
+
+      // Set active connection
+      this.activeConnection = connectionContext;
+      connectionContext.setWebSocket(ws);
+
+      // Try to claim the transport connection
+      if (!this.transport.tryClaimConnection()) {
+        this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
+        this.connectionMutex.releaseConnection(connectionContext.getToken());
+        this.activeConnection = null;
+        ws.send(JSON.stringify({ 
+          type: 'error', 
+          error: 'BLE transport is not available' 
         }));
         ws.close();
         return;
@@ -179,7 +243,6 @@ export class BridgeServer {
               this.logBuffer.push('RX', data);
               this.logger.debug(`[RX] ${formatHex(data)}`);
             }
-            this.updateActivity();
             ws.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
           },
           onDisconnected: () => {
@@ -191,25 +254,35 @@ export class BridgeServer {
           }
         });
         
-        // Update connection state
-        this.connectionState = {
-          connected: true,
-          deviceName: this.transport.getDeviceName(),
-          connectedAt: new Date().toISOString(),
-          lastActivity: new Date().toISOString()
-        };
+        // Transition to ACTIVE state
+        this.stateMachine.transition(ServerState.ACTIVE, 'BLE connected');
         
-        // Send connected message
-        this.logger.info('BLE connected, sending connected message');
+        // Update connection context
+        const deviceName = this.transport.getDeviceName();
+        connectionContext.setDeviceName(deviceName);
+        connectionContext.setBleTransport(this.transport);
+        
+        // Send connected message with token
+        this.logger.info('BLE connected, sending connected message with token');
         ws.send(JSON.stringify({ 
           type: 'connected', 
-          device: this.transport.getDeviceName() 
+          device: deviceName,
+          token: connectionContext.getToken()
         }));
+        
+        // Start idle timer
+        connectionContext.startIdleTimer();
         
         // Handle incoming messages
         ws.on('message', async (message) => {
           try {
             const msg = JSON.parse(message.toString());
+            
+            // Messages that reset idle timer
+            const activityMessages = ['data', 'disconnect', 'cleanup', 'force_cleanup', 'check_pressure', 'keepalive'];
+            if (activityMessages.includes(msg.type)) {
+              connectionContext.resetIdleTimer();
+            }
             
             switch (msg.type) {
               case 'data':
@@ -221,9 +294,16 @@ export class BridgeServer {
                     this.logBuffer.push('TX', dataArray);
                     this.logger.debug(`[TX] ${formatHex(dataArray)}`);
                   }
-                  this.updateActivity();
                   await this.transport.sendData(dataArray);
                 }
+                break;
+                
+              case 'keepalive':
+                this.logger.debug('Keepalive received');
+                ws.send(JSON.stringify({
+                  type: 'keepalive_ack',
+                  timestamp: new Date().toISOString()
+                }));
                 break;
                 
               case 'disconnect':
@@ -251,22 +331,31 @@ export class BridgeServer {
               case 'force_cleanup':
                 this.logger.info('Force cleanup requested via WebSocket');
                 
+                // Validate token
+                if (!msg.token || !connectionContext.isOwner(msg.token)) {
+                  this.logger.warn('Force cleanup rejected - invalid token');
+                  ws.send(JSON.stringify({ 
+                    type: 'error', 
+                    error: 'Invalid token for force cleanup' 
+                  }));
+                  break;
+                }
+                
                 // Set cleanup flag to block new connections
                 this.isCleaningUp = true;
                 
                 try {
-                  // First disconnect any active transport
-                  if (this.transport) {
-                    await this.transport.disconnect();
-                    // Clear the transport reference
-                    this.transport = null;
-                  }
+                  // Perform cleanup through context
+                  await connectionContext.performCleanup('force_cleanup');
+                  
+                  // Clear active connection
+                  this.activeConnection = null;
+                  
+                  // Transition back to IDLE
+                  this.stateMachine.transition(ServerState.IDLE, 'force cleanup');
                   
                   // Then do the static force cleanup
                   await NobleTransport.forceCleanup();
-                  
-                  // Clear connection state
-                  this.connectionState = { connected: false };
                   
                   // Wait a bit to ensure Noble is fully reset
                   await new Promise(resolve => setTimeout(resolve, 1000));
@@ -301,17 +390,24 @@ export class BridgeServer {
         
         // Clean disconnect on WebSocket close
         ws.on('close', async () => {
-          this.logger.info('WebSocket closed, disconnecting BLE');
+          this.logger.info('WebSocket closed, cleaning up connection');
           isDisconnecting = true;
-          if (this.transport) {
-            await this.transport.disconnect();
-            this.logger.debug('BLE disconnected successfully');
-            // CRITICAL: Clear transport reference to ensure clean state
+          
+          // Perform cleanup through context
+          await connectionContext.performCleanup('websocket_closed');
+          
+          // Clear active connection
+          this.activeConnection = null;
+          
+          // Clear transport reference if no other connections
+          if (this.connectionMutex.isFree()) {
             this.transport = null;
           }
           
-          // Clear connection state
-          this.connectionState = { connected: false };
+          // Transition back to IDLE
+          if (this.stateMachine.getState() !== ServerState.IDLE) {
+            this.stateMachine.transition(ServerState.IDLE, 'websocket closed');
+          }
         });
         
       } catch (error: any) {
@@ -321,11 +417,21 @@ export class BridgeServer {
           error: error?.message || error?.toString() || 'Unknown error' 
         }));
         ws.close();
-        // Reset transport state on connection error
-        if (this.transport) {
-          await this.transport.disconnect();
-          // Clear transport to ensure clean state for next connection
+        
+        // Cleanup connection context
+        await connectionContext.performCleanup('connection_error');
+        
+        // Clear active connection
+        this.activeConnection = null;
+        
+        // Clear transport reference if no other connections
+        if (this.connectionMutex.isFree()) {
           this.transport = null;
+        }
+        
+        // Transition back to IDLE
+        if (this.stateMachine.getState() !== ServerState.IDLE) {
+          this.stateMachine.transition(ServerState.IDLE, 'connection error');
         }
       }
     });
@@ -460,8 +566,11 @@ export class BridgeServer {
     return this.mcpServer;
   }
   
-  getConnectionState(): { connected: boolean; deviceName?: string; connectedAt?: string; lastActivity?: string } {
-    return { ...this.connectionState };
+  getConnectionState(): { connected: boolean; deviceName?: string; connectedAt?: string; lastActivity?: string; token?: string } {
+    if (this.activeConnection) {
+      return this.activeConnection.getConnectionInfo();
+    }
+    return { connected: false };
   }
   
   async scanDevices(duration?: number): Promise<any[]> {
@@ -495,11 +604,5 @@ export class BridgeServer {
       name: d.name || 'Unknown',
       rssi: d.rssi
     }));
-  }
-  
-  private updateActivity(): void {
-    if (this.connectionState.connected) {
-      this.connectionState.lastActivity = new Date().toISOString();
-    }
   }
 }
