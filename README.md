@@ -490,13 +490,33 @@ ble-mcp-test --mcp-http
 - Optional bearer token authentication
 - Cross-machine access (VM → Mac/Pi)
 
-### v0.4.0 - CLI Tools (Next)
+### v0.4.0 - Ultra-Simple Architecture ✅ (Released)
+- Complete architectural refactor for extreme simplicity
+- Atomic state machine preventing race conditions
+- WebSocket as pure byte transport (no commands)
+- Health checks and debugging via HTTP/MCP only
+- 98%+ reliability for back-to-back connections
+- Core bridge under 300 lines of code
+
+### v0.5.0 - Secure Transport Support
+- HTTPS support for MCP/health endpoints
+- WSS (WebSocket Secure) for encrypted BLE tunneling
+- TLS certificate configuration options
+- Support for self-signed certificates in development
+
+### v0.6.0 - OAuth Authentication
+- OAuth 2.0 support for MCP endpoints
+- Integration with popular OAuth providers
+- JWT token validation
+- Configurable authentication middleware
+
+### v0.7.0 - CLI Tools
 - `ble-mcp-test scan` - Scan for nearby BLE devices
 - `ble-mcp-test test <device>` - Test connection to a device
 - `ble-mcp-test monitor` - Live connection dashboard
 - CLI as MCP client for enhanced capabilities
 
-### v0.5.0 - Multi-Device Support
+### v0.8.0 - Multi-Device Support
 - Support multiple simultaneous BLE connections
 - Route WebSocket clients to specific devices
 - Connection pooling and management
@@ -505,6 +525,7 @@ ble-mcp-test --mcp-http
 - HTTP API for REST-based control
 - Docker container for easy deployment
 - Prometheus metrics export
+- WebRTC data channel support for P2P connections
 
 
 ## Contributing
