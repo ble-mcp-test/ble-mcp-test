@@ -65,7 +65,7 @@ async function cleanup() {
   // 2. Kill any node processes that might be holding BLE
   console.log('\nChecking for orphaned test processes...');
   try {
-    const processes = execSync('ps aux | grep -E "(vitest|node.*test)" | grep -v grep | grep -v pre-test-cleanup', { encoding: 'utf8' });
+    const processes = execSync('ps aux | grep -E "(vitest|node.*test)" | grep -v grep | grep -v pre-test-cleanup | grep -v "pnpm.*test"', { encoding: 'utf8' });
     if (processes.trim()) {
       console.log('  Found test processes:');
       console.log(processes);
