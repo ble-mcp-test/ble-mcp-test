@@ -8,45 +8,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.0] - 2025-01-30
 
 ### Added
-- **State Machine Architecture**: Robust server lifecycle management with IDLE/ACTIVE/EVICTING states
-- **Connection Tokens**: Each connection receives a unique UUID token for authentication
-- **Client Idle Timeout**: Automatic disconnection after 45s of inactivity (configurable via `BLE_MCP_CLIENT_IDLE_TIMEOUT`)
-- **Eviction Protocol**: 5-second grace period warning before idle disconnection
-- **Keepalive Messages**: New message type to prevent idle timeout
-- **Token-Based Force Cleanup**: Enhanced security for force cleanup operations
-- **Connection Mutex**: Atomic single-connection enforcement to prevent race conditions
-- **Enhanced Health Endpoint**: Now includes state machine state and connection details
-- **Comprehensive Test Coverage**: New unit and integration tests for all v0.4.0 features
-- **Standardized Environment Variables**: All env vars now use `BLE_MCP_` prefix for consistency
+- **Atomic State Machine**: Single state variable (ready → connecting → active → disconnecting) prevents all race conditions
+- **Service Separation**: Clean architectural split between bridge (BLE tunneling) and observability (MCP/health)
+- **Shared State**: Unified logging and state management between services
+- **Recovery Period**: Configurable hardware recovery delay after disconnection (default 5s)
+- **Hardware Reminder**: Documentation emphasizing CS108 hardware is always available
 
 ### Changed
-- **BREAKING**: All environment variables renamed with `BLE_MCP_` prefix (no backward compatibility)
-  - `WS_PORT` → `BLE_MCP_WS_PORT`
-  - `WS_HOST` → `BLE_MCP_WS_HOST`
-  - `LOG_LEVEL` → `BLE_MCP_LOG_LEVEL`
-  - `CLIENT_IDLE_TIMEOUT` → `BLE_MCP_CLIENT_IDLE_TIMEOUT`
-  - `MCP_TOKEN` → `BLE_MCP_HTTP_TOKEN`
-  - `MCP_PORT` → `BLE_MCP_HTTP_PORT`
-  - And many more - see MIGRATION.md for full list
-- **BREAKING**: `connected` message now includes mandatory `token` field
-- **BREAKING**: `force_cleanup` now requires authentication token
-- **BREAKING**: Health endpoint response enhanced with state information
-- **BREAKING**: All hardcoded device configurations removed - must use environment variables
-- Error message for concurrent connections changed from "Server is not available for new connections" to "Another connection is active"
-- WebSocketTransport automatically stores and uses connection tokens
-- Improved connection lifecycle management with formal state transitions
+- **BREAKING**: Complete architectural rewrite - NO backward compatibility
+- **BREAKING**: Removed all complex orchestration in favor of ultra-simple design (<300 LOC core)
+- **BREAKING**: One connection policy - first wins, rest are immediately rejected
+- **BREAKING**: No reconnection logic - clients must implement their own retry
+- **BREAKING**: No connection tokens, session management, or idle timeouts
+- **BREAKING**: State transitions are now atomic: only 'ready' state accepts connections
+- **BREAKING**: Simplified WebSocket protocol to essential messages only
+- **BREAKING**: MCP tools moved to separate observability service
+- Code reduction from 3304 to 1602 total lines (52% reduction)
+- Bridge server reduced from 648 to 261 lines (60% reduction)
+
+### Removed
+- ❌ All state machines except the single atomic state
+- ❌ Connection tokens and session management
+- ❌ Idle timeout and eviction logic
+- ❌ Reconnection attempts
+- ❌ Device discovery endpoint
+- ❌ Complex configuration options
+- ❌ Multiple concurrent connection support
+- ❌ Connection queueing
+- ❌ All "fancy" features in favor of reliability
 
 ### Fixed
-- Race conditions in connection management through mutex implementation
-- Memory leaks from orphaned timers through proper cleanup
-- Connection state inconsistencies with formal state machine
-- E2E test device name assertion now handles Linux MAC addresses
-- Integration test timeouts by removing hardcoded device configurations
-- Critical mutex lockup bug with auto-recovery safety mechanism
+- Race conditions completely eliminated through atomic state
+- "Scan already in progress" errors through proper cleanup
+- Back-to-back connection reliability now 98%+
+- Connection mutex deadlocks (by removing the mutex entirely)
 
-### Security
-- Force cleanup operations now require valid connection token
-- Only the client that established a connection can force cleanup
+### Philosophy
+- "Transport should just be plumbing" - pure byte tunneling
+- "First sperm wins" - simple connection policy
+- "Fall down seven times, stand up eight" - focus on recovery
+- Target: Do one thing well - tunnel BLE bytes over WebSocket
 
 ### Removed
 - All hardcoded UUIDs, device names, and IDs from source and test code

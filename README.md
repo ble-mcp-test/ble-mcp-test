@@ -15,6 +15,16 @@ This package solves a common problem: **testing Web Bluetooth code in environmen
 
 This lets you write and test Web Bluetooth applications on any machine, even if it doesn't have Bluetooth hardware or browser support.
 
+> **⚠️ Breaking Changes in v0.4.0**
+> 
+> Version 0.4.0 introduces a complete architectural rewrite with no backward compatibility:
+> - New atomic state machine (ready → connecting → active → disconnecting)
+> - Simplified WebSocket protocol - one connection per device
+> - Separation of bridge and observability services
+> - Removal of all complex orchestration layers
+> 
+> If you're upgrading from v0.3.x, please see [MIGRATION.md](./docs/MIGRATION.md) for details.
+
 ## Installation
 
 ### For testing (recommended)
