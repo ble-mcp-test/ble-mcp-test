@@ -42,10 +42,17 @@ async function checkDevice(timeoutMs = 5000) {
   const timeoutHandle = setTimeout(() => {
     console.error(`❌ Device ${deviceIdentifier} not found after ${timeoutMs/1000}s`);
     console.error('');
-    console.error('Please check:');
-    console.error('  1. CS108 device is powered on');
-    console.error('  2. Device is in range');
-    console.error('  3. Try: sudo systemctl restart bluetooth');
+    console.error('⚠️  HARDWARE NOT VISIBLE TO SCAN');
+    console.error('');
+    console.error('ACTION REQUIRED: Ask the user to:');
+    console.error('  1. Confirm CS108 device is powered on');
+    console.error('  2. Press a button on device to wake it up');
+    console.error('  3. Power cycle the CS108 if needed');
+    console.error('  4. Run: sudo systemctl restart bluetooth');
+    console.error('');
+    console.error('DO NOT assume hardware is unavailable!');
+    console.error('DO NOT skip tests without asking!');
+    console.error('The hardware exists - it just needs attention.');
     stopAndExit(1);
   }, timeoutMs);
 
