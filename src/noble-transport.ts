@@ -284,46 +284,34 @@ export class NobleTransport {
         case 'darwin':
           return {
             // macOS timings - optimized for faster operations
-            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-            NOBLE_RESET_DELAY: 1000,       // 1s
+            RECOVERY_DELAY: 1000,          // 1s - BLE stack recovery (Noble reset, disconnect cooldown)
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 200,      // 200ms base - Dynamic scaling based on listener pressure
           };
         
         case 'win32':
           return {
             // Windows timings - moderate delays for stability
-            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-            NOBLE_RESET_DELAY: 2000,       // 2s - Windows BLE is moderately stable
+            RECOVERY_DELAY: 2000,          // 2s - BLE stack recovery (Noble reset, disconnect cooldown)
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 500,      // 500ms base - Windows (dynamic scaling applies)
           };
         
         default:  // linux, freebsd, etc.
           return {
             // Linux/Pi timings - needs longer delays for stability
-            CONNECTION_STABILITY: 0,       // 0s - CS108 disconnects with any delay
-            PRE_DISCOVERY_DELAY: 0,        // 0s - CS108 needs immediate discovery
-            NOBLE_RESET_DELAY: 5000,       // 5s - Pi needs more recovery time
+            RECOVERY_DELAY: 5000,          // 5s - BLE stack recovery (Noble reset, disconnect cooldown)
             SCAN_TIMEOUT: 15000,           // 15s
             CONNECTION_TIMEOUT: 15000,     // 15s
-            DISCONNECT_COOLDOWN: 1000,     // 1s base - Linux/Pi (dynamic scaling applies)
           };
       }
     })();
     
     // Allow environment variable overrides
     return {
-      CONNECTION_STABILITY: parseInt(process.env.BLE_MCP_CONNECTION_STABILITY || String(defaults.CONNECTION_STABILITY), 10),
-      PRE_DISCOVERY_DELAY: parseInt(process.env.BLE_MCP_PRE_DISCOVERY_DELAY || String(defaults.PRE_DISCOVERY_DELAY), 10),
-      NOBLE_RESET_DELAY: parseInt(process.env.BLE_MCP_NOBLE_RESET_DELAY || String(defaults.NOBLE_RESET_DELAY), 10),
+      RECOVERY_DELAY: parseInt(process.env.BLE_MCP_RECOVERY_DELAY || String(defaults.RECOVERY_DELAY), 10),
       SCAN_TIMEOUT: parseInt(process.env.BLE_MCP_SCAN_TIMEOUT || String(defaults.SCAN_TIMEOUT), 10),
       CONNECTION_TIMEOUT: parseInt(process.env.BLE_MCP_CONNECTION_TIMEOUT || String(defaults.CONNECTION_TIMEOUT), 10),
-      DISCONNECT_COOLDOWN: parseInt(process.env.BLE_MCP_DISCONNECT_COOLDOWN || String(defaults.DISCONNECT_COOLDOWN), 10),
     };
   })();
 
@@ -373,7 +361,7 @@ export class NobleTransport {
         try {
           (noble as any).reset();
           NobleTransport.needsReset = false;
-          await new Promise(resolve => setTimeout(resolve, NobleTransport.TIMINGS.NOBLE_RESET_DELAY));
+          await new Promise(resolve => setTimeout(resolve, NobleTransport.TIMINGS.RECOVERY_DELAY));
         } catch (err) {
           this.logger.warn('Noble reset failed:', err);
         }
@@ -460,14 +448,7 @@ export class NobleTransport {
     this.logger.debug(`[NobleTransport]   Write UUID: ${config.writeUuid} -> ${writeUuid}`);
     this.logger.debug(`[NobleTransport]   Notify UUID: ${config.notifyUuid} -> ${notifyUuid}`);
     
-    // Wait for connection stability if needed
-    const stabilityDelay = NobleTransport.TIMINGS.CONNECTION_STABILITY;
-    if (stabilityDelay > 0) {
-      this.logger.debug(`[NobleTransport] Waiting ${stabilityDelay/1000} seconds for connection stability...`);
-      await new Promise(resolve => setTimeout(resolve, stabilityDelay));
-    } else {
-      this.logger.debug('[NobleTransport] Skipping stability delay - proceeding immediately to service discovery');
-    }
+    // Proceed immediately to service discovery (no delays needed for CS108)
     
     // Validate peripheral is still connected before service discovery
     if (peripheral.state !== 'connected') {
@@ -512,10 +493,7 @@ export class NobleTransport {
         throw new Error(`Peripheral not connected before service discovery. State: ${peripheral.state}`);
       }
       
-      // Additional delay before service discovery
-      const preDiscoveryDelay = NobleTransport.TIMINGS.PRE_DISCOVERY_DELAY;
-      this.logger.debug(`[NobleTransport] Waiting ${preDiscoveryDelay/1000} seconds before service discovery...`);
-      await new Promise(resolve => setTimeout(resolve, preDiscoveryDelay));
+      // Service discovery - no delay needed
       
       const allServices = await serviceDiscoveryWithTimeout();
       this.logger.debug(`[NobleTransport] Found ${allServices.length} services total`);
@@ -751,7 +729,8 @@ export class NobleTransport {
       this.notifyChar = null;
       
       // Calculate dynamic cooldown based on listener pressure
-      const baseCooldown = NobleTransport.TIMINGS.DISCONNECT_COOLDOWN;
+      // Use a shorter delay for disconnect (1/5 of full recovery delay for Noble reset)
+      const baseCooldown = Math.max(200, NobleTransport.TIMINGS.RECOVERY_DELAY / 5);
       
       // Track multiple pressure indicators for a complete picture
       

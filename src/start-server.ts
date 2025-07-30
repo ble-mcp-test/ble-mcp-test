@@ -31,12 +31,9 @@ console.log('   Device-agnostic - UUIDs provided by client');
 
 // Show any BLE timing overrides
 const bleOverrides = [
-  'BLE_MCP_CONNECTION_STABILITY',
-  'BLE_MCP_PRE_DISCOVERY_DELAY', 
-  'BLE_MCP_NOBLE_RESET_DELAY',
+  'BLE_MCP_RECOVERY_DELAY',
   'BLE_MCP_SCAN_TIMEOUT',
-  'BLE_MCP_CONNECTION_TIMEOUT',
-  'BLE_MCP_DISCONNECT_COOLDOWN'
+  'BLE_MCP_CONNECTION_TIMEOUT'
 ].filter(key => process.env[key]);
 
 if (bleOverrides.length > 0) {

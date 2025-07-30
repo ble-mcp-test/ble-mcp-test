@@ -592,12 +592,9 @@ export class BridgeServer {
     const timings = NobleTransport.getTimingConfig();
     
     // Check which values are from environment overrides
-    this.logger.info(`  CONNECTION_STABILITY: ${timings.CONNECTION_STABILITY}ms${process.env.BLE_MCP_CONNECTION_STABILITY ? ' (env override)' : ''}`);
-    this.logger.info(`  PRE_DISCOVERY_DELAY: ${timings.PRE_DISCOVERY_DELAY}ms${process.env.BLE_MCP_PRE_DISCOVERY_DELAY ? ' (env override)' : ''}`);
-    this.logger.info(`  NOBLE_RESET_DELAY: ${timings.NOBLE_RESET_DELAY}ms${process.env.BLE_MCP_NOBLE_RESET_DELAY ? ' (env override)' : ''}`);
+    this.logger.info(`  RECOVERY_DELAY: ${timings.RECOVERY_DELAY}ms${process.env.BLE_MCP_RECOVERY_DELAY ? ' (env override)' : ''} (Noble reset + disconnect cooldown)`);
     this.logger.info(`  SCAN_TIMEOUT: ${timings.SCAN_TIMEOUT}ms${process.env.BLE_MCP_SCAN_TIMEOUT ? ' (env override)' : ''}`);
     this.logger.info(`  CONNECTION_TIMEOUT: ${timings.CONNECTION_TIMEOUT}ms${process.env.BLE_MCP_CONNECTION_TIMEOUT ? ' (env override)' : ''}`);
-    this.logger.info(`  DISCONNECT_COOLDOWN: ${timings.DISCONNECT_COOLDOWN}ms${process.env.BLE_MCP_DISCONNECT_COOLDOWN ? ' (env override)' : ''} (base - scales with load)`);
   }
   
   // MCP integration methods

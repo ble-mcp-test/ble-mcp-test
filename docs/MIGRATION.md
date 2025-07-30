@@ -20,12 +20,9 @@ All environment variables have been standardized with the `BLE_MCP_` prefix. **O
 | `MCP_TOKEN` | `BLE_MCP_HTTP_TOKEN` | MCP HTTP authentication token |
 | `MCP_PORT` | `BLE_MCP_HTTP_PORT` | MCP HTTP server port |
 | `DISABLE_STDIO` | `BLE_MCP_STDIO_DISABLED` | Disable stdio transport (set to "true") |
-| `BLE_CONNECTION_STABILITY` | `BLE_MCP_CONNECTION_STABILITY` | BLE connection stability delay |
-| `BLE_PRE_DISCOVERY_DELAY` | `BLE_MCP_PRE_DISCOVERY_DELAY` | Pre-discovery delay |
-| `BLE_NOBLE_RESET_DELAY` | `BLE_MCP_NOBLE_RESET_DELAY` | Noble reset delay |
+| `BLE_NOBLE_RESET_DELAY` + `BLE_DISCONNECT_COOLDOWN` | `BLE_MCP_RECOVERY_DELAY` | **CONSOLIDATED**: BLE stack recovery delay |
 | `BLE_SCAN_TIMEOUT` | `BLE_MCP_SCAN_TIMEOUT` | BLE scan timeout |
 | `BLE_CONNECTION_TIMEOUT` | `BLE_MCP_CONNECTION_TIMEOUT` | BLE connection timeout |
-| `BLE_DISCONNECT_COOLDOWN` | `BLE_MCP_DISCONNECT_COOLDOWN` | Disconnect cooldown |
 
 **Test Configuration Variables:**
 | Old Variable | New Variable | Description |
