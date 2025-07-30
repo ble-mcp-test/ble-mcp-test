@@ -10,6 +10,8 @@ describe.sequential('Device Interaction Tests', () => {
   // Clean up after each test to prevent hanging connections
   afterEach(async () => {
     await connectionFactory.cleanup();
+    // Give hardware time to recover between tests
+    await new Promise(resolve => setTimeout(resolve, 1000));
   });
 
   // Test battery command with both info and debug log levels
@@ -100,8 +102,8 @@ describe.sequential('Device Interaction Tests', () => {
         // Stop server
         if (server) {
           await server.stop();
-          // Small delay to ensure port is released
-          await new Promise(resolve => setTimeout(resolve, 100));
+          // Delay to ensure port is released and hardware recovers
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
         
         // Restore original LOG_LEVEL
