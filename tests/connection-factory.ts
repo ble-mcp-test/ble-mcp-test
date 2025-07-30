@@ -4,6 +4,7 @@ export interface ConnectionResult {
   ws: WebSocket;
   connected: boolean;
   deviceName?: string;
+  token?: string;
   error?: string;
 }
 
@@ -19,6 +20,7 @@ export interface ConnectionOptions {
  */
 export class ConnectionFactory {
   private activeConnection: WebSocket | null = null;
+  private connectionToken: string | null = null;
   
   /**
    * Create a new WebSocket connection with retry logic
@@ -46,6 +48,7 @@ export class ConnectionFactory {
         
         if (result.connected) {
           this.activeConnection = result.ws;
+          this.connectionToken = result.token || null;
           return result;
         }
         
@@ -99,7 +102,8 @@ export class ConnectionFactory {
           resolve({ 
             ws, 
             connected: true, 
-            deviceName: msg.device || msg.deviceName 
+            deviceName: msg.device || msg.deviceName,
+            token: msg.token
           });
         } else if (msg.type === 'error') {
           clearTimeout(timer);
@@ -168,6 +172,7 @@ export class ConnectionFactory {
     
     const ws = this.activeConnection;
     this.activeConnection = null;
+    this.connectionToken = null;
     
     if (ws.readyState === WebSocket.OPEN) {
       // Wait for clean close
@@ -188,6 +193,13 @@ export class ConnectionFactory {
    */
   getConnection(): WebSocket | null {
     return this.activeConnection;
+  }
+  
+  /**
+   * Get current connection token if any
+   */
+  getToken(): string | null {
+    return this.connectionToken;
   }
 }
 
