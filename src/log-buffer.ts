@@ -15,6 +15,7 @@ export class LogBuffer {
   private logger: Logger;
   private sequenceCounter = 0;
   private clientPositions = new Map<string, number>(); // client_id -> last_seen_id
+  private subscribers: Array<(entry: LogEntry) => void> = [];
 
   constructor(maxSize?: number) {
     // Default 10k, configurable via env var or constructor
@@ -43,6 +44,14 @@ export class LogBuffer {
     while (this.buffer.length > this.maxSize) {
       this.buffer.shift();
     }
+
+    // Notify subscribers
+    this.subscribers.forEach(callback => callback(entry));
+  }
+
+  // Alias for compatibility
+  logPacket(direction: 'TX' | 'RX', data: Uint8Array): void {
+    this.push(direction, data);
   }
 
   pushSystemLog(level: 'INFO' | 'WARN' | 'ERROR', message: string): void {
@@ -160,5 +169,18 @@ export class LogBuffer {
     }
     
     return { packetsTransmitted, packetsReceived };
+  }
+
+  // Subscribe to new entries
+  subscribe(callback: (entry: LogEntry) => void): () => void {
+    this.subscribers.push(callback);
+    
+    // Return unsubscribe function
+    return () => {
+      const index = this.subscribers.indexOf(callback);
+      if (index > -1) {
+        this.subscribers.splice(index, 1);
+      }
+    };
   }
 }

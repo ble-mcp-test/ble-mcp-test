@@ -1,5 +1,7 @@
 import { WebSocketServer } from 'ws';
 import noble from '@stoprocent/noble';
+import { cleanupNoble } from './utils.js';
+import type { SharedState } from './shared-state.js';
 
 /**
  * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.0
@@ -9,17 +11,22 @@ import noble from '@stoprocent/noble';
  * Target: <200 lines total
  */
 
+type BridgeState = 'idle' | 'connecting' | 'active' | 'disconnecting';
+
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
-  private activeConnection: any = null; // WebSocket | null
+  private state: BridgeState = 'idle'; // THE state
+  private activeConnection: any = null; // WebSocket reference
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
-  private isRecovering = false;
   private recoveryDelay = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
+  private sharedState: SharedState | null = null;
+  private recoveryTimer: NodeJS.Timeout | null = null;
   
-  constructor(logLevel?: string) {
+  constructor(logLevel?: string, sharedState?: SharedState) {
     // Ultra simple - just log level for compatibility
+    this.sharedState = sharedState || null;
     console.log(`[Bridge] Recovery delay configured: ${this.recoveryDelay}ms`);
   }
   async start(port = 8080) {
@@ -33,28 +40,25 @@ export class BridgeServer {
         ws.send(JSON.stringify({
           type: 'health',
           status: 'ok',
-          free: !this.activeConnection && !this.isRecovering,
-          recovering: this.isRecovering,
+          free: this.state === 'idle',
+          recovering: this.state === 'disconnecting',
           timestamp: new Date().toISOString()
         }));
         ws.close();
         return;
       }
       
-      // One connection rule: if busy or recovering, reject immediately
-      if (this.activeConnection) {
-        console.log(`[Bridge] Connection rejected - busy`);
-        ws.send(JSON.stringify({ type: 'error', error: 'Another connection is active' }));
+      // ONE RULE: Only idle state accepts new connections
+      if (this.state !== 'idle') {
+        console.log(`[Bridge] ❌ Connection rejected - state: ${this.state} (only 'idle' accepts new connections)`);
+        ws.send(JSON.stringify({ type: 'error', error: `Bridge is ${this.state} - only idle state accepts connections` }));
         ws.close();
         return;
       }
       
-      if (this.isRecovering) {
-        console.log(`[Bridge] Connection rejected - recovering from previous connection`);
-        ws.send(JSON.stringify({ type: 'error', error: 'Bridge is recovering, please try again in a few seconds' }));
-        ws.close();
-        return;
-      }
+      // Accept connection and transition to connecting state
+      console.log(`[Bridge] ✓ Connection accepted - state transition: idle → connecting`);
+      this.state = 'connecting';
       
       // Parse BLE config from URL
       const config = {
@@ -75,6 +79,14 @@ export class BridgeServer {
       
       try {
         // Connect to BLE device directly with timeout
+        const timeoutHandle = setTimeout(async () => {
+          // Stop scanning if still in progress
+          if (noble._isScanning) {
+            console.log(`[Bridge] Connection timeout - stopping scan`);
+            await noble.stopScanningAsync();
+          }
+        }, 8000);
+        
         await Promise.race([
           this.connectToBLE(config),
           new Promise((_, reject) => 
@@ -82,9 +94,14 @@ export class BridgeServer {
           )
         ]);
         
-        // Connected!
+        clearTimeout(timeoutHandle);
+        
+        // Connected! Transition to active state
+        console.log(`[Bridge] ✓ State transition: connecting → active`);
+        this.state = 'active';
         const deviceName = this.peripheral?.advertisement?.localName || this.peripheral?.id || 'Unknown';
         console.log(`[Bridge] Connected to ${deviceName}`);
+        this.sharedState?.setConnectionState({ connected: true, deviceName });
         ws.send(JSON.stringify({ type: 'connected', device: deviceName }));
         
         // Handle WebSocket messages
@@ -94,6 +111,7 @@ export class BridgeServer {
             if (msg.type === 'data' && this.writeChar) {
               const data = new Uint8Array(msg.data);
               console.log(`[Bridge] TX ${data.length} bytes`);
+              this.sharedState?.logPacket('TX', data);
               await this.writeChar.writeAsync(Buffer.from(data), false);
             } else if (msg.type === 'force_cleanup') {
               ws.send(JSON.stringify({ type: 'force_cleanup_complete', message: 'Cleanup complete' }));
@@ -129,10 +147,19 @@ export class BridgeServer {
     
     // Wait for Noble to be ready
     if (noble.state !== 'poweredOn') {
+      console.log(`[Bridge] Noble state: ${noble.state}, waiting for power on...`);
       await noble.waitForPoweredOnAsync();
     }
     
+    // Check if already scanning and stop if so
+    if (noble._isScanning) {
+      console.log(`[Bridge] Noble already scanning, stopping first...`);
+      await noble.stopScanningAsync();
+      await new Promise(resolve => setTimeout(resolve, 500)); // Let it settle
+    }
+    
     // Scan for device
+    console.log(`[Bridge] Starting BLE scan...`);
     await noble.startScanningAsync([], false);
     
     this.peripheral = await new Promise<any>((resolve, reject) => {
@@ -190,6 +217,7 @@ export class BridgeServer {
     this.notifyChar.on('data', (data: Buffer) => {
       const bytes = new Uint8Array(data);
       console.log(`[Bridge] RX ${bytes.length} bytes`);
+      this.sharedState?.logPacket('RX', bytes);
       if (this.activeConnection) {
         this.activeConnection.send(JSON.stringify({ type: 'data', data: Array.from(bytes) }));
       }
@@ -200,6 +228,7 @@ export class BridgeServer {
     // Handle unexpected disconnect
     this.peripheral.once('disconnect', () => {
       console.log(`[Bridge] Device disconnected`);
+      this.sharedState?.setConnectionState({ connected: false, deviceName: null });
       if (this.activeConnection) {
         this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
       }
@@ -208,7 +237,8 @@ export class BridgeServer {
   }
   
   private cleanup() {
-    console.log(`[Bridge] Cleanup`);
+    console.log(`[Bridge] ✓ State transition: ${this.state} → disconnecting`);
+    this.state = 'disconnecting';
     
     // Clean up BLE
     if (this.peripheral) {
@@ -220,12 +250,32 @@ export class BridgeServer {
       } catch {}
       
       // Start recovery period to let device settle
-      this.isRecovering = true;
       console.log(`[Bridge] Starting ${this.recoveryDelay}ms recovery period`);
+      this.sharedState?.setConnectionState({ recovering: true });
       
-      setTimeout(() => {
-        this.isRecovering = false;
+      // Clear any existing recovery timer
+      if (this.recoveryTimer) {
+        clearTimeout(this.recoveryTimer);
+      }
+      
+      // Also clean up Noble state during recovery
+      this.recoveryTimer = setTimeout(async () => {
+        try {
+          // Ensure Noble is in clean state
+          if (noble._isScanning) {
+            await noble.stopScanningAsync();
+          }
+          await cleanupNoble();
+        } catch (error) {
+          console.error(`[Bridge] Error during Noble cleanup: ${error}`);
+        }
+        
+        // Transition back to idle state - ready for new connections
+        console.log(`[Bridge] ✓ State transition: disconnecting → idle`);
+        this.state = 'idle';
+        this.sharedState?.setConnectionState({ recovering: false });
         console.log(`[Bridge] Recovery complete, ready for new connections`);
+        this.recoveryTimer = null;
       }, this.recoveryDelay);
     }
     
@@ -233,6 +283,13 @@ export class BridgeServer {
     this.writeChar = null;
     this.notifyChar = null;
     this.activeConnection = null;
+    
+    // If no recovery period needed (no peripheral), go straight to idle
+    if (this.state === 'disconnecting' && !this.recoveryTimer) {
+      console.log(`[Bridge] ✓ State transition: disconnecting → idle (no recovery needed)`);
+      this.state = 'idle';
+      this.sharedState?.setConnectionState({ recovering: false });
+    }
   }
   
   async stop() {
@@ -241,19 +298,22 @@ export class BridgeServer {
     if (this.wss) {
       this.wss.close();
     }
+    // Clear recovery timer on stop
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+      this.recoveryTimer = null;
+    }
   }
   
   // Compatibility methods for tests
-  getConnectionState(): { connected: boolean } {
-    return { connected: !!this.activeConnection };
-  }
-  
-  getMcpServer(): any {
-    return null; // Ultra simple - no MCP
-  }
-  
-  getLogBuffer(): any {
-    return null; // Ultra simple - no log buffer
+  // Minimal observability interface
+  getConnectionState() {
+    return {
+      connected: this.state === 'active',
+      deviceName: this.peripheral?.advertisement?.localName || null,
+      recovering: this.state === 'disconnecting',
+      state: this.state
+    };
   }
   
   async scanDevices(): Promise<any[]> {

@@ -1,8 +1,15 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import type { BridgeServer } from './bridge-server.js';
-import { LogEntry } from './log-buffer.js';
+import { LogEntry, LogBuffer } from './log-buffer.js';
 import { getPackageMetadata } from './utils.js';
+
+// Interface for services that provide MCP tools
+interface McpToolProvider {
+  getConnectionState(): any;
+  scanDevices(): Promise<any[]>;
+  getLogBuffer(): LogBuffer;
+  getMcpServer(): McpServer;
+}
 
 // Tool registry for dynamic tool listing
 export const toolRegistry: Array<{name: string, description: string}> = [];
@@ -80,7 +87,7 @@ interface ServerStatus {
 }
 
 
-export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer): void {
+export function registerMcpTools(server: McpServer, provider: McpToolProvider): void {
   // Tool 1: get_logs
   registerToolWithRegistry(server, {
     name: 'get_logs',
@@ -93,7 +100,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     },
     handler: async (args) => {
       const { since, filter, limit } = args;
-      const logs = bridgeServer.getLogBuffer().getLogsSince(since, limit);
+      const logs = provider.getLogBuffer().getLogsSince(since, limit);
       
       // Apply filter if provided
       let filtered = logs;
@@ -137,7 +144,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     },
     handler: async (args) => {
       const { hex_pattern, limit } = args;
-      const matches = bridgeServer.getLogBuffer().searchPackets(hex_pattern, limit);
+      const matches = provider.getLogBuffer().searchPackets(hex_pattern, limit);
       
       const response: SearchResponse = {
         matches,
@@ -161,8 +168,8 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     description: 'Get detailed BLE connection state and activity',
     inputSchema: {},
     handler: async () => {
-      const state = bridgeServer.getConnectionState();
-      const stats = bridgeServer.getLogBuffer().getConnectionStats();
+      const state = provider.getConnectionState();
+      const stats = provider.getLogBuffer().getConnectionStats();
       
       const response: ConnectionState = {
         ...state,
@@ -225,7 +232,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     handler: async (args) => {
       const { duration } = args;
       try {
-        const devices = await bridgeServer.scanDevices();
+        const devices = await provider.scanDevices();
         
         return {
           content: [{
