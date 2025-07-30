@@ -86,7 +86,7 @@ if (hasTty && !stdioDisabled) {
   const stdioTransport = new StdioServerTransport();
   mcpServer.connect(stdioTransport).then(() => {
     console.log('[MCP] Stdio transport connected');
-  }).catch(error => {
+  }).catch((error: any) => {
     console.error('[MCP] Failed to connect stdio transport:', error);
   });
 }

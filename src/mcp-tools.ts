@@ -100,11 +100,11 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
       if (filter) {
         const filterUpper = filter.toUpperCase();
         if (filterUpper === 'TX' || filterUpper === 'RX') {
-          filtered = logs.filter(log => log.direction === filterUpper);
+          filtered = logs.filter((log: any) => log.direction === filterUpper);
         } else {
           // Filter by hex pattern
           const cleanFilter = filter.replace(/\s+/g, '').toUpperCase();
-          filtered = logs.filter(log => {
+          filtered = logs.filter((log: any) => {
             const cleanHex = log.hex.replace(/\s+/g, '');
             return cleanHex.includes(cleanFilter);
           });
@@ -225,7 +225,7 @@ export function registerMcpTools(server: McpServer, bridgeServer: BridgeServer):
     handler: async (args) => {
       const { duration } = args;
       try {
-        const devices = await bridgeServer.scanDevices(duration);
+        const devices = await bridgeServer.scanDevices();
         
         return {
           content: [{
