@@ -71,6 +71,7 @@ export class BridgeServer {
       if (!config.devicePrefix || !config.serviceUuid || !config.writeUuid || !config.notifyUuid) {
         ws.send(JSON.stringify({ type: 'error', error: 'Missing required parameters: device, service, write, notify' }));
         ws.close();
+        this.state = 'ready'; // Go back to ready state on early error
         return;
       }
       
@@ -136,6 +137,10 @@ export class BridgeServer {
         
       } catch (error: any) {
         console.error('[Bridge] Connection error:', error.message);
+        // Ensure Noble is cleaned up on error
+        if (noble._isScanning) {
+          await noble.stopScanningAsync().catch(() => {});
+        }
         ws.send(JSON.stringify({ type: 'error', error: error.message }));
         this.cleanup();
       }
