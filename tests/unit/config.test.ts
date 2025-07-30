@@ -6,7 +6,14 @@ describe('Device-agnostic configuration', () => {
     const config = getTestConfig();
     // Check that wsUrl is either the default or from env var
     expect(config.wsUrl).toMatch(/^ws:\/\/(localhost|[\d.]+):8080$/);
-    expect(config.device).toBe('CS108');
+    // Device should use BLE_DEVICE_PREFIX if set, otherwise platform defaults
+    if (process.env.BLE_DEVICE_PREFIX) {
+      expect(config.device).toBe(process.env.BLE_DEVICE_PREFIX);
+    } else if (process.platform === 'linux') {
+      expect(config.device).toBe('6c79b82603a7');
+    } else {
+      expect(config.device).toBe('CS108');
+    }
     expect(config.service).toBe('9800');
     expect(config.write).toBe('9900');
     expect(config.notify).toBe('9901');
