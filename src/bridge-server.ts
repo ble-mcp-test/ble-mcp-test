@@ -11,11 +11,11 @@ import type { SharedState } from './shared-state.js';
  * Target: <200 lines total
  */
 
-type BridgeState = 'idle' | 'connecting' | 'active' | 'disconnecting';
+type BridgeState = 'ready' | 'connecting' | 'active' | 'disconnecting';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
-  private state: BridgeState = 'idle'; // THE state
+  private state: BridgeState = 'ready'; // THE state
   private activeConnection: any = null; // WebSocket reference
   private peripheral: any = null;
   private writeChar: any = null;
@@ -40,7 +40,7 @@ export class BridgeServer {
         ws.send(JSON.stringify({
           type: 'health',
           status: 'ok',
-          free: this.state === 'idle',
+          free: this.state === 'ready',
           recovering: this.state === 'disconnecting',
           timestamp: new Date().toISOString()
         }));
@@ -48,16 +48,16 @@ export class BridgeServer {
         return;
       }
       
-      // ONE RULE: Only idle state accepts new connections
-      if (this.state !== 'idle') {
-        console.log(`[Bridge] ❌ Connection rejected - state: ${this.state} (only 'idle' accepts new connections)`);
-        ws.send(JSON.stringify({ type: 'error', error: `Bridge is ${this.state} - only idle state accepts connections` }));
+      // ONE RULE: Only ready state accepts new connections
+      if (this.state !== 'ready') {
+        console.log(`[Bridge] ❌ Connection rejected - state: ${this.state} (only 'ready' accepts new connections)`);
+        ws.send(JSON.stringify({ type: 'error', error: `Bridge is ${this.state} - only ready state accepts connections` }));
         ws.close();
         return;
       }
       
       // Accept connection and transition to connecting state
-      console.log(`[Bridge] ✓ Connection accepted - state transition: idle → connecting`);
+      console.log(`[Bridge] ✓ Connection accepted - state transition: ready → connecting`);
       this.state = 'connecting';
       
       // Parse BLE config from URL
@@ -270,9 +270,9 @@ export class BridgeServer {
           console.error(`[Bridge] Error during Noble cleanup: ${error}`);
         }
         
-        // Transition back to idle state - ready for new connections
-        console.log(`[Bridge] ✓ State transition: disconnecting → idle`);
-        this.state = 'idle';
+        // Transition back to ready state - ready for new connections
+        console.log(`[Bridge] ✓ State transition: disconnecting → ready`);
+        this.state = 'ready';
         this.sharedState?.setConnectionState({ recovering: false });
         console.log(`[Bridge] Recovery complete, ready for new connections`);
         this.recoveryTimer = null;
@@ -284,10 +284,10 @@ export class BridgeServer {
     this.notifyChar = null;
     this.activeConnection = null;
     
-    // If no recovery period needed (no peripheral), go straight to idle
+    // If no recovery period needed (no peripheral), go straight to ready
     if (this.state === 'disconnecting' && !this.recoveryTimer) {
-      console.log(`[Bridge] ✓ State transition: disconnecting → idle (no recovery needed)`);
-      this.state = 'idle';
+      console.log(`[Bridge] ✓ State transition: disconnecting → ready (no recovery needed)`);
+      this.state = 'ready';
       this.sharedState?.setConnectionState({ recovering: false });
     }
   }
