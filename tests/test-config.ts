@@ -18,8 +18,9 @@ export interface BridgeTestConfig {
 // Get complete test configuration from environment
 // All values MUST come from environment - no hardcoded defaults
 export function getTestConfig(): BridgeTestConfig {
-  const device = process.env.BLE_MCP_DEVICE_NAME || 
-                 process.env.BLE_MCP_DEVICE_MAC ||
+  const device = process.env.BLE_MCP_DEVICE_IDENTIFIER || 
+                 process.env.BLE_MCP_DEVICE_NAME || // Legacy support
+                 process.env.BLE_MCP_DEVICE_MAC ||  // Legacy support
                  '';
                  
   const service = process.env.BLE_MCP_SERVICE_UUID || '';
@@ -31,7 +32,7 @@ export function getTestConfig(): BridgeTestConfig {
 
   // Validate required configuration
   if (!device) {
-    throw new Error('BLE device configuration missing. Set BLE_MCP_DEVICE_NAME or BLE_MCP_DEVICE_MAC in .env.local');
+    throw new Error('BLE device configuration missing. Set BLE_MCP_DEVICE_IDENTIFIER in .env.local');
   }
   
   if (!service || !write || !notify) {
@@ -134,7 +135,7 @@ export async function setupTestServer() {
 //    pnpm test
 //
 // 4. Run tests with CS108 RFID reader:
-//    BLE_MCP_DEVICE_NAME=CS108 \
+//    BLE_MCP_DEVICE_IDENTIFIER=6c79b82603a7 \
 //    BLE_MCP_SERVICE_UUID=9800 \
 //    BLE_MCP_WRITE_UUID=9900 \
 //    BLE_MCP_NOTIFY_UUID=9901 \

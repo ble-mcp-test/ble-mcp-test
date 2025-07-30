@@ -98,6 +98,25 @@ async function cleanup() {
     await new Promise(resolve => setTimeout(resolve, COOLDOWN_MS));
   }
   
+  // 5. Check if BLE device is available (only for integration tests)
+  const isIntegrationTest = process.argv.some(arg => 
+    arg.includes('integration') || 
+    arg.includes('e2e') ||
+    process.env.CHECK_BLE_DEVICE === 'true'
+  );
+  
+  if (isIntegrationTest) {
+    console.log('\nChecking BLE device availability...');
+    try {
+      execSync('node scripts/check-device-available.js', { stdio: 'inherit' });
+    } catch (e) {
+      console.error('\n❌ BLE device check failed!');
+      console.error('Tests will likely fail without hardware available.');
+      console.error('\nPlease ensure the CS108 device is powered on and in range.');
+      process.exit(1);
+    }
+  }
+  
   console.log('\n✅ Pre-test cleanup complete!');
 }
 
