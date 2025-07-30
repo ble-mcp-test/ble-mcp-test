@@ -135,7 +135,7 @@ describe.sequential('Back-to-Back Connection Tests', () => {
       
       // Analyze this round
       const successful = roundResults.filter(r => r.success).length;
-      const rejected = roundResults.filter(r => r.error?.includes('Another connection is active')).length;
+      const rejected = roundResults.filter(r => r.error?.includes('only ready state accepts connections')).length;
       const batteryVoltage = roundResults.find(r => r.success)?.batteryVoltage;
       const roundTime = Date.now() - roundStart;
       
@@ -167,12 +167,12 @@ describe.sequential('Back-to-Back Connection Tests', () => {
     console.log(`  Success rate per round: ${((successfulRounds / rounds) * 100).toFixed(1)}%`);
     
     // For realistic stress test with recovery period, we expect:
-    // 1. First round should succeed (clean state)
-    // 2. Subsequent rounds hit recovery period and get rejected
-    // 3. This proves recovery mechanism is working correctly
+    // 1. Each round: First connection wins, rest lose (7 rejected per successful round)
+    // 2. Total rejections = successful rounds * 7 (since 8 concurrent - 1 winner = 7 losers)
+    // 3. This proves the atomic state prevents race conditions
     
     expect(successfulRounds).toBeGreaterThanOrEqual(1); // At least first round succeeds
-    expect(totalRejected).toBeGreaterThanOrEqual(7); // Concurrent requests in successful round get rejected
+    expect(totalRejected).toBeGreaterThanOrEqual(successfulRounds * 7); // First wins, rest lose
     
     // Verify all successful connections got valid battery readings
     const successfulResults = results.filter(r => r.batteryVoltage);
