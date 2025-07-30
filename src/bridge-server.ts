@@ -396,6 +396,7 @@ export class BridgeServer {
     
     console.log(`[Bridge] Ready for new connections (failures: ${this.consecutiveFailures})`);
   }
+  }
   
   private clearEscalationTimers() {
     if (this.stuckStateTimer) {
