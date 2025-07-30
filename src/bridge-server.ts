@@ -134,7 +134,7 @@ export class BridgeServer {
           status: 'ok',
           free: isFree,
           state: serverState,
-          transportState: this.transport?.getState() || 'no-transport',
+          transportState: this.transport?.isConnected() ? 'connected' : 'disconnected',
           message: isFree ? "I'm free!" : "I'm with a customer",
           connectionInfo: this.activeConnection?.getConnectionInfo() || null,
           timestamp: new Date().toISOString()
@@ -235,9 +235,9 @@ export class BridgeServer {
         this.activeConnection = connectionContext;
         connectionContext.setWebSocket(ws);
 
-        // Try to claim the transport connection
-        if (!this.transport.tryClaimConnection()) {
-          this.logger.warn(`Rejecting connection - BLE state: ${this.transport.getState()}`);
+        // Check if transport is already in use (simple check)
+        if (this.transport.isConnected()) {
+          this.logger.warn('Rejecting connection - BLE transport already connected');
           ws.send(JSON.stringify({ 
             type: 'error', 
             error: 'BLE transport is not available' 
@@ -615,7 +615,7 @@ export class BridgeServer {
   
   async scanDevices(duration?: number): Promise<any[]> {
     // CRITICAL: Check connection state first
-    if (this.transport && this.transport.getState() === 'connected') {
+    if (this.transport && this.transport.isConnected()) {
       throw new Error('Cannot scan while connected to a device. Please disconnect first.');
     }
     
