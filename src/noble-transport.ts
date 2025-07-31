@@ -38,10 +38,7 @@ export class NobleTransport extends EventEmitter {
       // Stop any existing scan (no-op if not scanning)
       await noble.stopScanningAsync();
       
-      // Scan for device
-      console.log(`[Noble] Starting BLE scan for ${config.devicePrefix}...`);
-      await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
-      
+      // Find device (handles scanning lifecycle)
       this.peripheral = await this.findDevice(config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
@@ -100,21 +97,27 @@ export class NobleTransport extends EventEmitter {
   }
 
   private async findDevice(devicePrefix: string): Promise<any> {
+    console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
+    
+    // Start scanning
+    await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
+    
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
+      const timeout = setTimeout(async () => {
         noble.removeListener('discover', onDiscover);
-        noble.stopScanningAsync();
+        await noble.stopScanningAsync();
         reject(new Error(`Device ${devicePrefix} not found`));
       }, 15000);
       
-      const onDiscover = (device: any) => {
+      const onDiscover = async (device: any) => {
         const name = device.advertisement.localName || '';
         const id = device.id;
         
         if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
           clearTimeout(timeout);
           noble.removeListener('discover', onDiscover);
-          noble.stopScanningAsync();
+          await noble.stopScanningAsync();
+          console.log(`[Noble] Found device: ${name || id}`);
           resolve(device);
         }
       };
