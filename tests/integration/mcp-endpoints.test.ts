@@ -129,8 +129,9 @@ describe('MCP Dynamic Registration Endpoints', () => {
         .get('/mcp/info')
         .expect(200);
       
-      // Should be 0.4.1 after update
-      expect(response.body.version).toBe('0.4.1');
+      // Verify version matches package.json
+      const metadata = getPackageMetadata();
+      expect(response.body.version).toBe(metadata.version);
     });
   });
 });
