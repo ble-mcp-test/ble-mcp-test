@@ -11,7 +11,7 @@ import { NobleTransport, type BleConfig } from './noble-transport.js';
  * All BLE logic delegated to NobleTransport.
  */
 
-type BridgeState = 'ready' | 'connecting' | 'active' | 'disconnecting';
+type BridgeState = 'ready' | 'connecting' | 'active' | 'ws-closed' | 'disconnecting';
 
 export class BridgeServer {
   private wss: WebSocketServer | null = null;
@@ -83,6 +83,7 @@ export class BridgeServer {
         });
         
         this.transport.on('disconnect', () => {
+          console.log(`[Bridge] 🔄 Transport disconnect event - Setting SharedState: connected=false`);
           this.sharedState?.setConnectionState({ connected: false, deviceName: null });
           if (this.activeConnection) {
             this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
@@ -95,13 +96,24 @@ export class BridgeServer {
         });
         
         // Connect (transport handles all timeouts internally)
-        this.deviceName = await this.transport.connect(config);
+        console.log(`[Bridge] Attempting connection to ${config.devicePrefix || config} (attempt #${this.consecutiveFailures + 1})`);
+        const startTime = Date.now();
+        try {
+          this.deviceName = await this.transport.connect(config);
+          const connectTime = Date.now() - startTime;
+          console.log(`[Bridge] Connection successful after ${connectTime}ms`);
+        } catch (connectError) {
+          const failTime = Date.now() - startTime;
+          console.error(`[Bridge] Connection failed after ${failTime}ms`);
+          throw connectError;
+        }
         
         // Connected! Reset failure count and transition to active state
         this.consecutiveFailures = 0;
         console.log(`[Bridge] ✓ State transition: connecting → active`);
         this.state = 'active';
         console.log(`[Bridge] Connected to ${this.deviceName}`);
+        console.log(`[Bridge] 🔄 Setting SharedState: connected=true, deviceName=${this.deviceName}`);
         this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
         ws.send(JSON.stringify({ type: 'connected', device: this.deviceName }));
         
@@ -120,19 +132,22 @@ export class BridgeServer {
               this.disconnectCleanupRecover({ reason: 'force cleanup command', isClean: true });
             }
           } catch (error) {
-            console.error('[Bridge] Message error:', error);
+            const errorMessage = translateBluetoothError(error);
+            console.error('[Bridge] Message error:', errorMessage);
           }
         });
         
         // Handle WebSocket close
         ws.on('close', () => {
           console.log(`[Bridge] WebSocket closed`);
+          this.state = 'ws-closed';  // Transitional state - WebSocket closed, cleanup starting
           this.disconnectCleanupRecover({ reason: 'websocket closed', isClean: true });
         });
         
         // Handle WebSocket errors
         ws.on('error', (error) => {
           console.log(`[Bridge] WebSocket error: ${error.message}`);
+          this.state = 'ws-closed';  // Transitional state - WebSocket error, cleanup starting
           this.disconnectCleanupRecover({ reason: 'websocket error', error: error, isClean: false });
         });
         
@@ -170,6 +185,16 @@ export class BridgeServer {
         console.error(`[Bridge] Full error object:`, context.error);
       }
       
+      // Special logging for error 62 (Connection Failed to be Established)
+      if (context.error === 62 || context.error?.code === 62) {
+        console.error(`[Bridge] Error 62 details:`);
+        console.error(`  - Current state: ${this.state}`);
+        console.error(`  - Transport connected: ${this.transport ? 'yes' : 'no'}`);
+        console.error(`  - Device name: ${this.deviceName || 'none'}`);
+        console.error(`  - Consecutive failures: ${this.consecutiveFailures}`);
+        console.error(`  - Recovery will take: ${this.recoveryDelay * Math.pow(1.5, this.consecutiveFailures + 1)}ms`);
+      }
+      
       // Increment failure count on errors
       if (!context.isClean) {
         this.consecutiveFailures++;
@@ -179,7 +204,14 @@ export class BridgeServer {
     // Disconnect transport
     if (this.transport) {
       try {
-        await this.transport.disconnect();
+        if (context.error && !context.isClean) {
+          // Error case: KILL IT WITH FIRE! 🔥
+          console.log(`[Bridge] Error detected - using force cleanup with Noble stack reset`);
+          await this.transport.forceCleanup();
+        } else {
+          // Clean disconnect: be polite
+          await this.transport.disconnect();
+        }
       } catch (error) {
         console.error(`[Bridge] Error during transport cleanup:`, error);
       }
@@ -200,15 +232,22 @@ export class BridgeServer {
     this.deviceName = null;
     
     // Update shared state
+    console.log(`[Bridge] 🔄 Disconnect cleanup - Setting SharedState: connected=false`);
     this.sharedState?.setConnectionState({ connected: false, deviceName: null });
     
     // Calculate recovery delay based on context
-    const currentDelay = context.isClean || this.consecutiveFailures === 0
-      ? 1000 // Clean disconnect: 1s recovery
+    let currentDelay = context.isClean || this.consecutiveFailures === 0
+      ? 250 // Clean disconnect: 250ms recovery (was 1000ms)
       : Math.min(
           this.recoveryDelay * Math.pow(1.5, this.consecutiveFailures),
           this.maxRecoveryDelay
         );
+    
+    // Special handling for error 62 - give device extra time to reset
+    if (context.error === 62 || context.error?.code === 62) {
+      console.log(`[Bridge] Error 62 detected - adding extra recovery time`);
+      currentDelay = Math.max(currentDelay, 10000); // At least 10 seconds for error 62
+    }
     
     console.log(`[Bridge] Starting ${Math.round(currentDelay)}ms recovery period (failures: ${this.consecutiveFailures})`);
     this.sharedState?.setConnectionState({ recovering: true });
