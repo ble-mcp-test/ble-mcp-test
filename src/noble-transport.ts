@@ -217,15 +217,41 @@ export class NobleTransport extends EventEmitter {
     // Stop scanning (no-op if not scanning)
     await noble.stopScanningAsync();
     
-    // Unsubscribe and disconnect
-    if (this.notifyChar) {
-      await this.notifyChar.unsubscribeAsync().catch(() => {});
-      this.notifyChar.removeAllListeners?.();
+    // Try graceful disconnect first, force if stuck
+    if (this.peripheral) {
+      // Remove listeners first to prevent event loops during cleanup
+      this.peripheral.removeAllListeners?.();
+      
+      try {
+        // Try graceful unsubscribe first (very short timeout)
+        if (this.notifyChar) {
+          await Promise.race([
+            this.notifyChar.unsubscribeAsync(),
+            new Promise(resolve => setTimeout(resolve, 250)) // 250ms max for unsubscribe
+          ]);
+        }
+        
+        // Try graceful disconnect with short timeout
+        await Promise.race([
+          this.peripheral.disconnectAsync(),
+          new Promise(resolve => setTimeout(resolve, 500)) // 500ms max for disconnect
+        ]);
+        console.log('[Noble] Graceful disconnect completed');
+      } catch {
+        // Graceful failed, force disconnect
+        console.log('[Noble] Graceful disconnect failed, forcing connection close');
+        try {
+          // Force close the underlying connection
+          (this.peripheral as any)._peripheral?.disconnect?.();
+        } catch {
+          // Ignore force disconnect errors
+        }
+      }
     }
     
-    if (this.peripheral) {
-      await this.peripheral.disconnectAsync().catch(() => {});
-      this.peripheral.removeAllListeners?.();
+    // Clear notification handler after peripheral cleanup
+    if (this.notifyChar) {
+      this.notifyChar.removeAllListeners?.();
     }
     
     // Clear references
