@@ -129,8 +129,12 @@ export class NobleTransport extends EventEmitter {
     
     console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
     
-    // Start scanning
-    await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
+    // Start scanning with timeout
+    await this.withInternalTimeout(
+      noble.startScanningAsync([], true), // allowDuplicates: true is critical for CS108 on Linux
+      5000,
+      'Failed to start BLE scanning'
+    );
     
     return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout | null = null;
