@@ -81,9 +81,9 @@ export class BridgeServer {
           async () => {
             console.log(`[Bridge] Connection timeout - stopping scan`);
             await noble.stopScanningAsync().catch(() => {});
-            // CRITICAL: Reset state immediately on timeout to prevent race conditions
-            console.log(`[Bridge] ✓ State transition: connecting → ready (timeout reset)`);
-            this.state = 'ready';
+            // For timeout errors, go through cleanup to ensure recovery period
+            // This handles cases where device disconnects during connection attempt
+            this.disconnectCleanupRecover({ reason: 'connection timeout', isClean: false });
           }
         );
         
@@ -108,7 +108,7 @@ export class BridgeServer {
               await this.writeChar.writeAsync(Buffer.from(data), false);
             } else if (msg.type === 'force_cleanup') {
               ws.send(JSON.stringify({ type: 'force_cleanup_complete', message: 'Cleanup complete' }));
-              this.cleanup();
+              this.disconnectCleanupRecover({ reason: 'force cleanup command', isClean: true });
             }
           } catch (error) {
             console.error('[Bridge] Message error:', error);
@@ -118,46 +118,18 @@ export class BridgeServer {
         // Handle WebSocket close
         ws.on('close', () => {
           console.log(`[Bridge] WebSocket closed`);
-          this.cleanup();
+          this.disconnectCleanupRecover({ reason: 'websocket closed', isClean: true });
         });
         
         // Handle WebSocket errors
         ws.on('error', (error) => {
           console.log(`[Bridge] WebSocket error: ${error.message}`);
-          this.cleanup();
+          this.disconnectCleanupRecover({ reason: 'websocket error', error: error, isClean: false });
         });
         
       } catch (error: any) {
-        // Translate Bluetooth error codes to meaningful messages
-        const errorMessage = translateBluetoothError(error);
-        // Log error without debug prefix
-        console.error('[Bridge] Connection error:', errorMessage);
-        
-        // Log full error for debugging when it's just a number
-        if (typeof error === 'number' || (!error?.message && error !== undefined && error !== null)) {
-          console.error('[Bridge] Full error object:', error);
-        }
-        
-        // Increment failure count on connection error
-        this.consecutiveFailures++;
-        
-        // CRITICAL: Ensure Noble and any connected peripheral are cleaned up on error
-        // This prevents zombie connections where device thinks it's connected but bridge doesn't
-        await noble.stopScanningAsync().catch(() => {});
-        
-        // Force disconnect ANY peripheral we might have, regardless of state
-        if (this.peripheral) {
-          console.error('[Bridge] CRITICAL: Forcing peripheral disconnect after error to prevent zombie connection');
-          try {
-            // Don't trust the state - just disconnect
-            await this.peripheral.disconnectAsync();
-          } catch (disconnectError) {
-            console.error('[Bridge] Error during forced disconnect:', disconnectError);
-          }
-        }
-        
-        ws.send(JSON.stringify({ type: 'error', error: errorMessage }));
-        this.cleanup();
+        // All error handling is done in disconnectCleanupRecover
+        await this.disconnectCleanupRecover({ reason: 'connection error', error: error, isClean: false });
       }
     });
   }
@@ -252,85 +224,130 @@ export class BridgeServer {
       if (this.activeConnection) {
         this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
       }
-      this.cleanup();
+      this.disconnectCleanupRecover({ reason: 'device disconnected', isClean: true });
     });
   }
   
-  private cleanup() {
-    console.log(`[Bridge] ✓ State transition: ${this.state} → disconnecting`);
+  /**
+   * Unified disconnect, cleanup, and recovery function
+   * All disconnect paths lead here to ensure consistent behavior
+   */
+  private async disconnectCleanupRecover(context: { 
+    reason: string, 
+    error?: any,
+    isClean?: boolean 
+  }) {
+    // Prevent re-entry if already disconnecting
+    if (this.state === 'disconnecting') {
+      console.log(`[Bridge] Already disconnecting, ignoring additional cleanup request`);
+      return;
+    }
+    
+    console.log(`[Bridge] ✓ State transition: ${this.state} → disconnecting (reason: ${context.reason})`);
     this.state = 'disconnecting';
+    
+    // Log error details if present
+    if (context.error) {
+      const errorMessage = translateBluetoothError(context.error);
+      console.error(`[Bridge] Disconnect due to error: ${errorMessage}`);
+      
+      if (typeof context.error === 'number' || (!context.error?.message && context.error !== undefined)) {
+        console.error(`[Bridge] Full error object:`, context.error);
+      }
+      
+      // Increment failure count on errors
+      if (!context.isClean) {
+        this.consecutiveFailures++;
+      }
+    }
     
     // Set up escalating stuck state detection
     this.setupEscalatingCleanup();
     
-    // Clean up BLE - ensure disconnection even if error occurred during connection
-    if (this.peripheral) {
-      try {
-        // Check if peripheral is still connected
-        if (this.peripheral.state === 'connected') {
-          console.log(`[Bridge] Forcing disconnect of connected peripheral`);
-        }
-        
-        if (this.notifyChar) {
-          this.notifyChar.unsubscribeAsync().catch(() => {});
-        }
-        this.peripheral.disconnectAsync().catch(() => {});
-      } catch {
-        // Ignore cleanup errors during disconnect
-      }
-      
-      // Calculate recovery delay: fast for clean disconnects, longer for failures
-      const currentDelay = this.consecutiveFailures === 0 
-        ? 1000 // Clean disconnect: 1s recovery
-        : Math.min(
-            this.recoveryDelay * Math.pow(1.5, this.consecutiveFailures),
-            this.maxRecoveryDelay
-          );
-      
-      console.log(`[Bridge] Starting ${Math.round(currentDelay)}ms recovery period (failures: ${this.consecutiveFailures})`);
-      this.sharedState?.setConnectionState({ recovering: true });
-      
-      // Clear any existing recovery timer
-      if (this.recoveryTimer) {
-        clearTimeout(this.recoveryTimer);
-      }
-      
-      // Also clean up Noble state during recovery
-      this.recoveryTimer = setTimeout(async () => {
-        try {
-          // Ensure Noble is in clean state
-          await noble.stopScanningAsync().catch(() => {});
-          await cleanupNoble();
-        } catch (error) {
-          console.error(`[Bridge] Error during Noble cleanup: ${error}`);
-        }
-        
-        // Clear all escalation timers
-        this.clearEscalationTimers();
-        
-        // Transition back to ready state - ready for new connections
-        console.log(`[Bridge] ✓ State transition: disconnecting → ready`);
-        this.state = 'ready';
-        this.sharedState?.setConnectionState({ recovering: false });
-        console.log(`[Bridge] Recovery complete, ready for new connections`);
-        this.recoveryTimer = null;
-      }, currentDelay);
+    // CRITICAL: Always stop any active scanning first
+    // This prevents zombie connections where device thinks it's connected but bridge doesn't
+    try {
+      await noble.stopScanningAsync();
+    } catch (error) {
+      console.error(`[Bridge] Error stopping scan:`, error);
     }
     
+    // Clean up BLE peripheral if exists
+    if (this.peripheral) {
+      console.log(`[Bridge] CRITICAL: Forcing peripheral disconnect to prevent zombie connection`);
+      try {
+        // Unsubscribe from notifications
+        if (this.notifyChar) {
+          await this.notifyChar.unsubscribeAsync().catch(() => {});
+        }
+        
+        // Force disconnect - don't trust the state, just disconnect
+        await this.peripheral.disconnectAsync();
+      } catch (error) {
+        console.error(`[Bridge] Error during forced disconnect:`, error);
+      }
+    }
+    
+    // Clear references
     this.peripheral = null;
     this.writeChar = null;
     this.notifyChar = null;
+    
+    // Notify WebSocket client if still connected
+    if (this.activeConnection && this.activeConnection.readyState === 1) {
+      try {
+        if (context.error && !context.isClean) {
+          const errorMessage = translateBluetoothError(context.error);
+          this.activeConnection.send(JSON.stringify({ type: 'error', error: errorMessage }));
+        }
+        this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
+      } catch {}
+    }
     this.activeConnection = null;
     
-    // If no recovery period needed (no peripheral), go straight to ready
-    if (this.state === 'disconnecting' && !this.recoveryTimer) {
-      console.log(`[Bridge] ✓ State transition: disconnecting → ready (no recovery needed)`);
-      this.state = 'ready';
-      this.sharedState?.setConnectionState({ recovering: false });
+    // Update shared state
+    this.sharedState?.setConnectionState({ connected: false, deviceName: null });
+    
+    // Calculate recovery delay based on context
+    const currentDelay = context.isClean || this.consecutiveFailures === 0
+      ? 1000 // Clean disconnect: 1s recovery
+      : Math.min(
+          this.recoveryDelay * Math.pow(1.5, this.consecutiveFailures),
+          this.maxRecoveryDelay
+        );
+    
+    console.log(`[Bridge] Starting ${Math.round(currentDelay)}ms recovery period (failures: ${this.consecutiveFailures})`);
+    this.sharedState?.setConnectionState({ recovering: true });
+    
+    // Clear any existing recovery timer
+    if (this.recoveryTimer) {
+      clearTimeout(this.recoveryTimer);
+    }
+    
+    // Set recovery timer
+    this.recoveryTimer = setTimeout(async () => {
+      try {
+        // Final Noble cleanup
+        await cleanupNoble();
+      } catch (error) {
+        console.error(`[Bridge] Error during Noble cleanup:`, error);
+      }
       
       // Clear all escalation timers
       this.clearEscalationTimers();
-    }
+      
+      // Reset failure count on clean disconnects
+      if (context.isClean) {
+        this.consecutiveFailures = 0;
+      }
+      
+      // Transition back to ready state
+      console.log(`[Bridge] ✓ State transition: disconnecting → ready`);
+      this.state = 'ready';
+      this.sharedState?.setConnectionState({ recovering: false });
+      console.log(`[Bridge] Recovery complete, ready for new connections`);
+      this.recoveryTimer = null;
+    }, currentDelay);
   }
   
   private setupEscalatingCleanup() {
@@ -440,7 +457,7 @@ export class BridgeServer {
   
   async stop() {
     console.log('[Bridge] Stopping...');
-    this.cleanup();
+    this.disconnectCleanupRecover({ reason: 'server stopping', isClean: true });
     if (this.wss) {
       this.wss.close();
     }
