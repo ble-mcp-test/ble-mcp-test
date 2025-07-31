@@ -24,11 +24,8 @@ export class BridgeServer {
   private recoveryDelay = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
   private sharedState: SharedState | null = null;
   private recoveryTimer: NodeJS.Timeout | null = null;
-  private stuckStateTimer: NodeJS.Timeout | null = null;
-  private escalationTimer: NodeJS.Timeout | null = null;
   private consecutiveFailures = 0;
   private maxRecoveryDelay = 30000; // Max 30s recovery delay
-  private stuckStateCount = 0;
   
   constructor(logLevel?: string, sharedState?: SharedState) {
     // Ultra simple - just log level for compatibility
@@ -261,9 +258,6 @@ export class BridgeServer {
       }
     }
     
-    // Set up escalating stuck state detection
-    this.setupEscalatingCleanup();
-    
     // CRITICAL: Always stop any active scanning first
     // This prevents zombie connections where device thinks it's connected but bridge doesn't
     try {
@@ -333,9 +327,6 @@ export class BridgeServer {
         console.error(`[Bridge] Error during Noble cleanup:`, error);
       }
       
-      // Clear all escalation timers
-      this.clearEscalationTimers();
-      
       // Reset failure count on clean disconnects
       if (context.isClean) {
         this.consecutiveFailures = 0;
@@ -348,111 +339,6 @@ export class BridgeServer {
       console.log(`[Bridge] Recovery complete, ready for new connections`);
       this.recoveryTimer = null;
     }, currentDelay);
-  }
-  
-  private setupEscalatingCleanup() {
-    // Clear any existing escalation
-    this.clearEscalationTimers();
-    
-    // Level 1: Basic stuck detection (3 seconds)
-    this.stuckStateTimer = setTimeout(() => {
-      if (this.state === 'disconnecting') {
-        console.log(`[Bridge] 🟨 Level 1: Basic stuck detection - attempting gentle cleanup`);
-        this.escalateCleanup(1);
-      }
-    }, 3000);
-  }
-  
-  private escalateCleanup(level: number) {
-    if (this.state !== 'disconnecting') return;
-    
-    this.stuckStateCount++;
-    console.log(`[Bridge] ${'🔧🔨💥'[level-1]} Level ${level} cleanup:`);
-    
-    // Each level performs previous levels + additional steps (cascading)
-    if (level >= 1) this.gentleDisconnect();
-    if (level >= 2) this.aggressiveCleanup();
-    if (level >= 3) this.forceReady();
-    
-    // Schedule next level if not nuclear (level 3)
-    if (level < 3) {
-      this.escalationTimer = setTimeout(() => {
-        if (this.state === 'disconnecting') {
-          this.escalateCleanup(level + 1);
-        }
-      }, 5000);
-    }
-  }
-  
-  private gentleDisconnect() {
-    if (this.peripheral) {
-      try {
-        this.peripheral.disconnect();
-      } catch (e) {
-        console.log(`[Bridge] Gentle disconnect failed: ${e}`);
-      }
-    }
-  }
-  
-  private async aggressiveCleanup() {
-    try {
-      // Stop scanning and remove listeners
-      await noble.stopScanningAsync().catch(() => {});
-      noble.removeAllListeners();
-      
-      // Multiple disconnect attempts
-      if (this.peripheral) {
-        try {
-          await this.peripheral.disconnectAsync().catch(() => {});
-          this.peripheral.removeAllListeners();
-        } catch (e) {
-          console.log(`[Bridge] Aggressive disconnect failed: ${e}`);
-        }
-      }
-      
-      // Clean up characteristics
-      if (this.notifyChar) {
-        await this.notifyChar.unsubscribeAsync().catch(() => {});
-        this.notifyChar.removeAllListeners();
-      }
-    } catch (error) {
-      console.error(`[Bridge] Aggressive cleanup error: ${error}`);
-    }
-  }
-  
-  private forceReady() {
-    // Clear all timers and force state
-    this.clearEscalationTimers();
-    if (this.recoveryTimer) {
-      clearTimeout(this.recoveryTimer);
-      this.recoveryTimer = null;
-    }
-    
-    this.state = 'ready';
-    this.sharedState?.setConnectionState({ connected: false, deviceName: null, recovering: false });
-    
-    // Clean up resources
-    this.peripheral = null;
-    this.writeChar = null;
-    this.notifyChar = null;
-    this.activeConnection = null;
-    
-    // Significant failure penalty for nuclear reset
-    this.consecutiveFailures += 2;
-    this.stuckStateCount = 0;
-    
-    console.log(`[Bridge] Ready for new connections (failures: ${this.consecutiveFailures})`);
-  }
-  
-  private clearEscalationTimers() {
-    if (this.stuckStateTimer) {
-      clearTimeout(this.stuckStateTimer);
-      this.stuckStateTimer = null;
-    }
-    if (this.escalationTimer) {
-      clearTimeout(this.escalationTimer);
-      this.escalationTimer = null;
-    }
   }
   
   async stop() {
