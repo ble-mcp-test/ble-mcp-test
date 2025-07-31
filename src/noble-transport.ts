@@ -127,16 +127,7 @@ export class NobleTransport extends EventEmitter {
     // Stop any existing scan (no-op if not scanning)
     await noble.stopScanningAsync();
     
-    console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
-    
-    // Start scanning with timeout
-    await this.withInternalTimeout(
-      noble.startScanningAsync([], true), // allowDuplicates: true is critical for CS108 on Linux
-      5000,
-      'Failed to start BLE scanning'
-    );
-    
-    return new Promise((resolve, reject) => {
+    return new Promise(async (resolve, reject) => {
       let timeout: NodeJS.Timeout | null = null;
       let onDiscover: ((device: any) => void) | null = null;
       
@@ -157,6 +148,16 @@ export class NobleTransport extends EventEmitter {
       
       // Store cleanup function so it can be called externally if needed
       this.findDeviceCleanup = cleanupScan;
+      
+      // Start scanning
+      try {
+        console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
+        await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
+      } catch (error) {
+        cleanupScan();
+        reject(error);
+        return;
+      }
       
       timeout = setTimeout(() => {
         cleanupScan();
