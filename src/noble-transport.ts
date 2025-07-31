@@ -1,7 +1,6 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
 import { translateBluetoothError } from './bluetooth-errors.js';
-import { withTimeout } from './utils.js';
 
 /**
  * Noble BLE Transport
