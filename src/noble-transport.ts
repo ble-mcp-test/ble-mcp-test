@@ -115,7 +115,7 @@ export class NobleTransport extends EventEmitter {
       let onDiscover: ((device: any) => void) | null = null;
       
       // Cleanup function that always runs
-      const cleanup = () => {
+      const cleanupScan = () => {
         if (timeout) {
           clearTimeout(timeout);
           timeout = null;
@@ -130,10 +130,10 @@ export class NobleTransport extends EventEmitter {
       };
       
       // Store cleanup function so it can be called externally if needed
-      this.findDeviceCleanup = cleanup;
+      this.findDeviceCleanup = cleanupScan;
       
       timeout = setTimeout(() => {
-        cleanup();
+        cleanupScan();
         reject(new Error(`Device ${devicePrefix} not found`));
       }, 15000);
       
@@ -142,7 +142,7 @@ export class NobleTransport extends EventEmitter {
         const id = device.id;
         
         if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
-          cleanup();
+          cleanupScan();
           console.log(`[Noble] Found device: ${name || id}`);
           resolve(device);
         }
