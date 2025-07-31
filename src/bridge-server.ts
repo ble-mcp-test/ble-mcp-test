@@ -5,7 +5,7 @@ import type { SharedState } from './shared-state.js';
 import { translateBluetoothError } from './bluetooth-errors.js';
 
 /**
- * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.0
+ * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.5
  * 
  * One connection, one device, pure plumbing.
  * No state machines, no tokens, no timers, no managers.
