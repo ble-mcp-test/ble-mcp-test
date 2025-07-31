@@ -192,7 +192,7 @@ test('handles bridge connection failure gracefully', async ({ page }) => {
 });
 ```
 
-### Retry Logic (v0.4.1+)
+### Retry Logic
 ```javascript
 // The mock automatically retries when bridge is busy
 // You'll see console logs like:
@@ -208,7 +208,7 @@ process.env.BLE_MCP_MOCK_BACKOFF = '2.0';       // Double delay each time
 
 ## Test Notification Injection
 
-### Simulating Device Events (v0.4.1+)
+### Simulating Device Events
 ```javascript
 test('handles button press events', async ({ page }) => {
     const events = await page.evaluate(async () => {
@@ -285,7 +285,7 @@ test('handles malformed packets', async ({ page }) => {
 
 ## Mock Configuration
 
-### Environment Variables (v0.4.1+)
+### Environment Variables
 ```bash
 # Configure mock retry behavior
 export BLE_MCP_MOCK_RETRY_DELAY=2000      # Start with 2 second delay

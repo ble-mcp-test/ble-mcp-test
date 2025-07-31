@@ -117,9 +117,7 @@ test('BLE device communication', async ({ page }) => {
 
 ## Version Notes
 
-- **v0.4.2+**: Fixed critical bundle export issue. Required for browser usage.
-- **v0.4.0**: Complete rewrite for extreme simplification.
-- See [CHANGELOG](CHANGELOG.md) for all changes.
+See [CHANGELOG](CHANGELOG.md) for version history.
 
 ## Requirements
 

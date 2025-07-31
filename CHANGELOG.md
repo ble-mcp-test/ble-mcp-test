@@ -8,22 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.2] - 2025-01-31
 
 ### Fixed
-- **Critical Bundle Export Issue**: Mock wasn't being injected at all in v0.4.1
-  - Browser bundle now properly exposes `window.WebBleMock` global
-  - Fixed IIFE build to correctly assign exports to global scope
-  - `WebBleMock.MockBluetooth` and `WebBleMock.injectWebBluetoothMock` now accessible
+- **Critical Bundle Export Issue**: Browser bundle now properly exposes `window.WebBleMock` global
 
 ### Added
-- **Browser Entry Point**: New `mock-browser-entry.ts` explicitly exports WebBleMock object
-- **Playwright Tests**: Comprehensive tests verify bundle works before release
-  - Tests WebBleMock global availability
-  - Verifies mock injection functionality
-  - Confirms simulateNotification() is available
-- **Build Script**: Custom browser bundle build with proper environment variable definitions
+- **Playwright Tests**: Verify bundle works before release
+- **Build Script**: Custom browser bundle build with proper exports
 
 ### Changed
-- Browser bundle build process now uses dedicated entry point for cleaner exports
-- Bundle includes default mock configuration values for browser environments
+- Browser bundle build process now uses dedicated entry point
 
 ## [0.4.1] - 2025-01-30
 

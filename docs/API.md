@@ -49,14 +49,12 @@ If you're not using a module bundler, include the pre-built bundle:
 ```html
 <script src="path/to/web-ble-mock.bundle.js"></script>
 <script>
-  // Global WebBleMock object is available (v0.4.2+)
+  // Global WebBleMock object is available
   WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 </script>
 ```
 
-**Note**: In v0.4.1, the browser bundle had an export issue. Please upgrade to v0.4.2 or later.
-
-### Mock Configuration (v0.4.1+)
+### Mock Configuration
 
 The mock supports configuration via environment variables for retry behavior:
 
@@ -66,7 +64,7 @@ The mock supports configuration via environment variables for retry behavior:
 - `BLE_MCP_MOCK_BACKOFF` - Exponential backoff multiplier (default: 1.5)
 - `BLE_MCP_MOCK_LOG_RETRIES` - Log retry attempts (default: true)
 
-### Test Notification Injection (v0.4.1+)
+### Test Notification Injection
 
 The `simulateNotification()` method allows tests to inject device notifications without real hardware events:
 
@@ -334,7 +332,7 @@ The mock implements the following Web Bluetooth API methods:
 - `writeValue(data)` - Write data to characteristic
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
-- `simulateNotification(data)` - Inject test notifications (v0.4.1+)
+- `simulateNotification(data)` - Inject test notifications
 
 ## Connection Token
 All successful connections now receive a unique authentication token:
