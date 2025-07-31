@@ -133,10 +133,13 @@ class MockBluetoothRemoteGATTService {
 
 // Configuration for mock behavior
 const MOCK_CONFIG = {
-  connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1000', 10),
-  maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '10', 10),
-  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '0', 10),
-  retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.5'),
+  // Match server's expected recovery timing:
+  // - Clean disconnect: 1s (new default)
+  // - Failed connection: 5s+ (server default)
+  connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1200', 10), // 1.2s to cover 1s clean recovery
+  maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '20', 10), // More retries for 5s+ recovery
+  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '1100', 10), // 1.1s to ensure server is ready
+  retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.3'), // Gentler backoff
   logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
 };
 

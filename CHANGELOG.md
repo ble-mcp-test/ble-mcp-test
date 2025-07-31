@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2025-01-31
+
+### Changed
+- **Faster Test Recovery**: Clean disconnects now recover in 1s instead of 5s
+- **Mock Retry Defaults**: Increased retries (20) and gentler backoff (1.3x) for better test resilience
+- **Mock Post-Disconnect Delay**: Now 1s to match server recovery timing
+
+### Added
+- **Multi-Cycle Playwright Test**: Verifies mock handles rapid connect/disconnect cycles
+
+### Fixed
+- Test suites no longer need to wait 5s between test files
+- Mock retry timing now intelligently matches server recovery behavior
+
 ## [0.4.2] - 2025-01-31
 
 ### Fixed

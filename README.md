@@ -111,6 +111,7 @@ test('BLE device communication', async ({ page }) => {
 
 ## Documentation
 
+- [Best Practices](docs/best-practices.md) - **Start here!** Proper configuration and patterns
 - [API Reference](docs/API.md) - Detailed API docs and protocol info
 - [Examples](docs/examples.md) - More usage patterns and test scenarios
 - [Architecture Details](docs/architecture.md) - Deep dive into internals
