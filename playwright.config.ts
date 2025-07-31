@@ -25,9 +25,5 @@ export default defineConfig({
       },
     },
   ],
-  webServer: {
-    command: 'python3 -m http.server 3000 --directory .',
-    port: 3000,
-    reuseExistingServer: !process.env.CI,
-  },
+  // No web server needed - all tests run directly in Playwright
 });
