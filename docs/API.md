@@ -99,7 +99,7 @@ Public endpoint that returns server metadata and available tools. No authenticat
 ```json
 {
   "name": "ble-mcp-test",
-  "version": "0.3.1",
+  "version": "0.4.2",
   "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
   "tools": [
     { "name": "get_logs", "description": "Get BLE Communication Logs" },
@@ -125,7 +125,7 @@ Authenticated endpoint for MCP client registration. Returns server capabilities.
 ```json
 {
   "name": "ble-mcp-test",
-  "version": "0.3.1",
+  "version": "0.4.2",
   "capabilities": {
     "tools": true,
     "resources": false,
@@ -336,9 +336,7 @@ The mock implements the following Web Bluetooth API methods:
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
 - `simulateNotification(data)` - Inject test notifications (v0.4.1+)
 
-## Breaking Changes in v0.4.0
-
-### Connection Token
+## Connection Token
 All successful connections now receive a unique authentication token:
 - The `connected` message includes a `token` field
 - This token is required for `force_cleanup` operations

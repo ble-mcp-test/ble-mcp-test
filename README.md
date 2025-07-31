@@ -112,14 +112,13 @@ test('BLE device communication', async ({ page }) => {
 ## Documentation
 
 - [API Reference](docs/API.md) - Detailed API docs and protocol info
-- [Examples](docs/examples.md) - More usage patterns and test scenarios  
-- [Migration Guide](docs/MIGRATION.md) - Upgrading from older versions
+- [Examples](docs/examples.md) - More usage patterns and test scenarios
 - [Architecture Details](docs/architecture.md) - Deep dive into internals
 
 ## Version Notes
 
 - **v0.4.2+**: Fixed critical bundle export issue. Required for browser usage.
-- **v0.4.0**: Complete rewrite. Not backward compatible with v0.3.x.
+- **v0.4.0**: Complete rewrite for extreme simplification.
 - See [CHANGELOG](CHANGELOG.md) for all changes.
 
 ## Requirements

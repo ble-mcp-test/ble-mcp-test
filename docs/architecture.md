@@ -181,17 +181,6 @@ While designed for simplicity, the architecture allows:
 3. **Mock Enhancements**: Add more Web Bluetooth API surface
 4. **Protocol Extensions**: Add new message types for special features
 
-## Comparison with v0.3.x
-
-| Aspect | v0.3.x | v0.4.0 |
-|--------|--------|--------|
-| Lines of Code | 3000+ | <1000 core |
-| State Management | Multiple flags | Single state |
-| Architecture | Layered abstractions | Direct implementation |
-| Dependencies | 15+ | 5 |
-| Connection Handling | Complex pooling | One at a time |
-| Error Recovery | Reconnection loops | Simple recovery period |
-| Debugging | Difficult | Straightforward |
 
 ## Future Considerations
 
