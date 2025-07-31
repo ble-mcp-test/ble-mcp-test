@@ -82,20 +82,6 @@ export function normalizeUuid(uuid: string): string {
   }
 }
 
-// Global Noble cleanup (simplified version)
-export async function cleanupNoble(): Promise<void> {
-  // Import dynamically to avoid circular dependency
-  const noble = (await import('@stoprocent/noble')).default;
-  
-  try {
-    await noble.stopScanningAsync();
-  } catch {
-    // Ignore errors
-  }
-  
-  // Clean up any dangling listeners
-  noble.removeAllListeners();
-}
 
 /**
  * Clean timeout wrapper that handles both rejection and cleanup

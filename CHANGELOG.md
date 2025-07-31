@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2025-01-31
+
+### Fixed
+- **Connection Error Recovery**: Fixed race condition where timeout handler bypassed recovery period after errors
+- **Error Code 22**: "Connection Terminated By Local Host" now properly triggers recovery period
+- **Cleanup Race Conditions**: Unified all disconnect paths through single `disconnectCleanupRecover()` function
+- **Stuck Inventory Disconnect**: Fixed bridge hanging in disconnecting state when CS108 streams inventory data during WebSocket close
+  - Graceful disconnect with 750ms timeout, then force-close if stuck
+  - Eliminates "Already disconnecting" errors and infinite RX loops
+
+### Changed
+- **Simplified Recovery**: Removed complex multi-level escalation logic, now uses single recovery period
+- **Cleaner Architecture**: All disconnect scenarios (timeout, error, user, device) use same cleanup path
+- **Force Disconnect Logic**: BLE cleanup now tries graceful first (250ms unsubscribe + 500ms disconnect), then forces connection close
+
 ## [0.4.4] - 2025-01-31
 
 ### Added
