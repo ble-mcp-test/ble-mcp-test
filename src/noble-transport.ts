@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
 import { translateBluetoothError } from './bluetooth-errors.js';
-import { cleanupNoble, withTimeout } from './utils.js';
+import { withTimeout } from './utils.js';
 
 /**
  * Noble BLE Transport
@@ -189,10 +189,7 @@ export class NobleTransport extends EventEmitter {
     this.writeChar = null;
     this.notifyChar = null;
     
-    // Remove all listeners
+    // Remove all transport listeners
     this.removeAllListeners();
-    
-    // Clean up Noble
-    await cleanupNoble();
   }
 }
