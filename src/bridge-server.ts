@@ -130,7 +130,7 @@ export class BridgeServer {
       } catch (error: any) {
         // Translate Bluetooth error codes to meaningful messages
         const errorMessage = translateBluetoothError(error);
-        console.log(`[Bridge] DEBUG: Caught error in try/catch: ${errorMessage}`);
+        // Log error without debug prefix
         console.error('[Bridge] Connection error:', errorMessage);
         
         // Log full error for debugging when it's just a number
