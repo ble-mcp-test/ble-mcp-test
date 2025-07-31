@@ -129,7 +129,7 @@ describe.sequential('Device Interaction Tests', () => {
       expect(result.connected).toBe(false);
       expect(result.error).toBeDefined();
       // On Linux, we might get various errors
-      expect(result.error).toMatch(/No device found|Connection timeout|Operation timeout|Scan already in progress/);
+      expect(result.error).toMatch(/No device found|Device .* not found|Connection timeout|Operation timeout|Scan already in progress/);
       console.log('  ✅ Correctly handled non-existent device error');
     } finally {
       await connectionFactory.cleanup();

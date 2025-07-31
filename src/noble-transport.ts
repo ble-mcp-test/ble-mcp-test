@@ -220,12 +220,12 @@ export class NobleTransport extends EventEmitter {
     // Unsubscribe and disconnect
     if (this.notifyChar) {
       await this.notifyChar.unsubscribeAsync().catch(() => {});
-      this.notifyChar.removeAllListeners();
+      this.notifyChar.removeAllListeners?.();
     }
     
     if (this.peripheral) {
       await this.peripheral.disconnectAsync().catch(() => {});
-      this.peripheral.removeAllListeners();
+      this.peripheral.removeAllListeners?.();
     }
     
     // Clear references
