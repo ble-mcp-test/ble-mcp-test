@@ -69,30 +69,34 @@ export class BridgeServer {
       this.activeConnection = ws;
       
       try {
-        // Create transport and connect with timeout
+        // Create transport and set up event handlers
         this.transport = new NobleTransport();
         
+        // Set up event handlers before connecting
+        this.transport.on('data', (data: Uint8Array) => {
+          const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
+          console.log(`[Bridge] RX: ${hex}`);
+          this.sharedState?.logPacket('RX', data);
+          if (this.activeConnection) {
+            this.activeConnection.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
+          }
+        });
+        
+        this.transport.on('disconnect', () => {
+          this.sharedState?.setConnectionState({ connected: false, deviceName: null });
+          if (this.activeConnection) {
+            this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
+          }
+          this.disconnectCleanupRecover({ reason: 'device disconnected', isClean: true });
+        });
+        
+        this.transport.on('error', (error) => {
+          this.disconnectCleanupRecover({ reason: 'transport error', error, isClean: false });
+        });
+        
+        // Connect with timeout
         this.deviceName = await withTimeout(
-          this.transport.connect(config, {
-            onData: (data) => {
-              const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-              console.log(`[Bridge] RX: ${hex}`);
-              this.sharedState?.logPacket('RX', data);
-              if (this.activeConnection) {
-                this.activeConnection.send(JSON.stringify({ type: 'data', data: Array.from(data) }));
-              }
-            },
-            onDisconnect: () => {
-              this.sharedState?.setConnectionState({ connected: false, deviceName: null });
-              if (this.activeConnection) {
-                this.activeConnection.send(JSON.stringify({ type: 'disconnected' }));
-              }
-              this.disconnectCleanupRecover({ reason: 'device disconnected', isClean: true });
-            },
-            onError: (error) => {
-              this.disconnectCleanupRecover({ reason: 'transport error', error, isClean: false });
-            }
-          }),
+          this.transport.connect(config),
           8000,
           async () => {
             console.log(`[Bridge] Connection timeout - stopping transport`);

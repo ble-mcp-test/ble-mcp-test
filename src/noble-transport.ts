@@ -1,3 +1,4 @@
+import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
 import { translateBluetoothError } from './bluetooth-errors.js';
 import { cleanupNoble, withTimeout } from './utils.js';
@@ -7,6 +8,11 @@ import { cleanupNoble, withTimeout } from './utils.js';
  * 
  * Handles all BLE device communication.
  * No state management, just pure BLE operations.
+ * 
+ * Events:
+ * - 'data': (data: Uint8Array) - Notification received from device
+ * - 'disconnect': () - Device disconnected
+ * - 'error': (error: any) - Transport error occurred
  */
 
 export interface BleConfig {
@@ -16,21 +22,12 @@ export interface BleConfig {
   notifyUuid: string;
 }
 
-export interface BleCallbacks {
-  onData: (data: Uint8Array) => void;
-  onDisconnect: () => void;
-  onError: (error: any) => void;
-}
-
-export class NobleTransport {
+export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
-  private callbacks: BleCallbacks | null = null;
 
-  async connect(config: BleConfig, callbacks: BleCallbacks): Promise<string> {
-    this.callbacks = callbacks;
-    
+  async connect(config: BleConfig): Promise<string> {
     try {
       // Wait for Noble to be ready
       if (noble.state !== 'poweredOn') {
@@ -83,9 +80,7 @@ export class NobleTransport {
       
       // Subscribe to notifications
       this.notifyChar.on('data', (data: Buffer) => {
-        if (this.callbacks) {
-          this.callbacks.onData(new Uint8Array(data));
-        }
+        this.emit('data', new Uint8Array(data));
       });
       
       await this.notifyChar.subscribeAsync();
@@ -93,9 +88,7 @@ export class NobleTransport {
       // Handle unexpected disconnect
       this.peripheral.once('disconnect', () => {
         console.log(`[Noble] Device disconnected`);
-        if (this.callbacks) {
-          this.callbacks.onDisconnect();
-        }
+        this.emit('disconnect');
       });
       
       console.log(`[Noble] Connected successfully to ${deviceName}`);
@@ -162,7 +155,9 @@ export class NobleTransport {
     this.peripheral = null;
     this.writeChar = null;
     this.notifyChar = null;
-    this.callbacks = null;
+    
+    // Remove all listeners
+    this.removeAllListeners();
     
     // Clean up Noble
     await cleanupNoble();
