@@ -96,3 +96,32 @@ export async function cleanupNoble(): Promise<void> {
   // Clean up any dangling listeners
   noble.removeAllListeners();
 }
+
+/**
+ * Clean timeout wrapper that handles both rejection and cleanup
+ * Useful for operations that need timeout with cleanup side effects
+ */
+export async function withTimeout<T>(
+  promise: Promise<T>, 
+  timeoutMs: number, 
+  onTimeout?: () => void | Promise<void>
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      setTimeout(async () => {
+        // Do cleanup FIRST, then reject
+        if (onTimeout) {
+          try {
+            await onTimeout();
+          } catch (error) {
+            console.error('Timeout cleanup error:', error);
+          }
+        }
+        
+        // Now reject after cleanup is complete
+        reject(new Error('Operation timeout'));
+      }, timeoutMs);
+    })
+  ]);
+}

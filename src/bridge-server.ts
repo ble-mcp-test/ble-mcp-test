@@ -1,7 +1,8 @@
 import { WebSocketServer } from 'ws';
 import noble from '@stoprocent/noble';
-import { cleanupNoble } from './utils.js';
+import { cleanupNoble, withTimeout } from './utils.js';
 import type { SharedState } from './shared-state.js';
+import { translateBluetoothError } from './bluetooth-errors.js';
 
 /**
  * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.0
@@ -73,21 +74,18 @@ export class BridgeServer {
       this.activeConnection = ws;
       
       try {
-        // Connect to BLE device directly with timeout
-        const timeoutHandle = setTimeout(async () => {
-          // Stop scanning if still in progress
-          console.log(`[Bridge] Connection timeout - stopping scan`);
-          await noble.stopScanningAsync().catch(() => {});
-        }, 8000);
-        
-        await Promise.race([
+        // Connect to BLE device with timeout and cleanup
+        await withTimeout(
           this.connectToBLE(config),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Connection timeout')), 8000)
-          )
-        ]);
-        
-        clearTimeout(timeoutHandle);
+          8000,
+          async () => {
+            console.log(`[Bridge] Connection timeout - stopping scan`);
+            await noble.stopScanningAsync().catch(() => {});
+            // CRITICAL: Reset state immediately on timeout to prevent race conditions
+            console.log(`[Bridge] ✓ State transition: connecting → ready (timeout reset)`);
+            this.state = 'ready';
+          }
+        );
         
         // Connected! Reset failure count and transition to active state
         this.consecutiveFailures = 0;
@@ -130,12 +128,35 @@ export class BridgeServer {
         });
         
       } catch (error: any) {
-        console.error('[Bridge] Connection error:', error.message);
+        // Translate Bluetooth error codes to meaningful messages
+        const errorMessage = translateBluetoothError(error);
+        // Log error without debug prefix
+        console.error('[Bridge] Connection error:', errorMessage);
+        
+        // Log full error for debugging when it's just a number
+        if (typeof error === 'number' || (!error?.message && error !== undefined && error !== null)) {
+          console.error('[Bridge] Full error object:', error);
+        }
+        
         // Increment failure count on connection error
         this.consecutiveFailures++;
-        // Ensure Noble is cleaned up on error
+        
+        // CRITICAL: Ensure Noble and any connected peripheral are cleaned up on error
+        // This prevents zombie connections where device thinks it's connected but bridge doesn't
         await noble.stopScanningAsync().catch(() => {});
-        ws.send(JSON.stringify({ type: 'error', error: error.message }));
+        
+        // Force disconnect ANY peripheral we might have, regardless of state
+        if (this.peripheral) {
+          console.error('[Bridge] CRITICAL: Forcing peripheral disconnect after error to prevent zombie connection');
+          try {
+            // Don't trust the state - just disconnect
+            await this.peripheral.disconnectAsync();
+          } catch (disconnectError) {
+            console.error('[Bridge] Error during forced disconnect:', disconnectError);
+          }
+        }
+        
+        ws.send(JSON.stringify({ type: 'error', error: errorMessage }));
         this.cleanup();
       }
     });
@@ -161,6 +182,7 @@ export class BridgeServer {
     
     this.peripheral = await new Promise<any>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        noble.removeListener('discover', onDiscover);
         noble.stopScanningAsync();
         reject(new Error(`Device ${config.devicePrefix} not found`));
       }, 15000);
@@ -241,9 +263,14 @@ export class BridgeServer {
     // Set up escalating stuck state detection
     this.setupEscalatingCleanup();
     
-    // Clean up BLE
+    // Clean up BLE - ensure disconnection even if error occurred during connection
     if (this.peripheral) {
       try {
+        // Check if peripheral is still connected
+        if (this.peripheral.state === 'connected') {
+          console.log(`[Bridge] Forcing disconnect of connected peripheral`);
+        }
+        
         if (this.notifyChar) {
           this.notifyChar.unsubscribeAsync().catch(() => {});
         }
