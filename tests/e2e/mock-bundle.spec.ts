@@ -1,8 +1,22 @@
 import { test, expect } from '@playwright/test';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import * as dotenv from 'dotenv';
+
+// Load environment variables for BLE configuration
+dotenv.config({ path: '.env.local' });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// Helper to get BLE configuration from environment
+function getBleConfig() {
+  return {
+    device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
+    service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+    write: process.env.BLE_MCP_WRITE_UUID || '9900',
+    notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
+  };
+}
 
 /**
  * Test the Web Bluetooth mock bundle to ensure it loads and exports correctly
@@ -166,5 +180,114 @@ test.describe('Mock Bundle Export Tests', () => {
     
     expect(hasSimulateMethod.hasTransport).toBe(true);
     expect(hasSimulateMethod.hasGatt).toBe(true);
+  });
+
+  test('should handle multiple connect/disconnect cycles like real tests', async ({ page }) => {
+    // Skip if no real device available
+    const deviceAvailable = process.env.CHECK_BLE_DEVICE !== 'false';
+    if (!deviceAvailable) {
+      console.log('Skipping multi-cycle test - no BLE device available');
+      return;
+    }
+    
+    // Start a real bridge server for this test
+    const { BridgeServer } = await import('../../dist/index.js');
+    const bridge = new BridgeServer('info');
+    
+    // Use a random port to avoid conflicts
+    const port = 8090 + Math.floor(Math.random() * 100);
+    await bridge.start(port);
+    
+    try {
+      await page.goto('about:blank');
+      
+      // Load and inject mock
+      const bundlePath = join(__dirname, '../../dist/web-ble-mock.bundle.js');
+      await page.addScriptTag({ path: bundlePath });
+      
+      // Run multiple connect/disconnect cycles
+      const results = await page.evaluate(async ({ wsPort, device, service, write, notify }) => {
+        // Configure mock with required BLE parameters from environment
+        const url = new URL(`ws://localhost:${wsPort}`);
+        url.searchParams.set('device', device);
+        url.searchParams.set('service', service);
+        url.searchParams.set('write', write);
+        url.searchParams.set('notify', notify);
+        
+        window.WebBleMock.injectWebBluetoothMock(url.toString());
+        
+        const results = [];
+        const cycles = 5;
+        
+        for (let i = 0; i < cycles; i++) {
+          const cycleStart = Date.now();
+          
+          try {
+            // Request device
+            const device = await navigator.bluetooth.requestDevice({
+              filters: [{ namePrefix: 'TestDevice' }]
+            });
+            
+            // Connect
+            const connectStart = Date.now();
+            await device.gatt.connect();
+            const connectTime = Date.now() - connectStart;
+            
+            // Quick operation (would be real test actions)
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Disconnect
+            await device.gatt.disconnect();
+            
+            const cycleTime = Date.now() - cycleStart;
+            
+            results.push({
+              cycle: i + 1,
+              success: true,
+              connectTime,
+              cycleTime
+            });
+            
+          } catch (error) {
+            results.push({
+              cycle: i + 1,
+              success: false,
+              error: error.message,
+              cycleTime: Date.now() - cycleStart
+            });
+          }
+          
+          // Brief pause between cycles (like real tests)
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        return results;
+      }, {
+        wsPort: port,
+        ...getBleConfig()
+      });
+      
+      console.log('Connect/disconnect cycle results:', results);
+      
+      // All cycles should succeed
+      const successful = results.filter(r => r.success).length;
+      expect(successful).toBe(5);
+      
+      // Connection times should be reasonable (accounting for retries)
+      results.forEach(result => {
+        if (result.success) {
+          expect(result.connectTime).toBeLessThan(10000); // 10s max with retries
+          expect(result.cycleTime).toBeLessThan(12000); // 12s max total
+        }
+      });
+      
+      // Later cycles might be faster if we reduce recovery time for clean disconnects
+      const avgFirstTwo = (results[0].cycleTime + results[1].cycleTime) / 2;
+      const avgLastTwo = (results[3].cycleTime + results[4].cycleTime) / 2;
+      console.log(`Average first 2 cycles: ${avgFirstTwo}ms, last 2: ${avgLastTwo}ms`);
+      
+    } finally {
+      await bridge.stop();
+    }
   });
 });

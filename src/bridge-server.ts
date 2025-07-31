@@ -252,12 +252,13 @@ export class BridgeServer {
         // Ignore cleanup errors during disconnect
       }
       
-      // Calculate recovery delay with exponential backoff for consecutive failures
-      const baseDelay = this.recoveryDelay;
-      const currentDelay = Math.min(
-        baseDelay * Math.pow(1.5, this.consecutiveFailures),
-        this.maxRecoveryDelay
-      );
+      // Calculate recovery delay: fast for clean disconnects, longer for failures
+      const currentDelay = this.consecutiveFailures === 0 
+        ? 1000 // Clean disconnect: 1s recovery
+        : Math.min(
+            this.recoveryDelay * Math.pow(1.5, this.consecutiveFailures),
+            this.maxRecoveryDelay
+          );
       
       console.log(`[Bridge] Starting ${Math.round(currentDelay)}ms recovery period (failures: ${this.consecutiveFailures})`);
       this.sharedState?.setConnectionState({ recovering: true });

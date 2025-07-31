@@ -121,6 +121,62 @@ test.describe('BLE Device Tests', () => {
 ## Device Configuration
 
 ### Using Query Parameters
+
+#### With Environment Variables (Recommended)
+```javascript
+// Load environment variables (in Node.js/test environment)
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+
+// Configure from environment
+const host = process.env.BLE_MCP_WS_HOST || 'localhost';
+const port = process.env.BLE_MCP_WS_PORT || '8080';
+const url = new URL(`ws://${host}:${port}`);
+url.searchParams.set('device', process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108');
+url.searchParams.set('service', process.env.BLE_MCP_SERVICE_UUID || '9800');
+url.searchParams.set('write', process.env.BLE_MCP_WRITE_UUID || '9900');
+url.searchParams.set('notify', process.env.BLE_MCP_NOTIFY_UUID || '9901');
+
+injectWebBluetoothMock(url.toString());
+```
+
+#### In Playwright Tests
+```javascript
+import * as dotenv from 'dotenv';
+dotenv.config({ path: '.env.local' });
+
+// Helper function for cleaner code
+function getBleConfig() {
+  return {
+    device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
+    service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+    write: process.env.BLE_MCP_WRITE_UUID || '9900',
+    notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
+  };
+}
+
+// Helper to get full config including host/port
+function getFullBleConfig() {
+  return {
+    host: process.env.BLE_MCP_WS_HOST || 'localhost',
+    port: process.env.BLE_MCP_WS_PORT || '8080',
+    ...getBleConfig()
+  };
+}
+
+// Pass to browser context
+await page.evaluate(({ host, port, device, service, write, notify }) => {
+  const url = new URL(`ws://${host}:${port}`);
+  url.searchParams.set('device', device);
+  url.searchParams.set('service', service);
+  url.searchParams.set('write', write);
+  url.searchParams.set('notify', notify);
+  
+  window.WebBleMock.injectWebBluetoothMock(url.toString());
+}, getFullBleConfig());
+```
+
+#### Manual Configuration
 ```javascript
 // Configure device-specific parameters via URL
 const url = new URL('ws://localhost:8080');
