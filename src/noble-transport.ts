@@ -28,10 +28,14 @@ export class NobleTransport extends EventEmitter {
 
   async connect(config: BleConfig): Promise<string> {
     try {
-      // Wait for Noble to be ready
+      // Wait for Noble to be ready with timeout
       if (noble.state !== 'poweredOn') {
         console.log(`[Noble] State: ${noble.state}, waiting for power on...`);
-        await noble.waitForPoweredOnAsync();
+        await this.withInternalTimeout(
+          noble.waitForPoweredOnAsync(),
+          15000,
+          'Bluetooth adapter timeout - check if Bluetooth is enabled'
+        );
       }
       
       // Find device (handles complete scanning lifecycle)
