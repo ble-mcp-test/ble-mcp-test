@@ -131,8 +131,8 @@ class MockBluetoothRemoteGATTService {
   }
 }
 
-// Configuration for mock behavior
-const MOCK_CONFIG = {
+// Configuration for mock behavior - can be overridden at runtime
+let MOCK_CONFIG = {
   // Match server's expected recovery timing:
   // - Clean disconnect: 1s (new default)
   // - Failed connection: 5s+ (server default)
@@ -142,6 +142,11 @@ const MOCK_CONFIG = {
   retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.3'), // Gentler backoff
   logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
 };
+
+// Allow runtime configuration updates
+export function updateMockConfig(updates: Partial<typeof MOCK_CONFIG>): void {
+  MOCK_CONFIG = { ...MOCK_CONFIG, ...updates };
+}
 
 // Mock BluetoothRemoteGATTServer
 class MockBluetoothRemoteGATTServer {

@@ -3,6 +3,12 @@ import { BridgeServer } from '../../src/bridge-server.js';
 import { ObservabilityServer } from '../../src/observability-server.js';
 import { SharedState } from '../../src/shared-state.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Read version from package.json
+const packageJson = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'));
+const PACKAGE_VERSION = packageJson.version;
 
 describe('MCP Tools Integration Tests', () => {
   let bridgeServer: BridgeServer;
@@ -127,7 +133,7 @@ describe('MCP Tools Integration Tests', () => {
     );
     
     const status = JSON.parse(result.content[0].text);
-    expect(status.version).toBe('0.4.1');
+    expect(status.version).toBe(PACKAGE_VERSION);
     expect(status.uptime).toBeGreaterThan(0);
     expect(status.wsPort).toBeDefined();
     expect(status.mcpTransports).toBeDefined();

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { BridgeServer } from '../../src/index.js';
 import { SharedState } from '../../src/shared-state.js';
-import { MockBluetooth, injectWebBluetoothMock } from '../../src/mock-bluetooth.js';
+import { MockBluetooth, injectWebBluetoothMock, updateMockConfig } from '../../src/mock-bluetooth.js';
 import { WS_URL, getDeviceConfig } from '../test-config.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
@@ -26,13 +26,21 @@ describe('Mock Retry Behavior', () => {
     }
   });
 
+  afterEach(async () => {
+    // Ensure clean state between tests
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  });
+
   it('should retry when bridge is in disconnecting state', async () => {
     console.log('\n🔄 Testing mock retry behavior during bridge recovery period\n');
     
-    // Set up environment to enable retry logging
-    process.env.BLE_MCP_MOCK_LOG_RETRIES = 'true';
-    process.env.BLE_MCP_MOCK_RETRY_DELAY = '500'; // Faster for testing
-    process.env.BLE_MCP_MOCK_MAX_RETRIES = '15'; // More retries for 5s recovery
+    // Configure mock for testing
+    updateMockConfig({
+      logRetries: true,
+      connectRetryDelay: 200, // Faster for testing
+      maxConnectRetries: 10, // Enough retries for 1s recovery
+      postDisconnectDelay: 0 // No delay so we hit recovery period
+    });
     
     // First, establish a connection to put device in use
     const mock1 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
@@ -47,7 +55,7 @@ describe('Mock Retry Behavior', () => {
     // Disconnect to trigger recovery period
     console.log('\n  2️⃣ Disconnecting to trigger recovery period...');
     await device1.gatt.disconnect();
-    console.log('  🕒 Bridge entering 5-second recovery period');
+    console.log('  🕒 Bridge entering 1-second recovery period');
     
     // Immediately try to connect second device - should retry
     const mock2 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);
@@ -73,7 +81,7 @@ describe('Mock Retry Behavior', () => {
       console.log(`\n  ✅ Second device connected after ${elapsed}ms`);
       
       // Should have taken some time due to retries
-      expect(elapsed).toBeGreaterThan(1000); // At least some retry delay
+      expect(elapsed).toBeGreaterThan(500); // At least some retry delay
       
       // Should see retry messages
       const retryMessages = logMessages.filter(msg => 
@@ -100,8 +108,11 @@ describe('Mock Retry Behavior', () => {
     console.log('\n⛔ Testing max retries limit\n');
     
     // Configure for quick failure
-    process.env.BLE_MCP_MOCK_RETRY_DELAY = '100';
-    process.env.BLE_MCP_MOCK_MAX_RETRIES = '2'; // Only 2 retries
+    updateMockConfig({
+      connectRetryDelay: 100,
+      maxConnectRetries: 2, // Only 2 retries
+      postDisconnectDelay: 0 // No delay for testing
+    });
     
     // Connect and disconnect to trigger recovery
     const mock1 = new MockBluetooth(`ws://localhost:${port}`, DEVICE_CONFIG);

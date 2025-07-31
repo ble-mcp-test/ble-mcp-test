@@ -206,10 +206,10 @@ test.describe('Mock Bundle Export Tests', () => {
       await page.addScriptTag({ path: bundlePath });
       
       // Run multiple connect/disconnect cycles
-      const results = await page.evaluate(async ({ wsPort, device, service, write, notify }) => {
+      const results = await page.evaluate(async ({ wsPort, deviceId, service, write, notify }) => {
         // Configure mock with required BLE parameters from environment
         const url = new URL(`ws://localhost:${wsPort}`);
-        url.searchParams.set('device', device);
+        url.searchParams.set('device', deviceId);
         url.searchParams.set('service', service);
         url.searchParams.set('write', write);
         url.searchParams.set('notify', notify);
@@ -223,9 +223,9 @@ test.describe('Mock Bundle Export Tests', () => {
           const cycleStart = Date.now();
           
           try {
-            // Request device
+            // Request device using configured device identifier
             const device = await navigator.bluetooth.requestDevice({
-              filters: [{ namePrefix: 'TestDevice' }]
+              filters: [{ namePrefix: deviceId }]
             });
             
             // Connect
@@ -257,14 +257,20 @@ test.describe('Mock Bundle Export Tests', () => {
             });
           }
           
-          // Brief pause between cycles (like real tests)
-          await new Promise(resolve => setTimeout(resolve, 200));
+          // Wait for bridge recovery + mock post-disconnect delay
+          // This simulates real test behavior with proper cleanup between tests
+          if (i < cycles - 1) { // Don't wait after last cycle
+            await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5s to ensure clean state
+          }
         }
         
         return results;
       }, {
         wsPort: port,
-        ...getBleConfig()
+        deviceId: getBleConfig().device,
+        service: getBleConfig().service,
+        write: getBleConfig().write,
+        notify: getBleConfig().notify
       });
       
       console.log('Connect/disconnect cycle results:', results);

@@ -1,14 +1,15 @@
 // Browser entry point that explicitly exports what we need
-import { MockBluetooth, injectWebBluetoothMock } from './mock-bluetooth.js';
+import { MockBluetooth, injectWebBluetoothMock, updateMockConfig } from './mock-bluetooth.js';
 
 // Export as a global object with the functions we need
 export const WebBleMock = {
   MockBluetooth,
-  injectWebBluetoothMock
+  injectWebBluetoothMock,
+  updateMockConfig
 };
 
 // Also export individually for ES modules
-export { MockBluetooth, injectWebBluetoothMock };
+export { MockBluetooth, injectWebBluetoothMock, updateMockConfig };
 
 // For IIFE builds, ensure global is set
 if (typeof window !== 'undefined') {

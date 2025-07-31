@@ -107,7 +107,7 @@ test('BLE device communication', async ({ page }) => {
 ✅ **CI/CD Ready** - Run BLE tests in GitHub Actions, Docker, etc  
 ✅ **MCP Observability** - AI-friendly debugging with Claude, Cursor, etc  
 ✅ **TypeScript** - Full type safety and IntelliSense  
-✅ **Minimal** - Core bridge under 500 lines, one connection at a time  
+✅ **Minimal** - Core bridge under 600 lines, one connection at a time  
 
 ## Documentation
 

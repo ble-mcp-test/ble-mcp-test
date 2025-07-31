@@ -13,7 +13,7 @@ ble-mcp-test is designed around extreme simplicity. The core bridge components t
 - **Key Features**:
   - One connection at a time (prevents race conditions)
   - Atomic state transitions
-  - 5-second recovery period after disconnection
+  - 1-second recovery period after clean disconnection (5s+ for failures)
   - Escalating cleanup system for stuck states
 
 ### 2. Noble Transport (integrated in bridge-server.ts)
@@ -51,7 +51,7 @@ ble-mcp-test is designed around extreme simplicity. The core bridge components t
          ┌─────────┐
          │  ready  │◄────────────┐
          └────┬────┘             │
-              │                  │ 5s recovery
+              │                  │ 1s recovery
               │ connect          │
          ┌────▼────┐             │
          │connecting│            │
@@ -120,7 +120,7 @@ By limiting to one connection:
 - Predictable behavior
 - Rock-solid reliability
 
-### Why 5-Second Recovery?
+### Why Recovery Period?
 
 BLE on Linux (via BlueZ) needs time to:
 - Clean up kernel resources
@@ -128,7 +128,9 @@ BLE on Linux (via BlueZ) needs time to:
 - Clear device cache
 - Prevent "Device or resource busy" errors
 
-The 5-second delay ensures stable reconnections.
+The recovery period ensures stable reconnections:
+- **Clean disconnects**: 1 second (v0.4.3+)
+- **Failed connections**: 5+ seconds with exponential backoff
 
 ### Why No Reconnection Logic?
 

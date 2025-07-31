@@ -24,10 +24,10 @@ await build({
   outfile: join(projectRoot, 'dist/web-ble-mock.bundle.js'),
   platform: 'browser',
   define: {
-    'process.env.BLE_MCP_MOCK_RETRY_DELAY': '"1000"',
-    'process.env.BLE_MCP_MOCK_MAX_RETRIES': '"10"',
-    'process.env.BLE_MCP_MOCK_CLEANUP_DELAY': '"0"',
-    'process.env.BLE_MCP_MOCK_BACKOFF': '"1.5"',
+    'process.env.BLE_MCP_MOCK_RETRY_DELAY': '"1200"',
+    'process.env.BLE_MCP_MOCK_MAX_RETRIES': '"20"',
+    'process.env.BLE_MCP_MOCK_CLEANUP_DELAY': '"1100"',
+    'process.env.BLE_MCP_MOCK_BACKOFF': '"1.3"',
     'process.env.BLE_MCP_MOCK_LOG_RETRIES': '"true"'
   }
 });
