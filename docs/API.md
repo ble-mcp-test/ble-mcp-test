@@ -54,6 +54,37 @@ If you're not using a module bundler, include the pre-built bundle:
 </script>
 ```
 
+### Mock Configuration
+
+The mock supports configuration via environment variables for retry behavior:
+
+- `BLE_MCP_MOCK_RETRY_DELAY` - Initial retry delay in ms (default: 1000)
+- `BLE_MCP_MOCK_MAX_RETRIES` - Maximum retry attempts (default: 10)
+- `BLE_MCP_MOCK_CLEANUP_DELAY` - Post-disconnect delay in ms (default: 0)
+- `BLE_MCP_MOCK_BACKOFF` - Exponential backoff multiplier (default: 1.5)
+- `BLE_MCP_MOCK_LOG_RETRIES` - Log retry attempts (default: true)
+
+### Test Notification Injection
+
+The `simulateNotification()` method allows tests to inject device notifications without real hardware events:
+
+```javascript
+// Get a characteristic
+const characteristic = await service.getCharacteristic('9901');
+
+// Simulate a button press event from the device
+characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+
+// Simulate a button release event
+characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+```
+
+This is useful for:
+- Testing notification handlers without real device events
+- Controlling exact timing of test events
+- Simulating specific device states or error conditions
+- Testing while the real device is performing other operations
+
 ## MCP HTTP Endpoints
 
 When running with HTTP transport (`pnpm start:http` or `--mcp-http`), the following endpoints are available:
@@ -66,7 +97,7 @@ Public endpoint that returns server metadata and available tools. No authenticat
 ```json
 {
   "name": "ble-mcp-test",
-  "version": "0.3.1",
+  "version": "0.4.2",
   "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
   "tools": [
     { "name": "get_logs", "description": "Get BLE Communication Logs" },
@@ -92,7 +123,7 @@ Authenticated endpoint for MCP client registration. Returns server capabilities.
 ```json
 {
   "name": "ble-mcp-test",
-  "version": "0.3.1",
+  "version": "0.4.2",
   "capabilities": {
     "tools": true,
     "resources": false,
@@ -301,10 +332,9 @@ The mock implements the following Web Bluetooth API methods:
 - `writeValue(data)` - Write data to characteristic
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
+- `simulateNotification(data)` - Inject test notifications
 
-## Breaking Changes in v0.4.0
-
-### Connection Token
+## Connection Token
 All successful connections now receive a unique authentication token:
 - The `connected` message includes a `token` field
 - This token is required for `force_cleanup` operations
