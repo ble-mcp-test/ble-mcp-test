@@ -2,6 +2,7 @@ import { WebSocketServer } from 'ws';
 import noble from '@stoprocent/noble';
 import { cleanupNoble } from './utils.js';
 import type { SharedState } from './shared-state.js';
+import { translateBluetoothError } from './bluetooth-errors.js';
 
 /**
  * ULTRA SIMPLE WebSocket-to-BLE Bridge v0.4.0
@@ -130,25 +131,31 @@ export class BridgeServer {
         });
         
       } catch (error: any) {
-        // Extract error message safely
-        const errorMessage = error?.message || error?.toString() || 'Unknown error';
+        // Translate Bluetooth error codes to meaningful messages
+        const errorMessage = translateBluetoothError(error);
         console.error('[Bridge] Connection error:', errorMessage);
         
-        // Log full error for debugging when message is undefined
-        if (!error?.message && error !== undefined && error !== null) {
+        // Log full error for debugging when it's just a number
+        if (typeof error === 'number' || (!error?.message && error !== undefined && error !== null)) {
           console.error('[Bridge] Full error object:', error);
         }
         
         // Increment failure count on connection error
         this.consecutiveFailures++;
         
-        // Ensure Noble and any connected peripheral are cleaned up on error
+        // CRITICAL: Ensure Noble and any connected peripheral are cleaned up on error
+        // This prevents zombie connections where device thinks it's connected but bridge doesn't
         await noble.stopScanningAsync().catch(() => {});
         
-        // If we have a peripheral that might be connected, disconnect it
-        if (this.peripheral && this.peripheral.state === 'connected') {
-          console.error('[Bridge] Error occurred with connected peripheral - forcing disconnect');
-          await this.peripheral.disconnectAsync().catch(() => {});
+        // Force disconnect ANY peripheral we might have, regardless of state
+        if (this.peripheral) {
+          console.error('[Bridge] CRITICAL: Forcing peripheral disconnect after error to prevent zombie connection');
+          try {
+            // Don't trust the state - just disconnect
+            await this.peripheral.disconnectAsync();
+          } catch (disconnectError) {
+            console.error('[Bridge] Error during forced disconnect:', disconnectError);
+          }
         }
         
         ws.send(JSON.stringify({ type: 'error', error: errorMessage }));

@@ -9,12 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Timestamp Logging**: Optional timestamps in logs (HH:MM:SS.mmm format) via `BLE_MCP_LOG_TIMESTAMPS`
+- **Bluetooth Error Translation**: Numeric error codes now translated to meaningful messages (e.g., 62 = "Connection timed out")
 - **Better Error Logging**: Improved error handling for undefined errors and full error object logging
 
 ### Fixed
-- **Zombie BLE Connections**: Force disconnect peripherals when errors occur during connection
+- **CRITICAL: Zombie BLE Connections**: Force disconnect peripherals on ANY error to prevent device staying connected
 - **Undefined Error Messages**: Safely extract error messages from any error type
-- **Stuck Device State**: Ensure BLE device disconnects even when WebSocket errors occur
+- **Stuck Device State**: Ensure BLE device disconnects even when connection errors occur
+- **Error Code 62**: Now properly translated as "Connection timed out (ETIMEDOUT)"
 
 ### Changed
 - **NPM Publish**: Now only runs Playwright E2E tests instead of all tests
