@@ -142,6 +142,13 @@ BLE_MCP_CLIENT_IDLE_TIMEOUT=60000 pnpm dlx ble-mcp-test
 BLE_MCP_RECOVERY_DELAY=1000         # BLE stack recovery time (Noble reset + disconnect cooldown)
 BLE_MCP_SCAN_TIMEOUT=15000          # Maximum time to scan for devices
 BLE_MCP_CONNECTION_TIMEOUT=15000    # Maximum time to establish connection
+
+# Mock configuration (v0.4.1+) - for Web Bluetooth mock behavior
+BLE_MCP_MOCK_RETRY_DELAY=1000       # Initial delay between connection retries (ms)
+BLE_MCP_MOCK_MAX_RETRIES=10         # Maximum connection retry attempts
+BLE_MCP_MOCK_CLEANUP_DELAY=0        # Optional delay after disconnect (ms)
+BLE_MCP_MOCK_BACKOFF=1.5            # Retry delay multiplier for exponential backoff
+BLE_MCP_MOCK_LOG_RETRIES=true       # Log retry attempts (set to 'false' to disable)
 ```
 
 **Log Levels:**

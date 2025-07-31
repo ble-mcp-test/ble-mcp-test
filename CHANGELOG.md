@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2025-01-30
+
+### Fixed
+- **Mock Connection Lifecycle**: Added smart retry logic when bridge is in "disconnecting" state
+  - Retries up to 10 times with exponential backoff (1s, 1.5s, 2.25s...)
+  - Distinguishes between retryable (bridge busy) and non-retryable errors
+  - Provides visibility through console logs when retries occur
+- **TX/RX Logging**: Changed from byte count to actual hex bytes for protocol debugging
+  - Before: `[Bridge] TX 10 bytes`
+  - After: `[Bridge] TX: a7 b3 02 d9 82 37 00 00 a0 00`
+- **Mock Cleanup**: Improved disconnect synchronization
+  - Waits for force_cleanup acknowledgment before closing WebSocket
+  - Prevents race conditions during rapid connect/disconnect cycles
+
+### Added
+- **Mock Configuration Options** (via environment variables):
+  - `BLE_MCP_MOCK_RETRY_DELAY` - Initial retry delay in ms (default: 1000)
+  - `BLE_MCP_MOCK_MAX_RETRIES` - Maximum retry attempts (default: 10)
+  - `BLE_MCP_MOCK_CLEANUP_DELAY` - Optional post-disconnect delay (default: 0)
+  - `BLE_MCP_MOCK_BACKOFF` - Exponential backoff multiplier (default: 1.5)
+  - `BLE_MCP_MOCK_LOG_RETRIES` - Log retry behavior (default: true)
+- **simulateNotification() Method**: Tests can inject device notifications
+  ```javascript
+  // Simulate button press from device
+  characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+  ```
+  - Enables testing of notification handlers without real device events
+  - Test controls exact timing and payload of simulated events
+  - Works alongside real device notifications
+- **Stress Tests**: Suite to replicate npm publish failures under high load
+  - Confirms BLE operations are sensitive to CPU/memory pressure
+  - Documents attack vectors and mitigation strategies
+
+### Changed
+- Mock now handles bridge's 5-second recovery period gracefully
+- Better error messages distinguish between temporary and permanent failures
+
 ## [0.4.0] - 2025-01-30
 
 ### Added

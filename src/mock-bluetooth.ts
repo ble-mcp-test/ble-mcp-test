@@ -42,6 +42,8 @@ import { WebSocketTransport } from './ws-transport.js';
 
 // Mock BluetoothRemoteGATTCharacteristic
 class MockBluetoothRemoteGATTCharacteristic {
+  private notificationHandlers: Array<(event: any) => void> = [];
+
   constructor(
     private service: MockBluetoothRemoteGATTService,
     public uuid: string
@@ -59,25 +61,60 @@ class MockBluetoothRemoteGATTCharacteristic {
 
   addEventListener(event: string, handler: any): void {
     if (event === 'characteristicvaluechanged') {
+      // Store handler for both real and simulated notifications
+      this.notificationHandlers.push(handler);
+      
       // WebSocketTransport will handle notifications
       this.service.server.device.transport.onMessage((msg) => {
         if (msg.type === 'data' && msg.data) {
           const data = new Uint8Array(msg.data);
-          // Create a mock event with the data
-          const mockEvent = {
-            target: {
-              value: {
-                buffer: data.buffer,
-                byteLength: data.byteLength,
-                byteOffset: data.byteOffset,
-                getUint8: (index: number) => data[index]
-              }
-            }
-          };
-          handler(mockEvent);
+          this.triggerNotification(data);
         }
       });
     }
+  }
+
+  /**
+   * Simulate a notification from the device (for testing)
+   * This allows tests to inject data as if it came from the real device
+   * 
+   * @example
+   * // Simulate button press event
+   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+   * // Simulate button release event  
+   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+   */
+  simulateNotification(data: Uint8Array): void {
+    if (!this.service.server.connected) {
+      throw new Error('GATT Server not connected');
+    }
+    
+    // Log for debugging if enabled
+    if (MOCK_CONFIG.logRetries) {
+      const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      console.log(`[Mock] Simulating device notification: ${hex}`);
+    }
+    
+    this.triggerNotification(data);
+  }
+
+  private triggerNotification(data: Uint8Array): void {
+    // Create a mock event with the data matching Web Bluetooth API structure
+    const mockEvent = {
+      target: {
+        value: {
+          buffer: data.buffer,
+          byteLength: data.byteLength,
+          byteOffset: data.byteOffset,
+          getUint8: (index: number) => data[index]
+        }
+      }
+    };
+    
+    // Trigger all registered handlers
+    this.notificationHandlers.forEach(handler => {
+      handler(mockEvent);
+    });
   }
 }
 
@@ -94,6 +131,15 @@ class MockBluetoothRemoteGATTService {
   }
 }
 
+// Configuration for mock behavior
+const MOCK_CONFIG = {
+  connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1000', 10),
+  maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '10', 10),
+  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '0', 10),
+  retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.5'),
+  logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
+};
+
 // Mock BluetoothRemoteGATTServer
 class MockBluetoothRemoteGATTServer {
   connected = false;
@@ -101,25 +147,102 @@ class MockBluetoothRemoteGATTServer {
   constructor(public device: MockBluetoothDevice) {}
 
   async connect(): Promise<MockBluetoothRemoteGATTServer> {
-    await this.device.transport.connect({ device: this.device.name });
-    this.connected = true;
-    return this;
+    let lastError: Error | null = null;
+    let retryDelay = MOCK_CONFIG.connectRetryDelay;
+    
+    for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
+      try {
+        // Pass BLE configuration if available
+        const connectOptions: any = { device: this.device.name };
+        if (this.device.bleConfig) {
+          Object.assign(connectOptions, this.device.bleConfig);
+        }
+        
+        await this.device.transport.connect(connectOptions);
+        this.connected = true;
+        
+        if (attempt > 1 && MOCK_CONFIG.logRetries) {
+          console.log(`[Mock] Connected successfully after ${attempt} attempts`);
+        }
+        
+        return this;
+      } catch (error: any) {
+        lastError = error;
+        
+        // Check if error is retryable (bridge busy states)
+        const retryableErrors = [
+          'Bridge is disconnecting',
+          'Bridge is connecting', 
+          'only ready state accepts connections'
+        ];
+        
+        const isRetryable = retryableErrors.some(msg => 
+          error.message?.includes(msg)
+        );
+        
+        if (isRetryable && attempt < MOCK_CONFIG.maxConnectRetries) {
+          if (MOCK_CONFIG.logRetries) {
+            console.log(`[Mock] Bridge busy (${error.message}), retry ${attempt}/${MOCK_CONFIG.maxConnectRetries} in ${retryDelay}ms...`);
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          
+          // Exponential backoff for subsequent retries
+          retryDelay = Math.min(
+            retryDelay * MOCK_CONFIG.retryBackoffMultiplier,
+            10000 // Max 10 second delay
+          );
+          
+          continue;
+        }
+        
+        // Non-retryable error or max retries reached
+        throw error;
+      }
+    }
+    
+    // If we get here, we've exhausted retries
+    throw lastError || new Error('Failed to connect after maximum retries');
   }
 
   async disconnect(): Promise<void> {
+    if (!this.connected) {
+      return; // Already disconnected
+    }
+    
     try {
-      // Send force_cleanup before disconnecting, just like the real transport manager
+      // Send force_cleanup before disconnecting
       if (this.device.transport.isConnected()) {
+        if (MOCK_CONFIG.logRetries) {
+          console.log('[Mock] Sending force_cleanup before disconnect');
+        }
+        
         await this.device.transport.forceCleanup();
+        
+        // Small delay to ensure cleanup message is processed
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     } catch (error) {
       // Log but continue with disconnect even if cleanup fails
-      console.warn('Force cleanup failed during disconnect:', error);
+      console.warn('[Mock] Force cleanup failed during disconnect:', error);
     }
     
     // Now disconnect the WebSocket
-    await this.device.transport.disconnect();
+    try {
+      await this.device.transport.disconnect();
+    } catch (error) {
+      console.warn('[Mock] WebSocket disconnect error:', error);
+    }
+    
     this.connected = false;
+    
+    // Optional post-disconnect delay for tests that need it
+    if (MOCK_CONFIG.postDisconnectDelay > 0) {
+      if (MOCK_CONFIG.logRetries) {
+        console.log(`[Mock] Post-disconnect delay: ${MOCK_CONFIG.postDisconnectDelay}ms`);
+      }
+      await new Promise(resolve => setTimeout(resolve, MOCK_CONFIG.postDisconnectDelay));
+    }
   }
   
   async forceCleanup(): Promise<void> {
@@ -138,20 +261,27 @@ class MockBluetoothRemoteGATTServer {
 class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
+  public bleConfig?: { service?: string; write?: string; notify?: string };
 
   constructor(
     public id: string,
     public name: string,
-    serverUrl?: string
+    serverUrl?: string,
+    bleConfig?: { service?: string; write?: string; notify?: string }
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
+    this.bleConfig = bleConfig;
   }
 
   addEventListener(event: string, handler: any): void {
     if (event === 'gattserverdisconnected') {
       this.transport.onMessage((msg) => {
         if (msg.type === 'disconnected') {
+          // Ensure GATT server knows it's disconnected
+          if (this.gatt.connected) {
+            this.gatt.connected = false;
+          }
           handler();
         }
       });
@@ -161,7 +291,11 @@ class MockBluetoothDevice {
 
 // Mock Bluetooth API
 export class MockBluetooth {
-  constructor(private serverUrl?: string) {}
+  private bleConfig?: { service?: string; write?: string; notify?: string };
+
+  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string }) {
+    this.bleConfig = bleConfig;
+  }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
     // Bypass all dialogs - immediately return a mock device
@@ -178,11 +312,12 @@ export class MockBluetooth {
       }
     }
     
-    // Create and return mock device
+    // Create and return mock device with BLE configuration
     const device = new MockBluetoothDevice(
       'mock-device-id',
       deviceName,
-      this.serverUrl
+      this.serverUrl,
+      this.bleConfig
     );
 
     return device;
@@ -195,14 +330,17 @@ export class MockBluetooth {
 }
 
 // Export function to inject mock into window
-export function injectWebBluetoothMock(serverUrl?: string): void {
+export function injectWebBluetoothMock(
+  serverUrl?: string, 
+  bleConfig?: { service?: string; write?: string; notify?: string }
+): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');
     return;
   }
   
   // Try to replace navigator.bluetooth with our mock
-  const mockBluetooth = new MockBluetooth(serverUrl);
+  const mockBluetooth = new MockBluetooth(serverUrl, bleConfig);
   
   try {
     // First attempt: direct assignment

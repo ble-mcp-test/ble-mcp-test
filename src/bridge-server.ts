@@ -104,7 +104,8 @@ export class BridgeServer {
             const msg = JSON.parse(message.toString());
             if (msg.type === 'data' && this.writeChar) {
               const data = new Uint8Array(msg.data);
-              console.log(`[Bridge] TX ${data.length} bytes`);
+              const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
+              console.log(`[Bridge] TX: ${hex}`);
               this.sharedState?.logPacket('TX', data);
               await this.writeChar.writeAsync(Buffer.from(data), false);
             } else if (msg.type === 'force_cleanup') {
@@ -212,7 +213,8 @@ export class BridgeServer {
     // Subscribe to notifications
     this.notifyChar.on('data', (data: Buffer) => {
       const bytes = new Uint8Array(data);
-      console.log(`[Bridge] RX ${bytes.length} bytes`);
+      const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      console.log(`[Bridge] RX: ${hex}`);
       this.sharedState?.logPacket('RX', bytes);
       if (this.activeConnection) {
         this.activeConnection.send(JSON.stringify({ type: 'data', data: Array.from(bytes) }));
