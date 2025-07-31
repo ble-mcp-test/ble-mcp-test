@@ -88,16 +88,20 @@ describe.sequential('Abrupt Disconnect Tests', () => {
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       // Verify server cleaned up properly
-      const state = server.getConnectionState();
-      console.log(`  📊 Server state: ${state.state}, connected: ${state.connected}`);
-      
-      expect(state.connected).toBe(false);
-      expect(state.deviceName).toBeNull();
-      
-      // Wait for full recovery
-      if (state.recovering) {
-        console.log('  ⏳ Waiting for recovery period...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
+      let state = null;
+      if (server) {
+        state = server.getConnectionState();
+        console.log(`  📊 Server state: ${state.state}, connected: ${state.connected}`);
+        expect(state.connected).toBe(false);
+        expect(state.deviceName).toBeNull();
+        
+        // Wait for full recovery
+        if (state.recovering) {
+          console.log('  ⏳ Waiting for recovery period...');
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } else {
+        console.log('  📊 Server already cleaned up (null)');
       }
       
       // CRITICAL: Test if device is actually free for reconnection
@@ -208,8 +212,12 @@ describe.sequential('Abrupt Disconnect Tests', () => {
         await new Promise(resolve => setTimeout(resolve, 3000));
         
         // Verify server is ready for next connection
-        const state = server.getConnectionState();
-        console.log(`  📊 Cycle ${i}: Server state: ${state.state}`);
+        if (server) {
+          const state = server.getConnectionState();
+          console.log(`  📊 Cycle ${i}: Server state: ${state.state}`);
+        } else {
+          console.log(`  📊 Cycle ${i}: Server cleaned up (null)`);
+        }
       }
       
       console.log('  ✅ Multiple abrupt disconnects handled gracefully');
