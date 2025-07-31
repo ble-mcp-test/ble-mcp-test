@@ -110,9 +110,16 @@ export async function withTimeout<T>(
     promise,
     new Promise<never>((_, reject) => {
       setTimeout(async () => {
+        // Do cleanup FIRST, then reject
         if (onTimeout) {
-          await onTimeout();
+          try {
+            await onTimeout();
+          } catch (error) {
+            console.error('Timeout cleanup error:', error);
+          }
         }
+        
+        // Now reject after cleanup is complete
         reject(new Error('Operation timeout'));
       }, timeoutMs);
     })
