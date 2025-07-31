@@ -199,3 +199,56 @@ If you encounter issues during migration:
 3. Open an issue on GitHub with your specific use case
 
 Remember: v0.4.0 is about doing one thing well - tunneling BLE bytes over WebSocket. If you need complex features, consider staying on v0.3.x or implementing them in your application layer.
+
+---
+
+# Migration Guide: v0.4.1 to v0.4.2
+
+## Critical Bundle Fix
+
+Version 0.4.2 fixes a critical issue where the browser bundle in v0.4.1 wasn't properly exposing the `WebBleMock` global, making the mock completely unusable in browser environments.
+
+### The Issue
+
+In v0.4.1, loading the bundle wouldn't create the `window.WebBleMock` global:
+
+```javascript
+// v0.4.1 - This would fail!
+<script src="node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js"></script>
+<script>
+  console.log(window.WebBleMock); // undefined ❌
+</script>
+```
+
+### The Fix
+
+v0.4.2 properly exports the WebBleMock global:
+
+```javascript
+// v0.4.2 - Works correctly
+<script src="node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js"></script>
+<script>
+  console.log(window.WebBleMock); // { MockBluetooth, injectWebBluetoothMock } ✅
+  
+  // Now you can use it
+  WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+</script>
+```
+
+### Migration Steps
+
+1. **Update to v0.4.2**: `npm update ble-mcp-test@0.4.2`
+2. **No code changes needed** - If your code worked with v0.4.0 or earlier, it will work with v0.4.2
+3. **Test your bundle loading** - Verify `window.WebBleMock` is available after loading the bundle
+
+### New in v0.4.2
+
+- Playwright tests to verify bundle exports before release
+- Custom browser entry point for cleaner exports
+- Improved build process with proper environment variable definitions
+
+If you skipped v0.4.1, you also get these features from that release:
+- Smart retry logic for busy bridge states
+- `simulateNotification()` method for test injection
+- Hex byte logging for better protocol debugging
+- Configurable mock retry behavior

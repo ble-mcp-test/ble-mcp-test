@@ -49,10 +49,43 @@ If you're not using a module bundler, include the pre-built bundle:
 ```html
 <script src="path/to/web-ble-mock.bundle.js"></script>
 <script>
-  // Global WebBleMock object is available
+  // Global WebBleMock object is available (v0.4.2+)
   WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 </script>
 ```
+
+**Note**: In v0.4.1, the browser bundle had an export issue. Please upgrade to v0.4.2 or later.
+
+### Mock Configuration (v0.4.1+)
+
+The mock supports configuration via environment variables for retry behavior:
+
+- `BLE_MCP_MOCK_RETRY_DELAY` - Initial retry delay in ms (default: 1000)
+- `BLE_MCP_MOCK_MAX_RETRIES` - Maximum retry attempts (default: 10)
+- `BLE_MCP_MOCK_CLEANUP_DELAY` - Post-disconnect delay in ms (default: 0)
+- `BLE_MCP_MOCK_BACKOFF` - Exponential backoff multiplier (default: 1.5)
+- `BLE_MCP_MOCK_LOG_RETRIES` - Log retry attempts (default: true)
+
+### Test Notification Injection (v0.4.1+)
+
+The `simulateNotification()` method allows tests to inject device notifications without real hardware events:
+
+```javascript
+// Get a characteristic
+const characteristic = await service.getCharacteristic('9901');
+
+// Simulate a button press event from the device
+characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+
+// Simulate a button release event
+characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+```
+
+This is useful for:
+- Testing notification handlers without real device events
+- Controlling exact timing of test events
+- Simulating specific device states or error conditions
+- Testing while the real device is performing other operations
 
 ## MCP HTTP Endpoints
 
@@ -301,6 +334,7 @@ The mock implements the following Web Bluetooth API methods:
 - `writeValue(data)` - Write data to characteristic
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
+- `simulateNotification(data)` - Inject test notifications (v0.4.1+)
 
 ## Breaking Changes in v0.4.0
 
