@@ -94,18 +94,8 @@ export class BridgeServer {
           this.disconnectCleanupRecover({ reason: 'transport error', error, isClean: false });
         });
         
-        // Connect with timeout
-        this.deviceName = await withTimeout(
-          this.transport.connect(config),
-          8000,
-          async () => {
-            console.log(`[Bridge] Connection timeout - stopping transport`);
-            if (this.transport) {
-              await this.transport.disconnect();
-            }
-            this.disconnectCleanupRecover({ reason: 'connection timeout', isClean: false });
-          }
-        );
+        // Connect (transport handles all timeouts internally)
+        this.deviceName = await this.transport.connect(config);
         
         // Connected! Reset failure count and transition to active state
         this.consecutiveFailures = 0;

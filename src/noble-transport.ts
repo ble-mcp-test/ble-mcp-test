@@ -38,12 +38,21 @@ export class NobleTransport extends EventEmitter {
       this.peripheral = await this.findDevice(config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
-      // Connect to peripheral
+      // Connect to peripheral with timeout
       console.log(`[Noble] Connecting to ${deviceName}...`);
-      await this.peripheral.connectAsync();
+      await this.withInternalTimeout(
+        this.peripheral.connectAsync(),
+        10000,
+        'Device connection timeout'
+      );
       
-      // Find service and characteristics
-      const services = await this.peripheral.discoverServicesAsync();
+      // Discover services with timeout
+      const services: any[] = await this.withInternalTimeout(
+        this.peripheral.discoverServicesAsync(),
+        10000,
+        'Service discovery timeout'
+      );
+      
       const targetService = services.find((s: any) => 
         s.uuid === config.serviceUuid || 
         s.uuid === config.serviceUuid.toLowerCase().replace(/-/g, '')
@@ -53,7 +62,12 @@ export class NobleTransport extends EventEmitter {
         throw new Error(`Service ${config.serviceUuid} not found`);
       }
       
-      const characteristics = await targetService.discoverCharacteristicsAsync();
+      // Discover characteristics with timeout
+      const characteristics: any[] = await this.withInternalTimeout(
+        targetService.discoverCharacteristicsAsync(),
+        10000,
+        'Characteristic discovery timeout'
+      );
       
       this.writeChar = characteristics.find((c: any) => 
         c.uuid === config.writeUuid || 
@@ -74,7 +88,12 @@ export class NobleTransport extends EventEmitter {
         this.emit('data', new Uint8Array(data));
       });
       
-      await this.notifyChar.subscribeAsync();
+      // Subscribe to notifications with timeout
+      await this.withInternalTimeout(
+        this.notifyChar.subscribeAsync(),
+        5000,
+        'Notification subscription timeout'
+      );
       
       // Handle unexpected disconnect
       this.peripheral.once('disconnect', () => {
@@ -156,6 +175,23 @@ export class NobleTransport extends EventEmitter {
       throw new Error('Not connected');
     }
     await this.writeChar.writeAsync(Buffer.from(data), false);
+  }
+
+  /**
+   * Internal timeout helper that just rejects - no cleanup
+   * Cleanup is handled by the main try/catch in connect()
+   */
+  private async withInternalTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    errorMessage: string
+  ): Promise<T> {
+    return Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
+      })
+    ]);
   }
 
   async disconnect(): Promise<void> {
