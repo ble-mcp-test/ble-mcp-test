@@ -334,6 +334,31 @@ The mock implements the following Web Bluetooth API methods:
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
 - `simulateNotification(data)` - Inject test notifications
 
+## Mock Configuration API (v0.4.3+)
+
+The mock can be configured at runtime using the `updateMockConfig` function:
+
+```javascript
+import { updateMockConfig } from 'ble-mcp-test';
+
+// Configure retry behavior
+updateMockConfig({
+  connectRetryDelay: 200,    // Initial retry delay in ms
+  maxConnectRetries: 10,     // Maximum retry attempts
+  postDisconnectDelay: 0,    // Delay after disconnect
+  retryBackoffMultiplier: 1.3, // Exponential backoff factor
+  logRetries: true           // Log retry attempts
+});
+```
+
+### Configuration Options
+
+- `connectRetryDelay` (default: 1200ms) - Initial delay before first retry
+- `maxConnectRetries` (default: 20) - Maximum number of connection retry attempts
+- `postDisconnectDelay` (default: 1100ms) - Wait time after disconnect before allowing reconnect
+- `retryBackoffMultiplier` (default: 1.3) - Multiplier for exponential backoff between retries
+- `logRetries` (default: true) - Whether to log retry attempts to console
+
 ## Connection Token
 All successful connections now receive a unique authentication token:
 - The `connected` message includes a `token` field
