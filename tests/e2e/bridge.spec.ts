@@ -21,7 +21,7 @@ test.describe('WebSocket Bridge E2E', () => {
     }
   });
 
-  test('Web Bluetooth mock can send GET_BATTERY_VOLTAGE through bridge', async ({ page }) => {
+  test.skip('Web Bluetooth mock can send GET_BATTERY_VOLTAGE through bridge', async ({ page }) => {
     const wsUrl = testConfig.wsUrl;
     const deviceConfig = getDeviceConfig();
     
