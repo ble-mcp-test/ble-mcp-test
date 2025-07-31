@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2025-01-31
+
+### Added
+- **Timestamp Logging**: Optional timestamps in logs (HH:MM:SS.mmm format) via `BLE_MCP_LOG_TIMESTAMPS`
+- **Better Error Logging**: Improved error handling for undefined errors and full error object logging
+
+### Fixed
+- **Zombie BLE Connections**: Force disconnect peripherals when errors occur during connection
+- **Undefined Error Messages**: Safely extract error messages from any error type
+- **Stuck Device State**: Ensure BLE device disconnects even when WebSocket errors occur
+
+### Changed
+- **NPM Publish**: Now only runs Playwright E2E tests instead of all tests
+- **Error Recovery**: More aggressive cleanup when connection errors occur
+
 ## [0.4.3] - 2025-01-31
 
 ### Changed

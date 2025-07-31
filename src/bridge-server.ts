@@ -130,12 +130,28 @@ export class BridgeServer {
         });
         
       } catch (error: any) {
-        console.error('[Bridge] Connection error:', error.message);
+        // Extract error message safely
+        const errorMessage = error?.message || error?.toString() || 'Unknown error';
+        console.error('[Bridge] Connection error:', errorMessage);
+        
+        // Log full error for debugging when message is undefined
+        if (!error?.message && error !== undefined && error !== null) {
+          console.error('[Bridge] Full error object:', error);
+        }
+        
         // Increment failure count on connection error
         this.consecutiveFailures++;
-        // Ensure Noble is cleaned up on error
+        
+        // Ensure Noble and any connected peripheral are cleaned up on error
         await noble.stopScanningAsync().catch(() => {});
-        ws.send(JSON.stringify({ type: 'error', error: error.message }));
+        
+        // If we have a peripheral that might be connected, disconnect it
+        if (this.peripheral && this.peripheral.state === 'connected') {
+          console.error('[Bridge] Error occurred with connected peripheral - forcing disconnect');
+          await this.peripheral.disconnectAsync().catch(() => {});
+        }
+        
+        ws.send(JSON.stringify({ type: 'error', error: errorMessage }));
         this.cleanup();
       }
     });
@@ -241,9 +257,14 @@ export class BridgeServer {
     // Set up escalating stuck state detection
     this.setupEscalatingCleanup();
     
-    // Clean up BLE
+    // Clean up BLE - ensure disconnection even if error occurred during connection
     if (this.peripheral) {
       try {
+        // Check if peripheral is still connected
+        if (this.peripheral.state === 'connected') {
+          console.log(`[Bridge] Forcing disconnect of connected peripheral`);
+        }
+        
         if (this.notifyChar) {
           this.notifyChar.unsubscribeAsync().catch(() => {});
         }
