@@ -64,12 +64,12 @@ const HCI_ERROR_CODES: Record<number, string> = {
   0x3B: 'Unacceptable Connection Parameters',
   0x3C: 'Directed Advertising Timeout',
   0x3D: 'Connection Terminated due to MIC Failure',
-  0x3E: 'Connection Failed to be Established',
+  0x3E: 'Connection Failed to be Established', // This is 62 in decimal
   0x3F: 'MAC Connection Failed',
   0x40: 'Coarse Clock Adjustment Rejected but Will Try to Adjust Using Clock Dragging',
   
-  // Linux/Unix system error codes that might appear
-  62: 'Connection timed out (ETIMEDOUT)',
+  // Linux/Unix system error codes that might appear (avoiding duplicates)
+  // Note: 62 (0x3E) is already defined above as a Bluetooth HCI error
   111: 'Connection refused (ECONNREFUSED)',
   113: 'No route to host (EHOSTUNREACH)',
 };

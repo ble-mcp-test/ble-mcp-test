@@ -1,6 +1,6 @@
 import { WebSocketServer } from 'ws';
 import noble from '@stoprocent/noble';
-import { cleanupNoble } from './utils.js';
+import { cleanupNoble, withTimeout } from './utils.js';
 import type { SharedState } from './shared-state.js';
 import { translateBluetoothError } from './bluetooth-errors.js';
 
@@ -74,21 +74,15 @@ export class BridgeServer {
       this.activeConnection = ws;
       
       try {
-        // Connect to BLE device directly with timeout
-        const timeoutHandle = setTimeout(async () => {
-          // Stop scanning if still in progress
-          console.log(`[Bridge] Connection timeout - stopping scan`);
-          await noble.stopScanningAsync().catch(() => {});
-        }, 8000);
-        
-        await Promise.race([
+        // Connect to BLE device with timeout and cleanup
+        await withTimeout(
           this.connectToBLE(config),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('Connection timeout')), 8000)
-          )
-        ]);
-        
-        clearTimeout(timeoutHandle);
+          8000,
+          async () => {
+            console.log(`[Bridge] Connection timeout - stopping scan`);
+            await noble.stopScanningAsync().catch(() => {});
+          }
+        );
         
         // Connected! Reset failure count and transition to active state
         this.consecutiveFailures = 0;
@@ -184,6 +178,7 @@ export class BridgeServer {
     
     this.peripheral = await new Promise<any>((resolve, reject) => {
       const timeout = setTimeout(() => {
+        noble.removeListener('discover', onDiscover);
         noble.stopScanningAsync();
         reject(new Error(`Device ${config.devicePrefix} not found`));
       }, 15000);

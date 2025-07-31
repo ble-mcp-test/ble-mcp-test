@@ -47,7 +47,10 @@ class MockBluetoothRemoteGATTCharacteristic {
   constructor(
     private service: MockBluetoothRemoteGATTService,
     public uuid: string
-  ) {}
+  ) {
+    // Register this characteristic with the device for transport message handling
+    this.service.server.device.registerCharacteristic(this.uuid, this);
+  }
 
   async writeValue(value: BufferSource): Promise<void> {
     const data = new Uint8Array(value as ArrayBuffer);
@@ -59,18 +62,32 @@ class MockBluetoothRemoteGATTCharacteristic {
     return this;
   }
 
+  async stopNotifications(): Promise<MockBluetoothRemoteGATTCharacteristic> {
+    // In a real implementation, this would stop notifications
+    // For our mock, we don't need to do anything special
+    return this;
+  }
+
   addEventListener(event: string, handler: any): void {
     if (event === 'characteristicvaluechanged') {
       // Store handler for both real and simulated notifications
       this.notificationHandlers.push(handler);
-      
-      // WebSocketTransport will handle notifications
-      this.service.server.device.transport.onMessage((msg) => {
-        if (msg.type === 'data' && msg.data) {
-          const data = new Uint8Array(msg.data);
-          this.triggerNotification(data);
-        }
-      });
+    }
+  }
+  
+  removeEventListener(event: string, handler: any): void {
+    if (event === 'characteristicvaluechanged') {
+      const index = this.notificationHandlers.indexOf(handler);
+      if (index > -1) {
+        this.notificationHandlers.splice(index, 1);
+      }
+    }
+  }
+
+  // Called by the device when transport receives data
+  handleTransportMessage(data: Uint8Array): void {
+    if (this.notificationHandlers.length > 0) {
+      this.triggerNotification(data);
     }
   }
 
@@ -270,6 +287,8 @@ class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
   public bleConfig?: { service?: string; write?: string; notify?: string };
+  private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
+  private isTransportSetup = false;
 
   constructor(
     public id: string,
@@ -282,17 +301,45 @@ class MockBluetoothDevice {
     this.bleConfig = bleConfig;
   }
 
+  // Register a characteristic for notifications
+  registerCharacteristic(uuid: string, characteristic: MockBluetoothRemoteGATTCharacteristic): void {
+    this.characteristics.set(uuid, characteristic);
+    this.setupTransportHandler();
+  }
+
+  private setupTransportHandler(): void {
+    if (this.isTransportSetup) return;
+    this.isTransportSetup = true;
+    
+    this.transport.onMessage((msg) => {
+      if (msg.type === 'data' && msg.data) {
+        const data = new Uint8Array(msg.data);
+        // Forward to all characteristics that have notification handlers
+        this.characteristics.forEach(char => {
+          char.handleTransportMessage(data);
+        });
+      } else if (msg.type === 'disconnected') {
+        // Ensure GATT server knows it's disconnected
+        if (this.gatt.connected) {
+          this.gatt.connected = false;
+        }
+        // Trigger disconnection events
+        this.dispatchEvent('gattserverdisconnected');
+      }
+    });
+  }
+
+  private disconnectHandlers: Array<() => void> = [];
+
   addEventListener(event: string, handler: any): void {
     if (event === 'gattserverdisconnected') {
-      this.transport.onMessage((msg) => {
-        if (msg.type === 'disconnected') {
-          // Ensure GATT server knows it's disconnected
-          if (this.gatt.connected) {
-            this.gatt.connected = false;
-          }
-          handler();
-        }
-      });
+      this.disconnectHandlers.push(handler);
+    }
+  }
+
+  private dispatchEvent(eventType: string): void {
+    if (eventType === 'gattserverdisconnected') {
+      this.disconnectHandlers.forEach(handler => handler());
     }
   }
 }

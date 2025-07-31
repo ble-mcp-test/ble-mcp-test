@@ -8,12 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.4.4] - 2025-01-31
 
 ### Added
+- **simulateNotification Testing**: Multi-connect test now validates both real device responses and simulated notifications with fake battery values (9999mV)
 - **Timestamp Logging**: Optional timestamps in logs (HH:MM:SS.mmm format) via `BLE_MCP_LOG_TIMESTAMPS`
 - **Bluetooth Error Translation**: Numeric error codes now translated to meaningful messages (e.g., 62 = "Connection timed out")
 - **Better Error Logging**: Improved error handling for undefined errors and full error object logging
 
 ### Fixed
+- **CRITICAL: Resource Leak**: Fixed timeout state management bug causing bridge to get stuck in 'connecting' state under sustained load
 - **CRITICAL: Zombie BLE Connections**: Force disconnect peripherals on ANY error to prevent device staying connected
+- **Mock Notification Race Conditions**: Fixed notification handling in Web Bluetooth mock to prevent hanging responses
+- **Timeout Pattern**: Refactored timeout handling to use clean utility pattern, moved to utils.ts for reuse
 - **Undefined Error Messages**: Safely extract error messages from any error type
 - **Stuck Device State**: Ensure BLE device disconnects even when connection errors occur
 - **Error Code 62**: Now properly translated as "Connection timed out (ETIMEDOUT)"
