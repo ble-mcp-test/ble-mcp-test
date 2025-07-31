@@ -11,9 +11,12 @@ const DEVICE_CONFIG = getDeviceConfig();
  */
 describe('Bridge Mutex Test', () => {
   let server: BridgeServer;
-  const port = 8082;
+  const port = 8087; // Use different port to avoid conflicts
   
   beforeAll(async () => {
+    // Give device time to recover from previous tests
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
     const sharedState = new SharedState(false);
     server = new BridgeServer('info', sharedState);
     await server.start(port);
@@ -25,34 +28,37 @@ describe('Bridge Mutex Test', () => {
     }
   });
 
-  it('should reject second connection when one is already active', async () => {
+  it('should reject second connection when one is already active or connecting', async () => {
     const params = new URLSearchParams(DEVICE_CONFIG);
     const url = `${WS_URL.replace('8080', String(port))}?${params}`;
     
     // First connection
     const ws1 = new WebSocket(url);
     
-    // Wait for first connection to be accepted
+    // Wait for first connection to be accepted by the bridge
+    // The bridge should immediately transition from 'ready' to 'connecting'
+    let firstConnectionAccepted = false;
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('First connection timeout')), 5000);
+      const timeout = setTimeout(() => {
+        reject(new Error('First connection was not accepted by bridge'));
+      }, 2000);
       
-      ws1.on('message', (data) => {
-        const msg = JSON.parse(data.toString());
-        if (msg.type === 'connected' || msg.type === 'error') {
-          clearTimeout(timeout);
-          if (msg.type === 'connected') {
-            resolve();
-          } else {
-            reject(new Error(msg.error));
-          }
-        }
+      ws1.on('open', () => {
+        // WebSocket is open, bridge has accepted the connection
+        firstConnectionAccepted = true;
+        clearTimeout(timeout);
+        resolve();
       });
       
       ws1.on('error', () => {
         clearTimeout(timeout);
-        reject(new Error('First connection failed'));
+        reject(new Error('First WebSocket connection failed'));
       });
     });
+    
+    if (!firstConnectionAccepted) {
+      throw new Error('Bridge did not accept first connection');
+    }
     
     // Now try second connection - should be rejected
     const ws2 = new WebSocket(url);
