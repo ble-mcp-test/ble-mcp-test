@@ -128,4 +128,4 @@ See [CHANGELOG](CHANGELOG.md) for version history.
 
 ## License
 
-MIT © 2024 Mike Stankavich
+MIT © 2025 Mike Stankavich
