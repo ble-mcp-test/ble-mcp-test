@@ -35,10 +35,7 @@ export class NobleTransport extends EventEmitter {
         await noble.waitForPoweredOnAsync();
       }
       
-      // Stop any existing scan (no-op if not scanning)
-      await noble.stopScanningAsync();
-      
-      // Find device (handles scanning lifecycle)
+      // Find device (handles complete scanning lifecycle)
       this.peripheral = await this.findDevice(config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
@@ -97,6 +94,9 @@ export class NobleTransport extends EventEmitter {
   }
 
   private async findDevice(devicePrefix: string): Promise<any> {
+    // Stop any existing scan (no-op if not scanning)
+    await noble.stopScanningAsync();
+    
     console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
     
     // Start scanning
