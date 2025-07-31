@@ -35,10 +35,8 @@ export class NobleTransport extends EventEmitter {
         await noble.waitForPoweredOnAsync();
       }
       
-      // Always stop any existing scan first
-      console.log(`[Noble] Ensuring clean scan state...`);
-      await noble.stopScanningAsync().catch(() => {});
-      await new Promise(resolve => setTimeout(resolve, 500)); // Let it settle
+      // Stop any existing scan (no-op if not scanning)
+      await noble.stopScanningAsync();
       
       // Scan for device
       console.log(`[Noble] Starting BLE scan for ${config.devicePrefix}...`);
@@ -137,8 +135,8 @@ export class NobleTransport extends EventEmitter {
   }
 
   private async cleanup(): Promise<void> {
-    // Stop scanning
-    await noble.stopScanningAsync().catch(() => {});
+    // Stop scanning (no-op if not scanning)
+    await noble.stopScanningAsync();
     
     // Unsubscribe and disconnect
     if (this.notifyChar) {
