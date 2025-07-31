@@ -93,7 +93,15 @@ export class NobleTransport extends EventEmitter {
     }
   }
 
+  private findDeviceCleanup: (() => void) | null = null;
+
   private async findDevice(devicePrefix: string): Promise<any> {
+    // Ensure any previous scan is cleaned up
+    if (this.findDeviceCleanup) {
+      this.findDeviceCleanup();
+      this.findDeviceCleanup = null;
+    }
+    
     // Stop any existing scan (no-op if not scanning)
     await noble.stopScanningAsync();
     
@@ -103,20 +111,38 @@ export class NobleTransport extends EventEmitter {
     await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
     
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(async () => {
-        noble.removeListener('discover', onDiscover);
-        await noble.stopScanningAsync();
+      let timeout: NodeJS.Timeout | null = null;
+      let onDiscover: ((device: any) => void) | null = null;
+      
+      // Cleanup function that always runs
+      const cleanup = () => {
+        if (timeout) {
+          clearTimeout(timeout);
+          timeout = null;
+        }
+        if (onDiscover) {
+          noble.removeListener('discover', onDiscover);
+          onDiscover = null;
+        }
+        // Always try to stop scanning, ignore errors
+        noble.stopScanningAsync().catch(() => {});
+        this.findDeviceCleanup = null;
+      };
+      
+      // Store cleanup function so it can be called externally if needed
+      this.findDeviceCleanup = cleanup;
+      
+      timeout = setTimeout(() => {
+        cleanup();
         reject(new Error(`Device ${devicePrefix} not found`));
       }, 15000);
       
-      const onDiscover = async (device: any) => {
+      onDiscover = async (device: any) => {
         const name = device.advertisement.localName || '';
         const id = device.id;
         
         if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
-          clearTimeout(timeout);
-          noble.removeListener('discover', onDiscover);
-          await noble.stopScanningAsync();
+          cleanup();
           console.log(`[Noble] Found device: ${name || id}`);
           resolve(device);
         }
@@ -138,6 +164,12 @@ export class NobleTransport extends EventEmitter {
   }
 
   private async cleanup(): Promise<void> {
+    // Clean up any active device search
+    if (this.findDeviceCleanup) {
+      this.findDeviceCleanup();
+      this.findDeviceCleanup = null;
+    }
+    
     // Stop scanning (no-op if not scanning)
     await noble.stopScanningAsync();
     
