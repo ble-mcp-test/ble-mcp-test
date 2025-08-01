@@ -51,7 +51,11 @@ export class WebSocketHandler extends EventEmitter {
         } 
         // Handle force cleanup command
         else if (msg.type === 'force_cleanup') {
-          await this.handleForceCleanup();
+          await this.handleForceCleanup(msg);
+        }
+        // Handle admin cleanup command
+        else if (msg.type === 'admin_cleanup') {
+          await this.handleAdminCleanup(msg);
         }
       } catch (error) {
         const errorMessage = translateBluetoothError(error);
@@ -104,22 +108,66 @@ export class WebSocketHandler extends EventEmitter {
     }
   }
 
-  private async handleForceCleanup(): Promise<void> {
-    console.log('[WSHandler] Force cleanup requested');
+  private async handleForceCleanup(msg: WSMessage): Promise<void> {
+    console.log('[WSHandler] Force cleanup requested', msg.all_sessions ? '(all sessions)' : '(current session)');
     
     try {
-      // Trigger session cleanup FIRST
-      await this.session.forceCleanup('force cleanup command');
+      if (msg.all_sessions) {
+        // Get session manager through session's config
+        const sessionManager = (this.session as any).sessionManager;
+        if (sessionManager) {
+          const deviceName = this.session.getStatus().deviceName;
+          if (deviceName) {
+            await sessionManager.forceCleanupDevice(deviceName, 'force cleanup all sessions');
+          }
+        }
+      } else {
+        // Trigger session cleanup FIRST
+        await this.session.forceCleanup('force cleanup command');
+      }
       
       // Only acknowledge AFTER cleanup is complete
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'force_cleanup_complete', 
-          message: 'Cleanup complete' 
+          message: msg.all_sessions ? 'All sessions cleaned up' : 'Cleanup complete' 
         }));
       }
     } catch (error) {
       console.error('[WSHandler] Force cleanup error:', error);
+    }
+  }
+
+  private async handleAdminCleanup(msg: WSMessage): Promise<void> {
+    console.log('[WSHandler] Admin cleanup requested');
+    
+    // Check auth token
+    const requiredAuth = process.env.BLE_ADMIN_AUTH_TOKEN;
+    if (requiredAuth && msg.auth !== requiredAuth) {
+      console.log('[WSHandler] Admin cleanup rejected - invalid auth');
+      this.sendError('Unauthorized');
+      return;
+    }
+    
+    try {
+      // Get session manager through session's config
+      const sessionManager = (this.session as any).sessionManager;
+      if (sessionManager && msg.action === 'cleanup_all') {
+        await sessionManager.forceCleanupAll('admin cleanup');
+        
+        if (this.ws.readyState === this.ws.OPEN) {
+          this.ws.send(JSON.stringify({ 
+            type: 'admin_cleanup_complete', 
+            message: 'All sessions cleaned up',
+            action: msg.action
+          }));
+        }
+      } else {
+        this.sendError('Invalid admin action');
+      }
+    } catch (error) {
+      console.error('[WSHandler] Admin cleanup error:', error);
+      this.sendError('Admin cleanup failed');
     }
   }
 

@@ -19,6 +19,7 @@ export class BleSession extends EventEmitter {
   private graceTimer: NodeJS.Timeout | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private lastTxTime = Date.now();
+  public sessionManager?: any; // Reference to SessionManager for cleanup commands
   
   // Timeout configuration (in seconds)
   private gracePeriodSec = parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10);

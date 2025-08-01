@@ -359,9 +359,47 @@ class MockBluetoothDevice {
 // Mock Bluetooth API
 export class MockBluetooth {
   private bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
+  private autoSessionId?: string;
 
   constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }) {
     this.bleConfig = bleConfig;
+    
+    // Auto-generate session ID if not provided
+    if (!bleConfig?.sessionId) {
+      this.autoSessionId = this.generateAutoSessionId();
+    }
+  }
+  
+  private generateAutoSessionId(): string {
+    const ip = this.getClientIP();
+    const browser = this.getBrowser();
+    const random = Math.random().toString(36).substr(2, 4).toUpperCase();
+    
+    return `${ip}-${browser}-${random}`;
+  }
+  
+  private getClientIP(): string {
+    if (typeof window !== 'undefined') {
+      const hostname = window.location.hostname;
+      if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        return hostname;
+      }
+    }
+    return '127.0.0.1';
+  }
+  
+  private getBrowser(): string {
+    if (typeof navigator !== 'undefined') {
+      const ua = navigator.userAgent;
+      if (ua.includes('Playwright')) return 'playwright';
+      if (ua.includes('Puppeteer')) return 'puppeteer';  
+      if (ua.includes('HeadlessChrome')) return 'headless';
+      if (ua.includes('Chrome')) return 'chrome';
+      if (ua.includes('Firefox')) return 'firefox';
+      if (ua.includes('Safari')) return 'safari';
+      if (ua.includes('Edge')) return 'edge';
+    }
+    return 'browser';
   }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
@@ -380,11 +418,17 @@ export class MockBluetooth {
     }
     
     // Create and return mock device with BLE configuration
+    // Use auto-generated session ID if no explicit sessionId provided
+    const effectiveConfig = {
+      ...this.bleConfig,
+      sessionId: this.bleConfig?.sessionId || this.autoSessionId
+    };
+    
     const device = new MockBluetoothDevice(
       'mock-device-id',
       deviceName,
       this.serverUrl,
-      this.bleConfig
+      effectiveConfig
     );
 
     return device;

@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2025-08-01
+
+### Fixed
+- **Session Blocking Bug**: Fixed critical issue where new sessions were incorrectly rejected
+  - Sessions with transport (connected or in grace period) now properly block new connections
+  - New sessions receive proper error with `blocking_session_id` for debugging
+- **Race Condition**: Fixed force_cleanup sending completion before cleanup was done
+  - Cleanup operations now complete before acknowledgment is sent
+- **Idle Timeout**: Fixed sessions not timing out after idle period
+  - Corrected environment variable names (`BLE_SESSION_GRACE_PERIOD_SEC`)
+  - Idle timeout now correctly based on TX activity only (not RX)
+
+### Added
+- **Simplified Session Management**: Zero-config auto-session generation
+  - `injectWebBluetoothMock('ws://localhost:8080')` now auto-generates unique session IDs
+  - Format: `{IP}-{browser}-{random}` (e.g., `192.168.1.100-chrome-A4B2`)
+  - Different browsers/tools get automatic isolation
+  - Same browser tabs share session (realistic BLE behavior)
+- **Enhanced Cleanup Commands**: New cleanup options for E2E testing
+  - `force_cleanup` with `all_sessions: true` cleans up all sessions for a device
+  - New `admin_cleanup` command with auth token for test environments
+  - Environment variable `BLE_ADMIN_AUTH_TOKEN` for admin command authentication
+- **Force Takeover**: WebSocket URL parameter `force=true` for session takeover
+  - Allows new session to forcibly disconnect existing session
+  - Useful for development and testing scenarios
+- **Session Blocking Info**: Error responses now include `blocking_session_id`
+  - Helps identify which session is preventing connection
+  - Improves debugging of session conflicts
+
+### Changed
+- **WSMessage Interface**: Extended with new fields for v0.5.1 features
+  - `all_sessions`: Force cleanup all sessions for device
+  - `blocking_session_id`: Session blocking the connection
+  - `auth`: Auth token for admin commands
+  - `action`: Admin action type
+
 ## [0.5.0] - 2025-08-01
 
 ### Added

@@ -99,24 +99,28 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
-## Session Management (v0.5.0+)
+## Session Management (v0.5.1+)
 
-Sessions allow BLE connections to persist across WebSocket disconnects:
+Sessions allow BLE connections to persist across WebSocket disconnects and prevent conflicts:
 
 ```javascript
-// Use a specific session ID
-WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-  sessionId: 'my-app-session-123'
-});
+// Zero config - automatically creates unique session per browser/tool
+injectWebBluetoothMock('ws://localhost:8080');
+// Auto-generates: "192.168.1.100-chrome-A4B2" or "127.0.0.1-playwright-X9Z1"
 
-// Or auto-generate a session ID
-WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-  generateSession: true
+// Advanced: Use explicit session ID
+injectWebBluetoothMock('ws://localhost:8080', {
+  sessionId: 'my-custom-session'
 });
 
 // Session persists for 60 seconds after disconnect
-// Reconnecting with same session ID reuses BLE connection
+// Different browsers/tools get different sessions automatically
 ```
+
+### Session Behavior
+- **Chrome + Playwright**: Isolated sessions - no conflicts ✅
+- **Same browser, multiple tabs**: Share session - device conflict (realistic!) ⚠️
+- **Clear error messages**: Server logs show exactly which session has the device
 
 ## Features
 
