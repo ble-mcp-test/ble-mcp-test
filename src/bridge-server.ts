@@ -30,8 +30,19 @@ export class BridgeServer {
       const url = new URL(req.url || '', 'http://localhost');
       
       // Extract session ID or generate new one
-      const sessionId = url.searchParams.get('session') || randomUUID();
+      const sessionParam = url.searchParams.get('session');
+      const sessionId = sessionParam || randomUUID();
       const forceConnect = url.searchParams.get('force') === 'true';
+      
+      // Enhanced debugging for session ID handling
+      if (sessionParam) {
+        console.log(`[Bridge] New WebSocket connection with provided session: ${sessionId}`);
+      } else {
+        console.log(`[Bridge] New WebSocket connection, generated session: ${sessionId}`);
+      }
+      
+      console.log(`[Bridge] Request URL: ${req.url}`);
+      console.log(`[Bridge] All URL params:`, Object.fromEntries(url.searchParams));
       
       // Parse BLE config
       const config: BleConfig = {
@@ -47,8 +58,6 @@ export class BridgeServer {
         ws.close();
         return;
       }
-      
-      console.log(`[Bridge] New WebSocket connection for session: ${sessionId}`);
       
       try {
         // Get or create session

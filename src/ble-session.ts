@@ -85,6 +85,10 @@ export class BleSession extends EventEmitter {
       this.graceTimer = null;
       console.log(`[Session:${this.sessionId}] Cancelled grace period - WebSocket reconnected`);
     }
+    
+    // Reset idle timer when WebSocket reconnects
+    this.lastTxTime = Date.now();
+    this.resetIdleTimer();
   }
 
   /**
@@ -119,6 +123,12 @@ export class BleSession extends EventEmitter {
   private startGracePeriod(): void {
     console.log(`[Session:${this.sessionId}] Starting ${this.gracePeriodSec}s grace period`);
     
+    // Clear idle timer during grace period to avoid competing timers
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+    
     this.graceTimer = setTimeout(() => {
       console.log(`[Session:${this.sessionId}] Grace period expired - cleaning up`);
       this.cleanup('grace period expired');
@@ -133,11 +143,15 @@ export class BleSession extends EventEmitter {
       clearTimeout(this.idleTimer);
     }
     
-    this.idleTimer = setTimeout(() => {
-      const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
-      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
-      this.cleanup('idle timeout');
-    }, this.idleTimeoutSec * 1000);
+    // Only set idle timer if we have active websockets or no grace period
+    // Avoid competing timers during grace period
+    if (this.activeWebSockets.size > 0 || !this.graceTimer) {
+      this.idleTimer = setTimeout(() => {
+        const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
+        console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
+        this.cleanup('idle timeout');
+      }, this.idleTimeoutSec * 1000);
+    }
   }
 
   /**

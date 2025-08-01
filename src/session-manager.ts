@@ -34,9 +34,17 @@ export class SessionManager {
       const sessionWithTransport = activeSessions.find(s => s.getStatus().hasTransport);
       
       if (sessionWithTransport && sessionWithTransport.sessionId !== sessionId) {
-        // Reject new session - device is busy
+        // Reject new session - device is busy with a different session
         const status = sessionWithTransport.getStatus();
         console.log(`[SessionManager] Rejecting new session ${sessionId} - device busy with session ${sessionWithTransport.sessionId} (grace period: ${status.hasGracePeriod})`);
+        
+        // Enhanced logging for debugging
+        console.log(`[SessionManager] Active sessions: ${activeSessions.length}`);
+        activeSessions.forEach(s => {
+          const st = s.getStatus();
+          console.log(`  - Session ${st.sessionId}: transport=${st.hasTransport}, grace=${st.hasGracePeriod}, websockets=${st.activeWebSockets}`);
+        });
+        
         return null;
       }
       
@@ -55,6 +63,12 @@ export class SessionManager {
       this.updateSharedState();
     } else {
       console.log(`[SessionManager] Reusing existing session: ${sessionId}`);
+      
+      // If session is in grace period, log that we're reconnecting
+      const status = session.getStatus();
+      if (status.hasGracePeriod) {
+        console.log(`[SessionManager] Reconnecting to session ${sessionId} during grace period`);
+      }
     }
     
     return session;
@@ -129,7 +143,16 @@ export class SessionManager {
         console.log(`[SessionManager] Session ${sessionId} - ` +
           `WebSockets: ${status.activeWebSockets}, ` +
           `Idle: ${status.idleTime}s, ` +
-          `Grace: ${status.hasGracePeriod}`);
+          `Grace: ${status.hasGracePeriod}, ` +
+          `Connected: ${status.connected}`);
+      }
+      
+      // Force cleanup sessions that are idle too long without grace period
+      // This handles the case where sessions are stuck without proper cleanup
+      if (!status.hasGracePeriod && status.activeWebSockets === 0 && 
+          status.idleTime > status.idleTimeoutSec + 60) {
+        console.log(`[SessionManager] Force cleaning up stale session ${sessionId} - idle for ${status.idleTime}s`);
+        session.forceCleanup('stale session cleanup');
       }
     }
   }

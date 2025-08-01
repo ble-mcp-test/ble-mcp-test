@@ -381,6 +381,14 @@ export class MockBluetooth {
         if (stored) {
           console.log(`[MockBluetooth] Reusing stored session: ${stored}`);
           console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
+          
+          // Double-check that the stored session is still in localStorage after reading
+          // This helps detect race conditions
+          const doubleCheck = localStorage.getItem('ble-mock-session-id');
+          if (doubleCheck !== stored) {
+            console.log(`[MockBluetooth] WARNING: Session changed during read! Was ${stored}, now ${doubleCheck}`);
+          }
+          
           return stored;
         }
       }
@@ -395,9 +403,16 @@ export class MockBluetooth {
     const sessionId = `${ip}-${browser}-${random}`;
     console.log(`[MockBluetooth] Generated new session: ${sessionId} (IP: ${ip}, Browser: ${browser})`);
     
-    // Store for next time
+    // Store for next time with race condition detection
     try {
       if (typeof localStorage !== 'undefined') {
+        // Check if another instance already stored a session while we were generating
+        const existingSession = localStorage.getItem('ble-mock-session-id');
+        if (existingSession && existingSession !== sessionId) {
+          console.log(`[MockBluetooth] Race condition detected! Another instance stored ${existingSession}, switching to that instead of ${sessionId}`);
+          return existingSession;
+        }
+        
         localStorage.setItem('ble-mock-session-id', sessionId);
         console.log(`[MockBluetooth] Stored new session: ${sessionId}`);
         console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
