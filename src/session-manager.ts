@@ -25,12 +25,24 @@ export class SessionManager {
   /**
    * Get or create a BLE session
    */
-  getOrCreateSession(sessionId: string, config: BleConfig): BleSession {
+  getOrCreateSession(sessionId: string, config: BleConfig): BleSession | null {
     let session = this.sessions.get(sessionId);
     
     if (!session) {
+      // Check if any other session has a BLE transport (connected or in grace period)
+      const activeSessions = Array.from(this.sessions.values());
+      const sessionWithTransport = activeSessions.find(s => s.getStatus().hasTransport);
+      
+      if (sessionWithTransport && sessionWithTransport.sessionId !== sessionId) {
+        // Reject new session - device is busy
+        const status = sessionWithTransport.getStatus();
+        console.log(`[SessionManager] Rejecting new session ${sessionId} - device busy with session ${sessionWithTransport.sessionId} (grace period: ${status.hasGracePeriod})`);
+        return null;
+      }
+      
       console.log(`[SessionManager] Creating new session: ${sessionId}`);
       session = new BleSession(sessionId, config, this.sharedState);
+      session.sessionManager = this; // Set reference for cleanup commands
       this.sessions.set(sessionId, session);
       
       // Auto-cleanup on session cleanup event
@@ -123,6 +135,38 @@ export class SessionManager {
   }
 
   /**
+   * Force cleanup all sessions (for admin/testing)
+   */
+  async forceCleanupAll(reason: string = 'admin cleanup'): Promise<void> {
+    console.log(`[SessionManager] Force cleanup all sessions: ${reason}`);
+    
+    const sessions = Array.from(this.sessions.values());
+    const cleanupPromises = sessions.map(session => 
+      session.forceCleanup(reason)
+    );
+    
+    await Promise.all(cleanupPromises);
+    this.sessions.clear();
+  }
+
+  /**
+   * Force cleanup sessions for a specific device
+   */
+  async forceCleanupDevice(deviceName: string, reason: string = 'device cleanup'): Promise<void> {
+    console.log(`[SessionManager] Force cleanup sessions for device ${deviceName}: ${reason}`);
+    
+    const sessions = Array.from(this.sessions.values())
+      .filter(s => s.getStatus().deviceName === deviceName);
+    
+    const cleanupPromises = sessions.map(session => 
+      session.forceCleanup(reason)
+    );
+    
+    await Promise.all(cleanupPromises);
+    sessions.forEach(s => this.sessions.delete(s.sessionId));
+  }
+
+  /**
    * Stop the session manager
    */
   async stop(): Promise<void> {
@@ -135,11 +179,6 @@ export class SessionManager {
     }
     
     // Clean up all sessions
-    const cleanupPromises = Array.from(this.sessions.values()).map(session => 
-      session.forceCleanup('manager stopping')
-    );
-    
-    await Promise.all(cleanupPromises);
-    this.sessions.clear();
+    await this.forceCleanupAll('manager stopping');
   }
 }

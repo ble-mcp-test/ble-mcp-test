@@ -48,12 +48,12 @@ injectWebBluetoothMock('ws://localhost:8080', {
   sessionId: 'my-app-session-123'  // Use specific session ID
 });
 
-// Auto-generate session ID
+// Zero config - auto-generates session ID
 injectWebBluetoothMock('ws://localhost:8080', {
   service: '9800',
   write: '9900',
-  notify: '9901',
-  generateSession: true  // Auto-generate session ID
+  notify: '9901'
+  // Session ID auto-generated: "192.168.1.100-chrome-A4B2"
 });
 ```
 
@@ -64,8 +64,7 @@ injectWebBluetoothMock('ws://localhost:8080', {
   - `service` - Service UUID
   - `write` - Write characteristic UUID
   - `notify` - Notify characteristic UUID
-  - `sessionId` - Session ID for connection persistence (v0.5.0+)
-  - `generateSession` - Auto-generate session ID if true (v0.5.0+)
+  - `sessionId` - Custom session ID (v0.5.1+, auto-generated if omitted)
 
 ### Using the Browser Bundle
 
@@ -190,12 +189,14 @@ Pass device configuration via URL query parameters:
 | `write` | Write characteristic UUID | `9900` |
 | `notify` | Notify characteristic UUID | `9901` |
 | `session` | Session ID for connection persistence (v0.5.0+) | `my-app-session-123` |
+| `force` | Force takeover of busy device (v0.5.1+) | `true` |
 
 **Example URLs:**
 ```
 ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901
 ws://localhost:8080?session=my-app-session-123
 ws://localhost:8080?device=CS108&session=persist-123&service=9800
+ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901&force=true
 ```
 
 ### Message Format
@@ -231,6 +232,23 @@ All messages are JSON objects with a `type` field.
 {
   "type": "force_cleanup",
   "token": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Force cleanup all sessions (v0.5.1):**
+```json
+{
+  "type": "force_cleanup",
+  "all_sessions": true
+}
+```
+
+**Admin cleanup (v0.5.1):**
+```json
+{
+  "type": "admin_cleanup",
+  "auth": "your-admin-token",
+  "action": "cleanup_all"
 }
 ```
 
@@ -272,6 +290,16 @@ All messages are JSON objects with a `type` field.
 {
   "type": "error",
   "error": "No device found"
+}
+```
+
+**Session blocked error (v0.5.1):**
+```json
+{
+  "type": "error",
+  "error": "Device is busy with another session",
+  "blocking_session_id": "cs108-session-abc123",
+  "device": "CS108"
 }
 ```
 

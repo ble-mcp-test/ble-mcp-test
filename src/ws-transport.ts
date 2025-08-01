@@ -1,5 +1,5 @@
 export interface WSMessage {
-  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete';
+  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'admin_cleanup';
   seq?: number;
   data?: number[];
   device?: string;
@@ -9,6 +9,10 @@ export interface WSMessage {
   reason?: string; // v0.4.0: Eviction reason
   timestamp?: string; // v0.4.0: Keepalive acknowledgment timestamp
   message?: string; // v0.4.5: Message for force cleanup complete
+  all_sessions?: boolean; // v0.5.1: Force cleanup all sessions for device
+  blocking_session_id?: string; // v0.5.1: Session blocking the connection
+  auth?: string; // v0.5.1: Auth token for admin commands
+  action?: string; // v0.5.1: Admin action type
 }
 
 export class WebSocketTransport {
@@ -28,7 +32,6 @@ export class WebSocketTransport {
     write?: string; 
     notify?: string;
     session?: string;
-    generateSession?: boolean;
   }): Promise<void> {
     const url = new URL(this.serverUrl);
     if (options?.device) url.searchParams.set('device', options.device);
@@ -40,13 +43,6 @@ export class WebSocketTransport {
     if (options?.session) {
       url.searchParams.set('session', options.session);
       this.sessionId = options.session;
-    } else if (options?.generateSession) {
-      // Generate UUID that works in both Node.js and browsers
-      const uuid = typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
-        ? globalThis.crypto.randomUUID()
-        : Date.now().toString(36) + Math.random().toString(36).substr(2);
-      this.sessionId = 'cs108-session-' + uuid;
-      url.searchParams.set('session', this.sessionId);
     }
     
     this.ws = new WebSocket(url.toString());

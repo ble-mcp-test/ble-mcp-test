@@ -31,6 +31,7 @@ export class BridgeServer {
       
       // Extract session ID or generate new one
       const sessionId = url.searchParams.get('session') || randomUUID();
+      const forceConnect = url.searchParams.get('force') === 'true';
       
       // Parse BLE config
       const config: BleConfig = {
@@ -51,7 +52,37 @@ export class BridgeServer {
       
       try {
         // Get or create session
-        const session = this.sessionManager.getOrCreateSession(sessionId, config);
+        let session = this.sessionManager.getOrCreateSession(sessionId, config);
+        
+        if (!session) {
+          // Session rejected - device is busy
+          // Find the blocking session
+          const blockingSession = this.sessionManager.getAllSessions()
+            .find(s => s.getStatus().hasTransport);
+          
+          // If force parameter is set, clean up the blocking session
+          if (forceConnect && blockingSession) {
+            console.log(`[Bridge] Force takeover - cleaning up blocking session ${blockingSession.sessionId}`);
+            await blockingSession.forceCleanup('force takeover');
+            
+            // Try again to create session
+            const newSession = this.sessionManager.getOrCreateSession(sessionId, config);
+            if (newSession) {
+              session = newSession;
+            }
+          }
+          
+          if (!session) {
+            ws.send(JSON.stringify({ 
+              type: 'error', 
+              error: 'Device is busy with another session',
+              blocking_session_id: blockingSession?.sessionId,
+              device: config.devicePrefix
+            }));
+            ws.close();
+            return;
+          }
+        }
         
         // Connect BLE if not already connected
         const deviceName = await session.connect();

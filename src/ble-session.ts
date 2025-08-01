@@ -19,10 +19,11 @@ export class BleSession extends EventEmitter {
   private graceTimer: NodeJS.Timeout | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private lastTxTime = Date.now();
+  public sessionManager?: any; // Reference to SessionManager for cleanup commands
   
   // Timeout configuration (in seconds)
-  private gracePeriodSec = parseInt(process.env.BLE_MCP_GRACE_PERIOD || '60', 10);
-  private idleTimeoutSec = parseInt(process.env.BLE_MCP_IDLE_TIMEOUT || '180', 10);
+  private gracePeriodSec = parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10);
+  private idleTimeoutSec = parseInt(process.env.BLE_SESSION_IDLE_TIMEOUT_SEC || process.env.BLE_MCP_IDLE_TIMEOUT || '300', 10);
   
   constructor(
     public readonly sessionId: string,
@@ -198,6 +199,7 @@ export class BleSession extends EventEmitter {
     return {
       sessionId: this.sessionId,
       connected: !!this.transport && !!this.deviceName,
+      hasTransport: !!this.transport,
       deviceName: this.deviceName,
       activeWebSockets: this.activeWebSockets.size,
       idleTime,
