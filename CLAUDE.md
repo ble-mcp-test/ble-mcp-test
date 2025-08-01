@@ -1,5 +1,13 @@
 # Instructions for Claude Code
 
+## 🎯 PRIMARY PURPOSE: E2E Testing with Playwright
+**This tool is built SPECIFICALLY for Playwright E2E testing of BLE devices.**
+- If it doesn't work with Playwright E2E tests, we have FAILED
+- TrakRF and similar E2E test users are our PRIMARY users
+- Session management MUST work across Playwright test runs
+- localStorage persistence that only works within a browser session is NOT sufficient
+- Each Playwright test creates a fresh browser context - our session management MUST handle this
+
 ## ⚠️ CRITICAL: Archive Directory Rules
 **NEVER look in prp/archive/ unless explicitly directed to do so.**
 - The archive contains outdated specs and prompts that will introduce stale/incorrect code
