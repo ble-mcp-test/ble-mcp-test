@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5] - 2025-08-01
+
+### Added
+- **Deterministic Session IDs for Playwright E2E Testing**: Hierarchical session ID generation strategy
+  - Priority 1: `window.BLE_TEST_SESSION_ID` - Explicit injection by test
+  - Priority 2: `process.env.BLE_TEST_SESSION_ID` - Environment variable
+  - Priority 3: Playwright context detection - Auto-generate from test file path
+  - Priority 4: Current random generation - Fallback for interactive use
+- **Playwright Detection**: Automatic detection of Playwright environment
+  - Checks for `PLAYWRIGHT_TEST_BASE_URL` environment variable
+  - Checks for `window.__playwright` object
+  - Detects Playwright in user agent string
+- **Test Path Extraction**: Derives session ID from test file path in Playwright
+  - Extracts test path from stack trace when Playwright context unavailable
+  - Normalizes paths across platforms (Windows/Unix)
+  - Creates deterministic format: `{hostname}-{test-path}`
+- **New Utilities**:
+  - `setTestSessionId(sessionId)` - Helper to set explicit test session ID
+  - Enhanced logging for session ID generation decisions
+
+### Fixed
+- **E2E Test Session Conflicts**: Playwright tests no longer fail with "Device is busy with another session"
+  - Each test file now gets a unique, deterministic session ID
+  - Same test gets same session ID on retry
+  - Different tests get different session IDs
+- **Session Persistence in Tests**: Deterministic IDs ensure consistent sessions across page reloads
+  - No more localStorage race conditions in E2E tests
+  - Predictable session behavior for test debugging
+
+### Changed
+- **Backward Compatibility**: Interactive browser usage remains unchanged
+  - Random session IDs still generated for non-test environments
+  - localStorage persistence continues to work as before
+  - No breaking changes to existing API
+
 ## [0.5.4] - 2025-08-01
 
 ### Fixed

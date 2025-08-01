@@ -133,6 +133,33 @@ import { clearStoredSession } from 'ble-mcp-test';
 clearStoredSession(); // Fresh session on next injection
 ```
 
+### Deterministic Session IDs for Playwright (v0.5.5+)
+```javascript
+// Playwright tests get automatic deterministic session IDs
+test('inventory page', async ({ page }) => {
+  // Auto-detected: "localhost-tests/e2e/inventory-page"
+  // Same test always gets same session ID
+});
+
+test('scanning page', async ({ page }) => {
+  // Auto-detected: "localhost-tests/e2e/scanning-page"
+  // Different test gets different session ID
+});
+
+// Or use explicit session ID
+import { setTestSessionId } from 'ble-mcp-test';
+setTestSessionId('inventory-test-session');
+
+// Or via environment variable
+// BLE_TEST_SESSION_ID=ci-run-123 pnpm test
+```
+
+**Hierarchical priority:**
+1. `window.BLE_TEST_SESSION_ID` - Explicit test injection
+2. `process.env.BLE_TEST_SESSION_ID` - Environment variable
+3. Playwright auto-detection - Derives from test file path
+4. Random generation - For interactive browser use
+
 ### Session Behavior
 - **Chrome + Playwright**: Isolated sessions - no conflicts ✅
 - **Same browser, multiple tabs**: Share session - device conflict (realistic!) ⚠️
