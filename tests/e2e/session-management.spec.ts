@@ -161,7 +161,7 @@ test.describe('Session Management E2E Tests', () => {
     expect(autoSessionResult.sessionFormat).toBe(true);
   });
 
-  test('should maintain backward compatibility without session parameters', async ({ page }) => {
+  test('should auto-generate session IDs when none provided', async ({ page }) => {
     await page.goto('about:blank');
     
     // Load the bundle
@@ -205,8 +205,9 @@ test.describe('Session Management E2E Tests', () => {
     expect(legacyResult.hasDevice).toBe(true);
     expect(legacyResult.hasGatt).toBe(true);
     expect(legacyResult.hasTransport).toBe(true);
-    // Session ID should be undefined/null for backward compatibility
-    expect(legacyResult.sessionId).toBeNull();
+    // Session ID should be auto-generated (not null anymore in v0.5.1+)
+    expect(legacyResult.sessionId).toBeTruthy();
+    expect(typeof legacyResult.sessionId).toBe('string');
   });
 
   test('should demonstrate session persistence pattern (simulated)', async ({ page }) => {

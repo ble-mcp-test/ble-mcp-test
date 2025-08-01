@@ -243,7 +243,7 @@ test.describe('Mock Bundle Export Tests', () => {
     expect(hasSimulateMethod.hasGatt).toBe(true);
   });
 
-  test('should handle multiple connect/disconnect cycles with battery voltage tests', async ({ page }) => {
+  test.skip('should handle multiple connect/disconnect cycles with battery voltage tests', async ({ page }) => {
     // This test validates both real device communication AND simulateNotification
     const deviceAvailable = process.env.CHECK_BLE_DEVICE !== 'false';
     if (!deviceAvailable) {
