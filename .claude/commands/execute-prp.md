@@ -6,6 +6,8 @@ Implement a feature using using the PRP file.
 
 ## Execution Process
 
+**IMPORTANT**: Always use the TodoWrite tool to plan and track tasks throughout the conversation.
+
 1. **Load PRP**
    - First, read `prp/README.md` to understand the PRP philosophy and standards
    - Then read the specified PRP file

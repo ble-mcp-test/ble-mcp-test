@@ -374,6 +374,37 @@ export class MockBluetooth {
   }
   
   private generateAutoSessionId(): string {
+    // Hierarchical session ID generation strategy:
+    // 1. window.BLE_TEST_SESSION_ID (explicit injection by test)
+    // 2. process.env.BLE_TEST_SESSION_ID (environment variable)
+    // 3. Playwright context detection (auto-generate from test file)
+    // 4. Current random generation (fallback for interactive use)
+    
+    // Priority 1: Explicit injection by test
+    if (typeof window !== 'undefined' && (window as any).BLE_TEST_SESSION_ID) {
+      const explicitId = (window as any).BLE_TEST_SESSION_ID;
+      console.log(`[MockBluetooth] Using explicit test session ID: ${explicitId}`);
+      return explicitId;
+    }
+    
+    // Priority 2: Environment variable
+    if (typeof process !== 'undefined' && process.env?.BLE_TEST_SESSION_ID) {
+      const envId = process.env.BLE_TEST_SESSION_ID;
+      console.log(`[MockBluetooth] Using environment session ID: ${envId}`);
+      return envId;
+    }
+    
+    // Priority 3: Playwright context detection
+    const isPlaywright = this.isPlaywrightEnvironment();
+    if (isPlaywright) {
+      const testPath = this.getTestFilePath();
+      const hostname = this.getClientIP();
+      const deterministicId = testPath ? `${hostname}-${testPath}` : `${hostname}-playwright-${Date.now()}`;
+      console.log(`[MockBluetooth] Generated deterministic session ID for Playwright: ${deterministicId}`);
+      return deterministicId;
+    }
+    
+    // Priority 4: Current random generation with localStorage persistence
     // Try to reuse existing session from localStorage
     try {
       if (typeof localStorage !== 'undefined') {
@@ -456,6 +487,79 @@ export class MockBluetooth {
     }
     return 'no-window';
   }
+  
+  private isPlaywrightEnvironment(): boolean {
+    // Detect if running in Playwright
+    return !!(
+      (typeof process !== 'undefined' && process.env?.PLAYWRIGHT_TEST_BASE_URL) ||
+      (typeof window !== 'undefined' && (window as any).__playwright) ||
+      (typeof navigator !== 'undefined' && navigator.userAgent?.includes('Playwright'))
+    );
+  }
+  
+  private getTestFilePath(): string | null {
+    try {
+      // Try to get test info from Playwright context
+      if (typeof window !== 'undefined' && (window as any).__playwright?.testInfo) {
+        const testInfo = (window as any).__playwright.testInfo;
+        if (testInfo.file) {
+          return this.normalizeTestPath(testInfo.file);
+        }
+      }
+      
+      // Fallback: Try to extract from stack trace
+      const stack = new Error().stack;
+      if (stack) {
+        // Look for test file patterns in stack trace
+        const testFilePattern = /\/(tests?|spec|e2e)\/(.*?)\.(test|spec)\.(ts|js|mjs)/;
+        const lines = stack.split('\n');
+        
+        for (const line of lines) {
+          const match = line.match(testFilePattern);
+          if (match) {
+            const testPath = match[2]; // The path between tests/ and .test/spec
+            return this.normalizeTestPath(`tests/${testPath}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[MockBluetooth] Error extracting test path: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    
+    return null;
+  }
+  
+  private normalizeTestPath(path: string): string {
+    // Normalize path separators (Windows backslashes to forward slashes)
+    const normalized = path.replace(/\\/g, '/');
+    
+    // Extract last 2-3 path segments for uniqueness
+    const segments = normalized.split('/');
+    const relevantSegments: string[] = [];
+    
+    // Find the tests/spec/e2e directory and take segments from there
+    let foundTestDir = false;
+    for (let i = segments.length - 1; i >= 0; i--) {
+      if (['tests', 'test', 'spec', 'e2e'].includes(segments[i])) {
+        foundTestDir = true;
+      }
+      if (foundTestDir) {
+        relevantSegments.unshift(segments[i]);
+        if (relevantSegments.length >= 3) break;
+      }
+    }
+    
+    // If we didn't find a test directory, just take the last 2 segments
+    if (!foundTestDir && segments.length >= 2) {
+      relevantSegments.push(segments[segments.length - 2]);
+      relevantSegments.push(segments[segments.length - 1]);
+    }
+    
+    // Remove file extensions
+    const result = relevantSegments.join('/').replace(/\.(test|spec)\.(ts|js|mjs)$/, '');
+    
+    return result;
+  }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
     // Bypass all dialogs - immediately return a mock device
@@ -502,8 +606,16 @@ export function clearStoredSession(): void {
       localStorage.removeItem('ble-mock-session-id');
       console.log('[MockBluetooth] Cleared stored session');
     }
-  } catch (e) {
+  } catch {
     // localStorage not available, nothing to clear
+  }
+}
+
+// Utility function to set test session ID (for Playwright tests)
+export function setTestSessionId(sessionId: string): void {
+  if (typeof window !== 'undefined') {
+    (window as any).BLE_TEST_SESSION_ID = sessionId;
+    console.log(`[MockBluetooth] Set test session ID: ${sessionId}`);
   }
 }
 
