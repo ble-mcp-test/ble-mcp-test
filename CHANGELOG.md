@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-08-01
+
+### Added
+- **Session Management Architecture**: Complete refactor of WebSocket-to-BLE bridge for session persistence
+  - New `SessionManager` class manages BLE session lifecycle across WebSocket disconnects
+  - New `WebSocketHandler` class handles individual WebSocket connections
+  - Sessions persist during 60-second grace period after WebSocket disconnect
+  - Support for multiple WebSockets per BLE session
+  - Session IDs enable reconnection to existing BLE connections
+- **Client-Side Session Support**: Web Bluetooth mock now supports session parameters
+  - Pass `sessionId` to reuse existing session
+  - Use `generateSession: true` for auto-generated session IDs
+  - Session IDs included in WebSocket URL parameters
+- **Backward Compatibility**: Works without session parameters for existing clients
+
+### Changed
+- **BREAKING: Architecture Refactor**: `BridgeServer` reduced from 301 to 104 lines
+  - Now only handles HTTP server and WebSocket routing
+  - All session logic moved to dedicated classes
+  - Cleaner separation of concerns
+- **BLE Session Enhancement**: Sessions now track grace periods and idle timeouts
+  - Configurable via `BLE_SESSION_GRACE_PERIOD_SEC` and `BLE_SESSION_IDLE_TIMEOUT_SEC`
+  - SharedState integration for connection status updates
+
+### Fixed
+- **Connection Reliability**: WebSocket disconnects no longer kill active BLE connections
+- **Resource Management**: Proper cleanup of sessions on server shutdown
+- **State Consistency**: Session status accurately tracked across components
+
 ## [0.4.5] - 2025-01-31
 
 ### Fixed

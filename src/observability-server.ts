@@ -63,7 +63,7 @@ export class ObservabilityServer {
     
     // Add MCP HTTP endpoints
     const mcpApp = createHttpApp(this.mcpServer, process.env.BLE_MCP_HTTP_TOKEN);
-    app.use('/mcp', mcpApp);
+    app.use('/', mcpApp);
     
     return new Promise((resolve) => {
       this.httpServer = app.listen(port, () => {

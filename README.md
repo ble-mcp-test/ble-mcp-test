@@ -99,6 +99,25 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
+## Session Management (v0.5.0+)
+
+Sessions allow BLE connections to persist across WebSocket disconnects:
+
+```javascript
+// Use a specific session ID
+WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
+  sessionId: 'my-app-session-123'
+});
+
+// Or auto-generate a session ID
+WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
+  generateSession: true
+});
+
+// Session persists for 60 seconds after disconnect
+// Reconnecting with same session ID reuses BLE connection
+```
+
 ## Features
 
 ✅ **Complete Web Bluetooth API Mock** - Drop-in replacement for navigator.bluetooth  
@@ -107,6 +126,7 @@ test('BLE device communication', async ({ page }) => {
 ✅ **CI/CD Ready** - Run BLE tests in GitHub Actions, Docker, etc  
 ✅ **MCP Observability** - AI-friendly debugging with Claude, Cursor, etc  
 ✅ **TypeScript** - Full type safety and IntelliSense  
+✅ **Session Persistence** - BLE connections survive WebSocket disconnects  
 ✅ **Minimal** - Core bridge under 600 lines, one connection at a time  
 
 ## Documentation

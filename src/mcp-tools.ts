@@ -95,33 +95,60 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
     description: 'Retrieve recent BLE communication logs with filtering options',
     inputSchema: {
       since: z.string().default('30s').describe("Time filter: duration (30s, 5m, 1h), ISO timestamp, or 'last'"),
-      filter: z.string().optional().describe("Filter by 'TX'/'RX' or hex pattern"),
+      filter: z.string().optional().describe("Filter by 'TX'/'RX', hex pattern, or regex"),
+      exclude_packets: z.boolean().optional().describe("Exclude TX/RX packet data, show only system messages"),
+      exclude_regex: z.string().optional().describe("Regex pattern to exclude from results"),
+      regex: z.boolean().optional().describe("Treat filter as regex pattern"),
       limit: z.number().min(1).max(1000).default(100).describe("Maximum entries to return")
     },
     handler: async (args) => {
-      const { since, filter, limit } = args;
-      const logs = provider.getLogBuffer().getLogsSince(since, limit);
+      const { since, filter, exclude_packets, exclude_regex, regex, limit } = args;
+      let logs = provider.getLogBuffer().getLogsSince(since, limit * 2); // Get more to account for filtering
+      
+      // First apply exclude_packets filter (show only system messages)
+      if (exclude_packets) {
+        logs = logs.filter((log: any) => log.direction === 'INFO');
+      }
+      
+      // Apply exclusion regex if provided
+      if (exclude_regex) {
+        try {
+          const excludePattern = new RegExp(exclude_regex, 'i');
+          logs = logs.filter((log: any) => !excludePattern.test(log.hex));
+        } catch (error) {
+          throw new Error(`Invalid exclude regex pattern: ${exclude_regex}`);
+        }
+      }
       
       // Apply filter if provided
-      let filtered = logs;
       if (filter) {
         const filterUpper = filter.toUpperCase();
-        if (filterUpper === 'TX' || filterUpper === 'RX') {
-          filtered = logs.filter((log: any) => log.direction === filterUpper);
+        
+        if (regex) {
+          // Use regex filtering
+          try {
+            const pattern = new RegExp(filter, 'i');
+            logs = logs.filter((log: any) => pattern.test(log.hex));
+          } catch (error) {
+            throw new Error(`Invalid regex pattern: ${filter}`);
+          }
+        } else if (filterUpper === 'TX' || filterUpper === 'RX') {
+          // Direction filtering
+          logs = logs.filter((log: any) => log.direction === filterUpper);
         } else {
-          // Filter by hex pattern
+          // Hex pattern filtering (case-insensitive substring)
           const cleanFilter = filter.replace(/\s+/g, '').toUpperCase();
-          filtered = logs.filter((log: any) => {
-            const cleanHex = log.hex.replace(/\s+/g, '');
+          logs = logs.filter((log: any) => {
+            const cleanHex = log.hex.replace(/\s+/g, '').toUpperCase();
             return cleanHex.includes(cleanFilter);
           });
         }
       }
       
       const response: LogsResponse = {
-        logs: filtered.slice(0, limit),
-        count: filtered.length,
-        truncated: filtered.length > limit
+        logs: logs.slice(0, limit),
+        count: logs.length,
+        truncated: logs.length > limit
       };
       
       return {

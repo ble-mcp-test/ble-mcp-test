@@ -63,6 +63,7 @@ export class SharedState {
     deviceName: string | null; 
     recovering: boolean 
   }>): void {
+    const before = { ...this.connectionState };
     this.connectionState = {
       ...this.connectionState,
       ...state,
@@ -70,6 +71,24 @@ export class SharedState {
                    state.connected === false ? null : 
                    this.connectionState.connectedAt
     };
+    // Force this log to appear in the main console (not intercepted)
+    const originalLog = this.originalConsole.log;
+    originalLog(`[SharedState] 📊 State updated: ${JSON.stringify(before)} → ${JSON.stringify(this.connectionState)}`);
+    
+    // Also log to the buffer directly
+    this.logBuffer.pushSystemLog('INFO', `[SharedState] 📊 State updated: ${JSON.stringify(before)} → ${JSON.stringify(this.connectionState)}`);
+    
+    // File-based logging fallback
+    try {
+      // Dynamic import for Node.js fs module
+      import('fs').then(fs => {
+        const timestamp = new Date().toISOString();
+        const logEntry = `${timestamp} [SharedState] 📊 State updated: ${JSON.stringify(before)} → ${JSON.stringify(this.connectionState)}\n`;
+        fs.appendFileSync('/tmp/ble-state.log', logEntry);
+      });
+    } catch {
+      // Ignore file logging errors
+    }
   }
 
   // === Read Interface (for Observability) ===
