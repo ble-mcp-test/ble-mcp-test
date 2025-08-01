@@ -1,5 +1,5 @@
 export interface WSMessage {
-  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack';
+  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete';
   seq?: number;
   data?: number[];
   device?: string;
@@ -8,6 +8,7 @@ export interface WSMessage {
   grace_period_ms?: number; // v0.4.0: Eviction warning grace period
   reason?: string; // v0.4.0: Eviction reason
   timestamp?: string; // v0.4.0: Keepalive acknowledgment timestamp
+  message?: string; // v0.4.5: Message for force cleanup complete
 }
 
 export class WebSocketTransport {
@@ -15,17 +16,38 @@ export class WebSocketTransport {
   private serverUrl: string;
   private messageHandler?: (msg: WSMessage) => void;
   private connectionToken?: string; // v0.4.0: Store token for force cleanup
+  private sessionId?: string; // v0.4.5: Session management
   
   constructor(serverUrl = 'ws://localhost:8080') {
     this.serverUrl = serverUrl;
   }
   
-  async connect(options?: { device?: string; service?: string; write?: string; notify?: string }): Promise<void> {
+  async connect(options?: { 
+    device?: string; 
+    service?: string; 
+    write?: string; 
+    notify?: string;
+    session?: string;
+    generateSession?: boolean;
+  }): Promise<void> {
     const url = new URL(this.serverUrl);
     if (options?.device) url.searchParams.set('device', options.device);
     if (options?.service) url.searchParams.set('service', options.service);
     if (options?.write) url.searchParams.set('write', options.write);
     if (options?.notify) url.searchParams.set('notify', options.notify);
+    
+    // Session management
+    if (options?.session) {
+      url.searchParams.set('session', options.session);
+      this.sessionId = options.session;
+    } else if (options?.generateSession) {
+      // Generate UUID that works in both Node.js and browsers
+      const uuid = typeof globalThis.crypto !== 'undefined' && globalThis.crypto.randomUUID
+        ? globalThis.crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).substr(2);
+      this.sessionId = 'cs108-session-' + uuid;
+      url.searchParams.set('session', this.sessionId);
+    }
     
     this.ws = new WebSocket(url.toString());
     
@@ -146,5 +168,14 @@ export class WebSocketTransport {
   
   isConnected(): boolean {
     return this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+  }
+  
+  // Session management methods
+  getSessionId(): string | undefined {
+    return this.sessionId;
+  }
+  
+  async reconnectToSession(sessionId: string): Promise<void> {
+    return this.connect({ session: sessionId });
   }
 }

@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import type { WebSocket } from 'ws';
 import { NobleTransport, type BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
 
@@ -46,11 +47,13 @@ export class BleSession extends EventEmitter {
     
     // Set up transport event handlers
     this.transport.on('data', (data: Uint8Array) => {
+      this.sharedState?.logPacket('RX', data);
       this.emit('data', data);
     });
     
     this.transport.on('disconnect', () => {
       console.log(`[Session:${this.sessionId}] BLE device disconnected`);
+      this.sharedState?.setConnectionState({ connected: false, deviceName: null });
       this.cleanup('device disconnected');
     });
     
@@ -64,6 +67,7 @@ export class BleSession extends EventEmitter {
     this.resetIdleTimer();
     
     console.log(`[Session:${this.sessionId}] Connected to ${this.deviceName}`);
+    this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
     return this.deviceName;
   }
 
@@ -165,7 +169,9 @@ export class BleSession extends EventEmitter {
     for (const ws of this.activeWebSockets) {
       try {
         ws.close();
-      } catch {}
+      } catch {
+        // Ignore WebSocket close errors
+      }
     }
     this.activeWebSockets.clear();
 
@@ -196,7 +202,9 @@ export class BleSession extends EventEmitter {
       activeWebSockets: this.activeWebSockets.size,
       idleTime,
       hasGracePeriod: !!this.graceTimer,
-      hasIdleTimer: !!this.idleTimer
+      hasIdleTimer: !!this.idleTimer,
+      gracePeriodSec: this.gracePeriodSec,
+      idleTimeoutSec: this.idleTimeoutSec
     };
   }
 }

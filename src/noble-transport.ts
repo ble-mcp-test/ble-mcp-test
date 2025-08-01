@@ -1,6 +1,5 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
-import { translateBluetoothError } from './bluetooth-errors.js';
 
 /**
  * Noble BLE Transport
@@ -32,7 +31,9 @@ export class NobleTransport extends EventEmitter {
     // Force stop scanning first
     try {
       await noble.stopScanningAsync();
-    } catch {}
+    } catch {
+      // Ignore stop scanning errors during reset
+    }
     
     // Try software reset via rfkill (less aggressive than systemctl restart)
     try {
@@ -173,7 +174,7 @@ export class NobleTransport extends EventEmitter {
     // Stop any existing scan (no-op if not scanning)
     await noble.stopScanningAsync();
     
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
       let timeout: NodeJS.Timeout | null = null;
       let onDiscover: ((device: any) => void) | null = null;
       
@@ -196,14 +197,13 @@ export class NobleTransport extends EventEmitter {
       this.findDeviceCleanup = cleanupScan;
       
       // Start scanning
-      try {
-        console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
-        await noble.startScanningAsync([], true); // allowDuplicates: true is critical for CS108 on Linux
-      } catch (error) {
+      console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
+      noble.startScanningAsync([], true).then(() => {
+        // Scanning started successfully
+      }).catch((error) => {
         cleanupScan();
         reject(error);
-        return;
-      }
+      });
       
       timeout = setTimeout(() => {
         cleanupScan();

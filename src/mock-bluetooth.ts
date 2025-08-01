@@ -177,13 +177,23 @@ class MockBluetoothRemoteGATTServer {
     
     for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
       try {
-        // Pass BLE configuration if available
+        // Pass BLE configuration including session if available
         const connectOptions: any = { device: this.device.name };
         if (this.device.bleConfig) {
           Object.assign(connectOptions, this.device.bleConfig);
+          // Map sessionId to session for WebSocketTransport
+          if (this.device.bleConfig.sessionId && !connectOptions.session) {
+            connectOptions.session = this.device.bleConfig.sessionId;
+          }
         }
         
         await this.device.transport.connect(connectOptions);
+        
+        // Store session ID if one was generated or provided
+        const sessionId = this.device.transport.getSessionId();
+        if (sessionId) {
+          this.device.sessionId = sessionId;
+        }
         this.connected = true;
         
         if (attempt > 1 && MOCK_CONFIG.logRetries) {
@@ -286,19 +296,21 @@ class MockBluetoothRemoteGATTServer {
 class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
-  public bleConfig?: { service?: string; write?: string; notify?: string };
+  public bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
   private isTransportSetup = false;
+  public sessionId?: string;
 
   constructor(
     public id: string,
     public name: string,
     serverUrl?: string,
-    bleConfig?: { service?: string; write?: string; notify?: string }
+    bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
     this.bleConfig = bleConfig;
+    this.sessionId = bleConfig?.sessionId;
   }
 
   // Register a characteristic for notifications
@@ -346,9 +358,9 @@ class MockBluetoothDevice {
 
 // Mock Bluetooth API
 export class MockBluetooth {
-  private bleConfig?: { service?: string; write?: string; notify?: string };
+  private bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
 
-  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string }) {
+  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }) {
     this.bleConfig = bleConfig;
   }
 
@@ -387,7 +399,7 @@ export class MockBluetooth {
 // Export function to inject mock into window
 export function injectWebBluetoothMock(
   serverUrl?: string, 
-  bleConfig?: { service?: string; write?: string; notify?: string }
+  bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
 ): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');

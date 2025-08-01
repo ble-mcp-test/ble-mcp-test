@@ -80,11 +80,15 @@ export class SharedState {
     
     // File-based logging fallback
     try {
-      const fs = require('fs');
-      const timestamp = new Date().toISOString();
-      const logEntry = `${timestamp} [SharedState] 📊 State updated: ${JSON.stringify(before)} → ${JSON.stringify(this.connectionState)}\n`;
-      fs.appendFileSync('/tmp/ble-state.log', logEntry);
-    } catch {}
+      // Dynamic import for Node.js fs module
+      import('fs').then(fs => {
+        const timestamp = new Date().toISOString();
+        const logEntry = `${timestamp} [SharedState] 📊 State updated: ${JSON.stringify(before)} → ${JSON.stringify(this.connectionState)}\n`;
+        fs.appendFileSync('/tmp/ble-state.log', logEntry);
+      });
+    } catch {
+      // Ignore file logging errors
+    }
   }
 
   // === Read Interface (for Observability) ===

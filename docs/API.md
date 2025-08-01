@@ -23,7 +23,7 @@ server.stop(); // Graceful shutdown
 
 ## Browser API
 
-### injectWebBluetoothMock(serverUrl: string)
+### injectWebBluetoothMock(serverUrl: string, bleConfig?: object)
 
 Replaces the browser's `navigator.bluetooth` with a mock that communicates with the bridge server.
 
@@ -33,14 +33,39 @@ import { injectWebBluetoothMock } from 'ble-mcp-test';
 // Basic usage
 injectWebBluetoothMock('ws://localhost:8080');
 
-// With device configuration
-const url = new URL('ws://localhost:8080');
-url.searchParams.set('device', 'MyDevice');
-url.searchParams.set('service', '180f');
-url.searchParams.set('write', '2a19');
-url.searchParams.set('notify', '2a20');
-injectWebBluetoothMock(url.toString());
+// With BLE configuration
+injectWebBluetoothMock('ws://localhost:8080', {
+  service: '9800',
+  write: '9900',
+  notify: '9901'
+});
+
+// With session management (v0.5.0+)
+injectWebBluetoothMock('ws://localhost:8080', {
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  sessionId: 'my-app-session-123'  // Use specific session ID
+});
+
+// Auto-generate session ID
+injectWebBluetoothMock('ws://localhost:8080', {
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  generateSession: true  // Auto-generate session ID
+});
 ```
+
+#### Parameters
+
+- `serverUrl` (string) - WebSocket URL of the bridge server
+- `bleConfig` (object, optional) - BLE configuration options:
+  - `service` - Service UUID
+  - `write` - Write characteristic UUID
+  - `notify` - Notify characteristic UUID
+  - `sessionId` - Session ID for connection persistence (v0.5.0+)
+  - `generateSession` - Auto-generate session ID if true (v0.5.0+)
 
 ### Using the Browser Bundle
 
@@ -164,6 +189,14 @@ Pass device configuration via URL query parameters:
 | `service` | BLE service UUID | `9800` or `00009800-0000-1000-8000-00805f9b34fb` |
 | `write` | Write characteristic UUID | `9900` |
 | `notify` | Notify characteristic UUID | `9901` |
+| `session` | Session ID for connection persistence (v0.5.0+) | `my-app-session-123` |
+
+**Example URLs:**
+```
+ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901
+ws://localhost:8080?session=my-app-session-123
+ws://localhost:8080?device=CS108&session=persist-123&service=9800
+```
 
 ### Message Format
 
@@ -359,30 +392,40 @@ updateMockConfig({
 - `retryBackoffMultiplier` (default: 1.3) - Multiplier for exponential backoff between retries
 - `logRetries` (default: true) - Whether to log retry attempts to console
 
+## Session Management (v0.5.0+)
+
+Sessions allow BLE connections to persist across WebSocket disconnects:
+
+### Session Behavior
+- **Session ID**: Pass `?session=<id>` in WebSocket URL to use a specific session
+- **Grace Period**: BLE connections persist for 60 seconds after WebSocket disconnect (configurable via `BLE_SESSION_GRACE_PERIOD_SEC`)
+- **Idle Timeout**: Sessions auto-cleanup after 5 minutes of inactivity (configurable via `BLE_SESSION_IDLE_TIMEOUT_SEC`)
+- **Multiple WebSockets**: Multiple WebSocket clients can share the same BLE session
+- **Backward Compatible**: Works without session parameters for existing clients
+
+### Session Lifecycle
+1. **Session Creation**: First WebSocket with a session ID creates the BLE session
+2. **Session Reuse**: Subsequent WebSockets with same ID reuse existing BLE connection
+3. **Grace Period**: When last WebSocket disconnects, BLE connection enters grace period
+4. **Session Recovery**: New WebSocket within grace period resumes the session
+5. **Session Cleanup**: After grace period expires, BLE connection is terminated
+
+### Configuration
+- `BLE_SESSION_GRACE_PERIOD_SEC` - Grace period in seconds (default: 60)
+- `BLE_SESSION_IDLE_TIMEOUT_SEC` - Idle timeout in seconds (default: 300)
+
 ## Connection Token
 All successful connections now receive a unique authentication token:
 - The `connected` message includes a `token` field
 - This token is required for `force_cleanup` operations
 - Token format: UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`)
 
-### Client Idle Timeout
-Clients are automatically disconnected after a period of inactivity:
-- Default timeout: 45 seconds (configurable via `BLE_MCP_CLIENT_IDLE_TIMEOUT` environment variable)
-- Clients receive an `eviction_warning` message 5 seconds before disconnection
-- Send `keepalive` messages to prevent idle timeout
-- All activity messages (`data`, `disconnect`, `cleanup`, etc.) reset the idle timer
-
-### Enhanced Health Endpoint
-The health check WebSocket endpoint now includes:
-- `state`: Server state machine state (IDLE, ACTIVE, EVICTING)
-- `transportState`: BLE transport state
-- `connectionInfo`: Active connection details including token and timestamps
-
 ### State Machine
-The server now uses a formal state machine for connection lifecycle:
-- **IDLE**: No active connections, ready to accept new connections
-- **ACTIVE**: Connection established and operational
-- **EVICTING**: Connection being terminated due to idle timeout
+The server uses an atomic state machine for connection lifecycle:
+- **ready**: No active connections, ready to accept new connections
+- **connecting**: Establishing BLE connection
+- **active**: Connection established and operational
+- **disconnecting**: Cleaning up connection
 
 ## Limitations
 
