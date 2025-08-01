@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2025-08-01
+
+### Fixed
+- **Session Reuse Bug**: Fixed critical issue where reconnection to existing sessions during grace period was blocked
+  - Enhanced session manager logging to better track session conflicts
+  - Improved session reuse detection with proper grace period reconnection handling
+  - Added race condition protection in MockBluetooth to prevent conflicting session IDs
+  - Better WebSocket URL parameter parsing with detailed debugging logs
+- **Idle Timeout Management**: Fixed competing timer issues between grace period and idle timeout
+  - Idle timers are now properly cleared during grace periods to avoid conflicts
+  - Enhanced timer coordination when WebSockets reconnect to existing sessions
+  - Added stale session cleanup for sessions that exceed idle timeout + grace period
+  - Improved WebSocket reconnection handling with proper idle timer reset
+
+### Changed
+- **Enhanced Debugging**: Comprehensive logging improvements across session management
+  - SessionManager now provides detailed session status information
+  - Bridge server logs full WebSocket connection parameters for troubleshooting
+  - MockBluetooth includes race condition detection and localStorage consistency checks
+- **Robust Timer Management**: Better coordination between grace period and idle timeout timers
+  - No more competing timers that could cause inconsistent session cleanup
+  - Proper timer state management during session state transitions
+
+## [0.5.3] - 2025-08-01
+
+### Added
+- **Session Management Foundation**: Complete session-based architecture
+  - Multi-session support with proper isolation and cleanup
+  - Session persistence across WebSocket disconnections
+  - Grace period and idle timeout management
+
 ## [0.5.2] - 2025-08-01
 
 ### Added
