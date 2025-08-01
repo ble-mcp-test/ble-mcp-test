@@ -18,11 +18,11 @@ export class BleSession extends EventEmitter {
   private deviceName: string | null = null;
   private graceTimer: NodeJS.Timeout | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
-  private lastTxTime = Date.now();
+  private lastActivityTime = Date.now();
   
   // Timeout configuration (in seconds)
-  private gracePeriodSec = parseInt(process.env.BLE_MCP_GRACE_PERIOD || '60', 10);
-  private idleTimeoutSec = parseInt(process.env.BLE_MCP_IDLE_TIMEOUT || '180', 10);
+  private gracePeriodSec = parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10);
+  private idleTimeoutSec = parseInt(process.env.BLE_SESSION_IDLE_TIMEOUT_SEC || process.env.BLE_MCP_IDLE_TIMEOUT || '300', 10);
   
   constructor(
     public readonly sessionId: string,
@@ -48,6 +48,7 @@ export class BleSession extends EventEmitter {
     // Set up transport event handlers
     this.transport.on('data', (data: Uint8Array) => {
       this.sharedState?.logPacket('RX', data);
+      this.resetIdleTimer(); // Reset idle timer on RX activity
       this.emit('data', data);
     });
     
@@ -107,7 +108,7 @@ export class BleSession extends EventEmitter {
       throw new Error('Not connected');
     }
     
-    this.lastTxTime = Date.now();
+    this.lastActivityTime = Date.now();
     this.resetIdleTimer();
     await this.transport.write(data);
   }
@@ -132,9 +133,10 @@ export class BleSession extends EventEmitter {
       clearTimeout(this.idleTimer);
     }
     
+    this.lastActivityTime = Date.now(); // Update activity time
     this.idleTimer = setTimeout(() => {
-      const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
-      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
+      const idleTime = Math.round((Date.now() - this.lastActivityTime) / 1000);
+      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last activity) - cleaning up`);
       this.cleanup('idle timeout');
     }, this.idleTimeoutSec * 1000);
   }
@@ -193,7 +195,7 @@ export class BleSession extends EventEmitter {
    */
   getStatus() {
     const now = Date.now();
-    const idleTime = Math.round((now - this.lastTxTime) / 1000);
+    const idleTime = Math.round((now - this.lastActivityTime) / 1000);
     
     return {
       sessionId: this.sessionId,
