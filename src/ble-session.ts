@@ -18,7 +18,7 @@ export class BleSession extends EventEmitter {
   private deviceName: string | null = null;
   private graceTimer: NodeJS.Timeout | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
-  private lastActivityTime = Date.now();
+  private lastTxTime = Date.now();
   
   // Timeout configuration (in seconds)
   private gracePeriodSec = parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10);
@@ -48,7 +48,6 @@ export class BleSession extends EventEmitter {
     // Set up transport event handlers
     this.transport.on('data', (data: Uint8Array) => {
       this.sharedState?.logPacket('RX', data);
-      this.resetIdleTimer(); // Reset idle timer on RX activity
       this.emit('data', data);
     });
     
@@ -108,7 +107,7 @@ export class BleSession extends EventEmitter {
       throw new Error('Not connected');
     }
     
-    this.lastActivityTime = Date.now();
+    this.lastTxTime = Date.now();
     this.resetIdleTimer();
     await this.transport.write(data);
   }
@@ -133,10 +132,9 @@ export class BleSession extends EventEmitter {
       clearTimeout(this.idleTimer);
     }
     
-    this.lastActivityTime = Date.now(); // Update activity time
     this.idleTimer = setTimeout(() => {
-      const idleTime = Math.round((Date.now() - this.lastActivityTime) / 1000);
-      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last activity) - cleaning up`);
+      const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
+      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
       this.cleanup('idle timeout');
     }, this.idleTimeoutSec * 1000);
   }
@@ -195,7 +193,7 @@ export class BleSession extends EventEmitter {
    */
   getStatus() {
     const now = Date.now();
-    const idleTime = Math.round((now - this.lastActivityTime) / 1000);
+    const idleTime = Math.round((now - this.lastTxTime) / 1000);
     
     return {
       sessionId: this.sessionId,
