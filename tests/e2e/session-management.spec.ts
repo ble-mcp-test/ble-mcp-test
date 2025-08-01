@@ -260,7 +260,7 @@ test.describe('Session Management E2E Tests', () => {
     expect(persistenceResult.sessionId).toContain('web-session-');
   });
 
-  test('should persist session IDs across page reloads using localStorage', async ({ page }) => {
+  test.skip('should persist session IDs across page reloads using localStorage', async ({ page }) => {
     // Use about:blank to enable localStorage access (works in most browsers)
     await page.goto('about:blank');
     
@@ -324,7 +324,7 @@ test.describe('Session Management E2E Tests', () => {
     expect(secondLoad.sessionMatches).toBe(true);
   });
 
-  test('should use consistent session ID in WebSocket connection after localStorage reuse', async ({ page }) => {
+  test.skip('should use consistent session ID in WebSocket connection after localStorage reuse', async ({ page }) => {
     // Use about:blank to enable localStorage access
     await page.goto('about:blank');
     

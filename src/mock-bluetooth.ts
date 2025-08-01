@@ -399,7 +399,18 @@ export class MockBluetooth {
     if (isPlaywright) {
       const testPath = this.getTestFilePath();
       const hostname = this.getClientIP();
-      const deterministicId = testPath ? `${hostname}-${testPath}` : `${hostname}-playwright-${Date.now()}`;
+      
+      // If we got a test path, use it
+      if (testPath) {
+        const deterministicId = `${hostname}-${testPath}`;
+        console.log(`[MockBluetooth] Generated deterministic session ID for Playwright: ${deterministicId}`);
+        return deterministicId;
+      }
+      
+      // Otherwise, use a stable suffix based on the page URL
+      // This ensures consistent session IDs across page reloads in the same test
+      const stableSuffix = this.getStableTestSuffix();
+      const deterministicId = `${hostname}-playwright-${stableSuffix}`;
       console.log(`[MockBluetooth] Generated deterministic session ID for Playwright: ${deterministicId}`);
       return deterministicId;
     }
@@ -460,8 +471,8 @@ export class MockBluetooth {
   private getClientIP(): string {
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      if (hostname && hostname !== 'localhost' && hostname !== '127.0.0.1') {
-        return hostname;
+      if (hostname) {
+        return hostname;  // Return actual hostname (localhost, 127.0.0.1, etc.)
       }
     }
     return '127.0.0.1';
@@ -489,7 +500,32 @@ export class MockBluetooth {
   }
   
   private isPlaywrightEnvironment(): boolean {
-    // Detect if running in Playwright
+    // Detect if running in Playwright or other test environments
+    // Note: Playwright doesn't expose markers in the browser context, so we use heuristics
+    
+    // 1. Check for test-like URL patterns (file://, localhost with no real server)
+    if (typeof window !== 'undefined') {
+      const url = window.location.href;
+      // Common test URL patterns
+      if (url.startsWith('file://') || 
+          url.includes('localhost/test') || 
+          url.includes('127.0.0.1/test') ||
+          url.includes('localhost:0/') ||
+          url.includes('about:blank')) {
+        // Likely a test environment
+        return true;
+      }
+    }
+    
+    // 2. Check for headless browser (common in CI/test environments)
+    if (typeof navigator !== 'undefined' && navigator.userAgent) {
+      const ua = navigator.userAgent.toLowerCase();
+      if (ua.includes('headless')) {
+        return true;
+      }
+    }
+    
+    // 3. Original checks (kept for compatibility)
     return !!(
       (typeof process !== 'undefined' && process.env?.PLAYWRIGHT_TEST_BASE_URL) ||
       (typeof window !== 'undefined' && (window as any).__playwright) ||
@@ -497,6 +533,24 @@ export class MockBluetooth {
     );
   }
   
+  private getStableTestSuffix(): string {
+    // Generate a stable suffix based on the current page URL
+    // This ensures consistent session IDs across page reloads in the same test
+    if (typeof window !== 'undefined') {
+      const url = window.location.href;
+      // Create a simple hash of the URL to use as a stable suffix
+      let hash = 0;
+      for (let i = 0; i < url.length; i++) {
+        const char = url.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+      }
+      return Math.abs(hash).toString(36);
+    }
+    // Fallback to timestamp if window is not available
+    return Date.now().toString(36);
+  }
+
   private getTestFilePath(): string | null {
     try {
       // Try to get test info from Playwright context
@@ -510,6 +564,8 @@ export class MockBluetooth {
       // Fallback: Try to extract from stack trace
       const stack = new Error().stack;
       if (stack) {
+        console.log(`[MockBluetooth] Stack trace for test path extraction:\n${stack}`);
+        
         // Look for test file patterns in stack trace
         const testFilePattern = /\/(tests?|spec|e2e)\/(.*?)\.(test|spec)\.(ts|js|mjs)/;
         const lines = stack.split('\n');
@@ -518,9 +574,12 @@ export class MockBluetooth {
           const match = line.match(testFilePattern);
           if (match) {
             const testPath = match[2]; // The path between tests/ and .test/spec
+            console.log(`[MockBluetooth] Found test path in stack: ${testPath}`);
             return this.normalizeTestPath(`tests/${testPath}`);
           }
         }
+        
+        console.log(`[MockBluetooth] No test path found in stack trace`);
       }
     } catch (e) {
       console.log(`[MockBluetooth] Error extracting test path: ${e instanceof Error ? e.message : String(e)}`);
