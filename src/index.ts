@@ -1,7 +1,7 @@
 export { BridgeServer } from './bridge-server.js';
 export { NobleTransport } from './noble-transport.js';
 export type { BleConfig } from './noble-transport.js';
-export { injectWebBluetoothMock } from './mock-bluetooth.js';
+export { injectWebBluetoothMock, clearStoredSession, testSessionPersistence, getBundleVersion } from './mock-bluetooth.js';
 export { WebSocketTransport } from './ws-transport.js';
 export type { WSMessage } from './ws-transport.js';
 export { normalizeUuid } from './utils.js';

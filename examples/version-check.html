@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Bundle Version Check</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        .success { color: green; }
+        .error { color: red; }
+        .warning { color: orange; }
+        pre { background: #f5f5f5; padding: 10px; border-radius: 4px; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>ble-mcp-test Bundle Version Check</h1>
+    
+    <h2>1. Load Bundle with Cache Busting</h2>
+    <button onclick="loadWithVersion()">Load Versioned Bundle</button>
+    <button onclick="loadWithTimestamp()">Load with Timestamp</button>
+    <button onclick="loadWithoutCache()">Load without Cache</button>
+    
+    <h2>2. Check Loaded Version</h2>
+    <button onclick="checkVersion()">Check Version</button>
+    <button onclick="compareVersions()">Compare with package.json</button>
+    
+    <h2>3. Force Reload</h2>
+    <button onclick="forceReload()">Force Reload Bundle</button>
+    
+    <div id="output"></div>
+    
+    <script>
+        const output = document.getElementById('output');
+        const EXPECTED_VERSION = '0.5.3'; // Update this when testing new versions
+        
+        function log(message, className = '') {
+            const div = document.createElement('div');
+            div.className = className;
+            div.innerHTML = message;
+            output.appendChild(div);
+        }
+        
+        function clearLog() {
+            output.innerHTML = '';
+        }
+        
+        function loadWithVersion() {
+            clearLog();
+            const script = document.createElement('script');
+            script.src = `../dist/web-ble-mock.bundle.v${EXPECTED_VERSION}.js`;
+            script.onload = () => {
+                log(`✅ Loaded versioned bundle: v${EXPECTED_VERSION}`, 'success');
+                checkVersion();
+            };
+            script.onerror = () => {
+                log(`❌ Failed to load versioned bundle`, 'error');
+            };
+            document.head.appendChild(script);
+        }
+        
+        function loadWithTimestamp() {
+            clearLog();
+            const script = document.createElement('script');
+            script.src = `../dist/web-ble-mock.bundle.js?t=${Date.now()}`;
+            script.onload = () => {
+                log(`✅ Loaded bundle with timestamp query`, 'success');
+                checkVersion();
+            };
+            script.onerror = () => {
+                log(`❌ Failed to load bundle`, 'error');
+            };
+            document.head.appendChild(script);
+        }
+        
+        function loadWithoutCache() {
+            clearLog();
+            
+            // Remove existing script if any
+            const existing = document.querySelector('script[src*="web-ble-mock.bundle"]');
+            if (existing) {
+                existing.remove();
+            }
+            
+            // Create new script with cache-busting headers
+            const script = document.createElement('script');
+            script.src = `../dist/web-ble-mock.bundle.js?nocache=${Math.random()}`;
+            script.setAttribute('data-cache', 'no-store');
+            
+            script.onload = () => {
+                log(`✅ Loaded bundle with cache busting`, 'success');
+                checkVersion();
+            };
+            script.onerror = () => {
+                log(`❌ Failed to load bundle`, 'error');
+            };
+            
+            document.head.appendChild(script);
+        }
+        
+        function checkVersion() {
+            log('<h3>Version Check Results:</h3>');
+            
+            if (typeof window.WebBleMock === 'undefined') {
+                log('❌ WebBleMock not loaded!', 'error');
+                return;
+            }
+            
+            log(`✅ WebBleMock loaded`, 'success');
+            log(`Available functions: ${Object.keys(window.WebBleMock).join(', ')}`);
+            
+            if (window.WebBleMock.version) {
+                log(`Bundle version: <strong>${window.WebBleMock.version}</strong>`, 'success');
+                
+                if (window.WebBleMock.version === EXPECTED_VERSION) {
+                    log(`✅ Version matches expected: ${EXPECTED_VERSION}`, 'success');
+                } else {
+                    log(`⚠️ Version mismatch! Expected ${EXPECTED_VERSION}, got ${window.WebBleMock.version}`, 'warning');
+                    log(`This might indicate a cached bundle is being used.`, 'warning');
+                }
+            } else {
+                log('❌ No version property found - using old bundle!', 'error');
+            }
+            
+            // Also check the function
+            if (window.WebBleMock.getBundleVersion) {
+                const funcVersion = window.WebBleMock.getBundleVersion();
+                log(`getBundleVersion() returns: ${funcVersion}`);
+            }
+        }
+        
+        function compareVersions() {
+            // In real usage, you'd fetch package.json or have the version injected
+            log('<h3>Version Comparison:</h3>');
+            log(`Expected version (from code): ${EXPECTED_VERSION}`);
+            
+            if (window.WebBleMock?.version) {
+                log(`Loaded bundle version: ${window.WebBleMock.version}`);
+                
+                const match = window.WebBleMock.version === EXPECTED_VERSION;
+                log(match ? '✅ Versions match!' : '❌ Version mismatch - cache issue likely!', match ? 'success' : 'error');
+                
+                if (!match) {
+                    log('<h4>Recommended Actions:</h4>');
+                    log('1. Clear browser cache (Ctrl+Shift+R or Cmd+Shift+R)');
+                    log('2. Use versioned bundle URL: web-ble-mock.bundle.v' + EXPECTED_VERSION + '.js');
+                    log('3. Add timestamp query param: ?t=' + Date.now());
+                    log('4. Check Network tab for 304 (Not Modified) responses');
+                }
+            } else {
+                log('❌ No version found in loaded bundle', 'error');
+            }
+        }
+        
+        function forceReload() {
+            clearLog();
+            
+            // Remove all existing bundle scripts
+            document.querySelectorAll('script[src*="web-ble-mock.bundle"]').forEach(s => s.remove());
+            
+            // Clear the global
+            delete window.WebBleMock;
+            
+            log('🔄 Cleared existing bundle', 'warning');
+            log('Click one of the load buttons above to reload');
+        }
+        
+        // Check on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            if (window.WebBleMock) {
+                log('<h3>Bundle already loaded on page load:</h3>');
+                checkVersion();
+            }
+        });
+    </script>
+</body>
+</html>

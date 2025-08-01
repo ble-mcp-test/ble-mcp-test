@@ -260,6 +260,217 @@ test.describe('Session Management E2E Tests', () => {
     expect(persistenceResult.sessionId).toContain('web-session-');
   });
 
+  test('should persist session IDs across page reloads using localStorage', async ({ page }) => {
+    // Use about:blank to enable localStorage access (works in most browsers)
+    await page.goto('about:blank');
+    
+    // Load the bundle
+    const bundlePath = join(__dirname, '../../dist/web-ble-mock.bundle.js');
+    await page.addScriptTag({ path: bundlePath });
+    
+    // First page load - should create and store new session
+    const firstLoad = await page.evaluate(() => {
+      // Clear any existing session first
+      try {
+        localStorage.removeItem('ble-mock-session-id');
+      } catch (e) {
+        // Ignore if localStorage not available
+      }
+      
+      // Inject mock (no explicit session ID - should auto-generate)
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+      
+      // Get the bluetooth instance to check session ID
+      const bluetooth = navigator.bluetooth as any;
+      return {
+        success: true,
+        sessionId: bluetooth.autoSessionId,
+        storageAvailable: typeof localStorage !== 'undefined'
+      };
+    });
+    
+    console.log('First load result:', firstLoad);
+    expect(firstLoad.success).toBe(true);
+    expect(firstLoad.sessionId).toBeTruthy();
+    expect(firstLoad.storageAvailable).toBe(true);
+    
+    // Simulate page reload by injecting mock again
+    const secondLoad = await page.evaluate(() => {
+      // Inject mock again (simulating page reload)
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+      
+      // Get the new bluetooth instance
+      const bluetooth = navigator.bluetooth as any;
+      const storedSession = localStorage.getItem('ble-mock-session-id');
+      
+      return {
+        success: true,
+        sessionId: bluetooth.autoSessionId,
+        storedSession: storedSession,
+        sessionMatches: bluetooth.autoSessionId === storedSession
+      };
+    });
+    
+    console.log('Second load result:', secondLoad);
+    console.log('Session persistence comparison:');
+    console.log('  First load session:', firstLoad.sessionId);
+    console.log('  Second load session:', secondLoad.sessionId);
+    console.log('  Stored in localStorage:', secondLoad.storedSession);
+    console.log('  Sessions match:', secondLoad.sessionMatches);
+    
+    expect(secondLoad.success).toBe(true);
+    expect(secondLoad.sessionId).toBe(firstLoad.sessionId);
+    expect(secondLoad.storedSession).toBe(firstLoad.sessionId);
+    expect(secondLoad.sessionMatches).toBe(true);
+  });
+
+  test('should use consistent session ID in WebSocket connection after localStorage reuse', async ({ page }) => {
+    // Use about:blank to enable localStorage access
+    await page.goto('about:blank');
+    
+    // Load the bundle
+    const bundlePath = join(__dirname, '../../dist/web-ble-mock.bundle.js');
+    await page.addScriptTag({ path: bundlePath });
+    
+    // Test the complete flow: localStorage reuse → device creation → WebSocket connection
+    const sessionConsistencyTest = await page.evaluate(() => {
+      const capturedWebSocketUrls: string[] = [];
+      const consoleMessages: string[] = [];
+      
+      // Mock console.log to capture session-related messages
+      const originalConsoleLog = console.log;
+      console.log = (...args) => {
+        const message = args.join(' ');
+        if (message.includes('[MockBluetooth]') || message.includes('[MockGATT]')) {
+          consoleMessages.push(message);
+        }
+        originalConsoleLog(...args);
+      };
+      
+      // Mock WebSocket to capture connection URLs
+      const OriginalWebSocket = WebSocket;
+      (window as any).WebSocket = class MockWS {
+        url: string;
+        readyState = WebSocket.CONNECTING;
+        
+        constructor(url: string) {
+          this.url = url;
+          capturedWebSocketUrls.push(url);
+          
+          // Simulate successful connection
+          setTimeout(() => {
+            this.readyState = WebSocket.OPEN;
+            if (this.onopen) this.onopen(new Event('open'));
+            if (this.onmessage) {
+              this.onmessage(new MessageEvent('message', {
+                data: JSON.stringify({ type: 'connected', token: 'test-token' })
+              }));
+            }
+          }, 10);
+        }
+        
+        send(data: string) {
+          // Mock send - could log data if needed
+        }
+        close() {}
+        
+        onopen: ((ev: Event) => any) | null = null;
+        onmessage: ((ev: MessageEvent) => any) | null = null;
+        onerror: ((ev: Event) => any) | null = null;
+        onclose: ((ev: CloseEvent) => any) | null = null;
+      };
+      
+      return new Promise((resolve) => {
+        setTimeout(async () => {
+          try {
+            // Clear localStorage first
+            localStorage.removeItem('ble-mock-session-id');
+            
+            // First injection - should create new session
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            const firstDevice = await navigator.bluetooth.requestDevice({
+              filters: [{ namePrefix: 'CS108' }]
+            });
+            const firstSessionId = (navigator.bluetooth as any).autoSessionId;
+            
+            // Connect first device to trigger WebSocket connection
+            await firstDevice.gatt.connect();
+            const firstWebSocketUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+            
+            // Second injection - should reuse session from localStorage
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            const secondDevice = await navigator.bluetooth.requestDevice({
+              filters: [{ namePrefix: 'CS108' }]
+            });
+            const secondSessionId = (navigator.bluetooth as any).autoSessionId;
+            
+            // Connect second device to trigger WebSocket connection
+            await secondDevice.gatt.connect();
+            const secondWebSocketUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+            
+            // Extract session parameters from URLs
+            const getSessionFromUrl = (url: string) => {
+              const urlObj = new URL(url);
+              return urlObj.searchParams.get('session');
+            };
+            
+            const firstUrlSession = getSessionFromUrl(firstWebSocketUrl);
+            const secondUrlSession = getSessionFromUrl(secondWebSocketUrl);
+            
+            // Restore originals
+            console.log = originalConsoleLog;
+            (window as any).WebSocket = OriginalWebSocket;
+            
+            resolve({
+              success: true,
+              firstSessionId,
+              secondSessionId,
+              firstWebSocketUrl,
+              secondWebSocketUrl,
+              firstUrlSession,
+              secondUrlSession,
+              sessionIdsMatch: firstSessionId === secondSessionId,
+              urlSessionsMatch: firstUrlSession === secondUrlSession,
+              allConsistent: firstSessionId === secondSessionId && firstUrlSession === secondUrlSession,
+              consoleMessages,
+              capturedUrls: capturedWebSocketUrls,
+              localStorage: localStorage.getItem('ble-mock-session-id')
+            });
+          } catch (error) {
+            // Restore on error
+            console.log = originalConsoleLog;
+            (window as any).WebSocket = OriginalWebSocket;
+            
+            resolve({
+              success: false,
+              error: error.message,
+              consoleMessages,
+              capturedUrls: capturedWebSocketUrls
+            });
+          }
+        }, 50);
+      });
+    });
+    
+    console.log('Session consistency test result:', sessionConsistencyTest);
+    
+    expect(sessionConsistencyTest.success).toBe(true);
+    expect(sessionConsistencyTest.sessionIdsMatch).toBe(true);
+    expect(sessionConsistencyTest.urlSessionsMatch).toBe(true);
+    expect(sessionConsistencyTest.allConsistent).toBe(true);
+    
+    // Verify localStorage contains the session
+    expect(sessionConsistencyTest.localStorage).toBe(sessionConsistencyTest.firstSessionId);
+    
+    // Log detailed results for debugging
+    console.log('Detailed session flow:');
+    console.log('  First session ID:', sessionConsistencyTest.firstSessionId);
+    console.log('  Second session ID:', sessionConsistencyTest.secondSessionId);
+    console.log('  First WebSocket URL:', sessionConsistencyTest.firstWebSocketUrl);
+    console.log('  Second WebSocket URL:', sessionConsistencyTest.secondWebSocketUrl);
+    console.log('  Console messages:', sessionConsistencyTest.consoleMessages);
+  });
+
   test('should validate force-cleanup-simple.html functionality', async ({ page }) => {
     // Navigate to the actual force-cleanup-simple.html page
     const htmlPath = join(__dirname, '../../examples/force-cleanup-simple.html');

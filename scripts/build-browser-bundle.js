@@ -16,6 +16,10 @@ await build({
   bundle: false
 });
 
+// Get version from package.json for cache busting
+const packageJson = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
+const version = packageJson.version;
+
 // Build the bundle using the browser entry point
 await build({
   entryPoints: [join(projectRoot, 'dist/mock-browser-entry.js')],
@@ -37,11 +41,12 @@ const bundlePath = join(projectRoot, 'dist/web-ble-mock.bundle.js');
 let bundleContent = readFileSync(bundlePath, 'utf8');
 
 // The IIFE sets window.WebBleMock inside, but we need to ensure it's actually set
-// Add a verification and log
+// Add version info and verification
 const fixExports = `
-// Verify WebBleMock is available globally
+// Bundle version: ${version}
 if (typeof window !== 'undefined' && window.WebBleMock) {
-  console.log('[WebBleMock] Bundle loaded successfully, exports:', Object.keys(window.WebBleMock));
+  window.WebBleMock.version = '${version}';
+  console.log('[WebBleMock] Bundle loaded successfully, version: ${version}, exports:', Object.keys(window.WebBleMock));
 } else {
   console.error('[WebBleMock] Bundle failed to create window.WebBleMock');
 }
@@ -52,4 +57,8 @@ bundleContent += fixExports;
 // Write the modified bundle
 writeFileSync(bundlePath, bundleContent);
 
-console.log('✅ Browser bundle built with proper exports');
+// Also create a versioned copy for cache busting
+const versionedPath = join(projectRoot, 'dist', `web-ble-mock.bundle.v${version}.js`);
+writeFileSync(versionedPath, bundleContent);
+
+console.log(`✅ Browser bundle built with proper exports (v${version})`);

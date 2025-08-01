@@ -184,8 +184,11 @@ class MockBluetoothRemoteGATTServer {
           // Map sessionId to session for WebSocketTransport
           if (this.device.bleConfig.sessionId && !connectOptions.session) {
             connectOptions.session = this.device.bleConfig.sessionId;
+            console.log(`[MockGATT] Using session ID for WebSocket: ${this.device.bleConfig.sessionId}`);
           }
         }
+        
+        console.log(`[MockGATT] WebSocket connect options:`, JSON.stringify(connectOptions));
         
         await this.device.transport.connect(connectOptions);
         
@@ -377,11 +380,12 @@ export class MockBluetooth {
         const stored = localStorage.getItem('ble-mock-session-id');
         if (stored) {
           console.log(`[MockBluetooth] Reusing stored session: ${stored}`);
+          console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
           return stored;
         }
       }
     } catch (e) {
-      // localStorage not available or blocked, continue with generation
+      console.log(`[MockBluetooth] localStorage error during read: ${e instanceof Error ? e.message : String(e)}`);
     }
     
     const ip = this.getClientIP();
@@ -389,15 +393,19 @@ export class MockBluetooth {
     const random = Math.random().toString(36).substr(2, 4).toUpperCase();
     
     const sessionId = `${ip}-${browser}-${random}`;
+    console.log(`[MockBluetooth] Generated new session: ${sessionId} (IP: ${ip}, Browser: ${browser})`);
     
     // Store for next time
     try {
       if (typeof localStorage !== 'undefined') {
         localStorage.setItem('ble-mock-session-id', sessionId);
         console.log(`[MockBluetooth] Stored new session: ${sessionId}`);
+        console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
+      } else {
+        console.log(`[MockBluetooth] localStorage not available - session won't persist`);
       }
     } catch (e) {
-      // localStorage not available or blocked, session just won't persist
+      console.log(`[MockBluetooth] localStorage error during write: ${e instanceof Error ? e.message : String(e)}`);
     }
     
     return sessionId;
@@ -425,6 +433,13 @@ export class MockBluetooth {
       if (ua.includes('Edge')) return 'edge';
     }
     return 'browser';
+  }
+  
+  private getStorageContext(): string {
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin || 'unknown-origin'}`;
+    }
+    return 'no-window';
   }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
@@ -475,6 +490,83 @@ export function clearStoredSession(): void {
   } catch (e) {
     // localStorage not available, nothing to clear
   }
+}
+
+// Test function for localStorage session persistence
+export function testSessionPersistence(): {
+  localStorage: boolean;
+  currentSession: string | null;
+  canStore: boolean;
+  canRetrieve: boolean;
+  testResult: 'pass' | 'fail' | 'no-storage';
+  details: string[];
+} {
+  const details: string[] = [];
+  const testKey = 'ble-mock-test-session';
+  const testValue = `test-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
+  
+  // Check localStorage availability
+  const hasLocalStorage = typeof localStorage !== 'undefined';
+  details.push(`localStorage available: ${hasLocalStorage}`);
+  
+  if (!hasLocalStorage) {
+    return {
+      localStorage: false,
+      currentSession: null,
+      canStore: false,
+      canRetrieve: false,
+      testResult: 'no-storage',
+      details
+    };
+  }
+  
+  // Get current session
+  const currentSession = localStorage.getItem('ble-mock-session-id');
+  details.push(`Current session: ${currentSession || 'none'}`);
+  
+  // Test storage
+  let canStore = false;
+  try {
+    localStorage.setItem(testKey, testValue);
+    canStore = true;
+    details.push('✅ Can write to localStorage');
+  } catch (e) {
+    details.push(`❌ Cannot write to localStorage: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  
+  // Test retrieval
+  let canRetrieve = false;
+  if (canStore) {
+    try {
+      const retrieved = localStorage.getItem(testKey);
+      canRetrieve = retrieved === testValue;
+      details.push(`✅ Can read from localStorage: ${canRetrieve}`);
+      
+      // Clean up test key
+      localStorage.removeItem(testKey);
+    } catch (e) {
+      details.push(`❌ Cannot read from localStorage: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  
+  const testResult = canStore && canRetrieve ? 'pass' : 'fail';
+  
+  return {
+    localStorage: hasLocalStorage,
+    currentSession,
+    canStore,
+    canRetrieve,
+    testResult,
+    details
+  };
+}
+
+// Function to get bundle version
+export function getBundleVersion(): string {
+  // This will be replaced during build with actual version
+  return typeof (window as any).WebBleMock?.version === 'string' 
+    ? (window as any).WebBleMock.version 
+    : 'unknown';
 }
 
 // Export function to inject mock into window
