@@ -99,7 +99,7 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
-## Session Management (v0.5.1+)
+## Session Management (v0.5.2+)
 
 Sessions allow BLE connections to persist across WebSocket disconnects and prevent conflicts:
 
@@ -117,9 +117,26 @@ injectWebBluetoothMock('ws://localhost:8080', {
 // Different browsers/tools get different sessions automatically
 ```
 
+### Session Persistence (v0.5.2+)
+```javascript
+// Sessions persist across page reloads using localStorage
+// Test 1: Page loads
+injectWebBluetoothMock('ws://localhost:8080');
+// Session: "192.168.1.100-chrome-A4B2" (stored in localStorage)
+
+// Test 2: Page reloads
+injectWebBluetoothMock('ws://localhost:8080'); 
+// Session: "192.168.1.100-chrome-A4B2" (reused from localStorage!)
+
+// Clear stored session when needed
+import { clearStoredSession } from 'ble-mcp-test';
+clearStoredSession(); // Fresh session on next injection
+```
+
 ### Session Behavior
 - **Chrome + Playwright**: Isolated sessions - no conflicts ✅
 - **Same browser, multiple tabs**: Share session - device conflict (realistic!) ⚠️
+- **Page reloads**: Reuse session from localStorage ✅
 - **Clear error messages**: Server logs show exactly which session has the device
 
 ## Features

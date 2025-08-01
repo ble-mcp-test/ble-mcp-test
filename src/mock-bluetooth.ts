@@ -371,11 +371,36 @@ export class MockBluetooth {
   }
   
   private generateAutoSessionId(): string {
+    // Try to reuse existing session from localStorage
+    try {
+      if (typeof localStorage !== 'undefined') {
+        const stored = localStorage.getItem('ble-mock-session-id');
+        if (stored) {
+          console.log(`[MockBluetooth] Reusing stored session: ${stored}`);
+          return stored;
+        }
+      }
+    } catch (e) {
+      // localStorage not available or blocked, continue with generation
+    }
+    
     const ip = this.getClientIP();
     const browser = this.getBrowser();
     const random = Math.random().toString(36).substr(2, 4).toUpperCase();
     
-    return `${ip}-${browser}-${random}`;
+    const sessionId = `${ip}-${browser}-${random}`;
+    
+    // Store for next time
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('ble-mock-session-id', sessionId);
+        console.log(`[MockBluetooth] Stored new session: ${sessionId}`);
+      }
+    } catch (e) {
+      // localStorage not available or blocked, session just won't persist
+    }
+    
+    return sessionId;
   }
   
   private getClientIP(): string {
@@ -437,6 +462,18 @@ export class MockBluetooth {
   async getAvailability(): Promise<boolean> {
     // Always available when using WebSocket bridge
     return true;
+  }
+}
+
+// Utility function to clear stored session (for tests)
+export function clearStoredSession(): void {
+  try {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('ble-mock-session-id');
+      console.log('[MockBluetooth] Cleared stored session');
+    }
+  } catch (e) {
+    // localStorage not available, nothing to clear
   }
 }
 
