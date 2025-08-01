@@ -108,16 +108,16 @@ export class WebSocketHandler extends EventEmitter {
     console.log('[WSHandler] Force cleanup requested');
     
     try {
-      // Acknowledge the cleanup request
+      // Trigger session cleanup FIRST
+      await this.session.forceCleanup('force cleanup command');
+      
+      // Only acknowledge AFTER cleanup is complete
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'force_cleanup_complete', 
           message: 'Cleanup complete' 
         }));
       }
-      
-      // Trigger session cleanup
-      await this.session.forceCleanup('force cleanup command');
     } catch (error) {
       console.error('[WSHandler] Force cleanup error:', error);
     }
