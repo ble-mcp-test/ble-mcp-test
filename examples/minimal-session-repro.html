@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Session Bug Reproduction</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        button { margin: 10px; padding: 10px; }
+        #log { border: 1px solid #ccc; padding: 10px; margin: 10px 0; height: 400px; overflow-y: auto; }
+        .error { color: red; }
+        .success { color: green; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>Minimal Session Bug Reproduction</h1>
+    
+    <button id="inject">1. Inject Mock</button>
+    <button id="showSession">2. Show Session Info</button>
+    <button id="connect">3. Connect Device</button>
+    <button id="disconnect">4. Disconnect</button>
+    <button id="reload">5. Reload Page</button>
+    <button id="clear">Clear Log</button>
+    
+    <div id="log"></div>
+
+    <script src="../dist/web-ble-mock.bundle.js"></script>
+    <script>
+        const log = document.getElementById('log');
+        let device = null;
+        let connectionCount = 0;
+
+        function addLog(message, type = '') {
+            const entry = document.createElement('div');
+            entry.className = type;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Override console.log to capture MockBluetooth logs
+        const originalLog = console.log;
+        console.log = function(...args) {
+            const message = args.join(' ');
+            if (message.includes('[MockBluetooth]') || 
+                message.includes('[MockGATT]') || 
+                message.includes('[WebSocket]')) {
+                addLog(message, 'info');
+            }
+            originalLog.apply(console, args);
+        };
+
+        // Check localStorage on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const storedSession = localStorage.getItem('ble-mock-session-id');
+            if (storedSession) {
+                addLog(`Page loaded with existing session in localStorage: ${storedSession}`, 'info');
+            } else {
+                addLog('Page loaded with no existing session in localStorage');
+            }
+        });
+
+        document.getElementById('inject').onclick = () => {
+            try {
+                // Inject the mock - this is what happens on page load in the user's scenario
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                addLog('Mock injected successfully', 'success');
+                
+                // Show what session was created/reused
+                if (navigator.bluetooth && navigator.bluetooth.autoSessionId) {
+                    addLog(`AutoSessionId in MockBluetooth: ${navigator.bluetooth.autoSessionId}`, 'info');
+                }
+            } catch (error) {
+                addLog(`Injection error: ${error.message}`, 'error');
+            }
+        };
+
+        document.getElementById('showSession').onclick = () => {
+            try {
+                const storedSession = localStorage.getItem('ble-mock-session-id');
+                const autoSession = navigator.bluetooth?.autoSessionId;
+                
+                addLog('=== Session Information ===');
+                addLog(`localStorage['ble-mock-session-id']: ${storedSession || 'null'}`);
+                addLog(`navigator.bluetooth.autoSessionId: ${autoSession || 'undefined'}`);
+                
+                if (device) {
+                    addLog(`device.sessionId: ${device.sessionId || 'undefined'}`);
+                    addLog(`device.bleConfig: ${JSON.stringify(device.bleConfig || {})}`);
+                }
+            } catch (error) {
+                addLog(`Error showing session: ${error.message}`, 'error');
+            }
+        };
+
+        document.getElementById('connect').onclick = async () => {
+            try {
+                connectionCount++;
+                addLog(`=== Connection Attempt #${connectionCount} ===`);
+                
+                // Request device
+                addLog('Requesting device...');
+                device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'CS108' }]
+                });
+                
+                addLog(`Got device: ${device.id}`);
+                addLog(`Device sessionId: ${device.sessionId || 'undefined'}`);
+                
+                // Connect GATT
+                addLog('Connecting GATT...');
+                
+                // Capture WebSocket URL by overriding temporarily
+                const OriginalWebSocket = WebSocket;
+                let capturedUrl = null;
+                window.WebSocket = class extends OriginalWebSocket {
+                    constructor(url, ...args) {
+                        capturedUrl = url;
+                        super(url, ...args);
+                    }
+                };
+                
+                await device.gatt.connect();
+                
+                // Restore WebSocket
+                window.WebSocket = OriginalWebSocket;
+                
+                addLog('Connected successfully!', 'success');
+                
+                if (capturedUrl) {
+                    const urlObj = new URL(capturedUrl);
+                    const sessionParam = urlObj.searchParams.get('session');
+                    addLog(`WebSocket URL session parameter: ${sessionParam}`, 'info');
+                    
+                    // Check if it matches localStorage
+                    const storedSession = localStorage.getItem('ble-mock-session-id');
+                    if (storedSession && sessionParam !== storedSession) {
+                        addLog(`🐛 BUG: WebSocket session (${sessionParam}) != localStorage session (${storedSession})`, 'error');
+                    }
+                }
+                
+            } catch (error) {
+                addLog(`Connection error: ${error.message}`, 'error');
+            }
+        };
+
+        document.getElementById('disconnect').onclick = async () => {
+            if (device && device.gatt.connected) {
+                addLog('Disconnecting...');
+                await device.gatt.disconnect();
+                addLog('Disconnected', 'success');
+            } else {
+                addLog('No device connected', 'error');
+            }
+        };
+
+        document.getElementById('reload').onclick = () => {
+            addLog('Reloading page...');
+            setTimeout(() => window.location.reload(), 100);
+        };
+
+        document.getElementById('clear').onclick = () => {
+            log.innerHTML = '';
+        };
+    </script>
+</body>
+</html>

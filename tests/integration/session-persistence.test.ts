@@ -243,4 +243,132 @@ describe.sequential('Session Persistence Integration Tests', () => {
       await server.stop();
     }
   }, 20000);
+
+  it('should demonstrate localStorage session persistence in mock', async () => {
+    console.log('\n💾 Testing localStorage session persistence in Web Bluetooth mock\n');
+    
+    // Mock browser environment
+    const mockWindow = {
+      location: { hostname: '127.0.0.1', origin: 'http://127.0.0.1:3000' },
+      navigator: {}
+    };
+    
+    const mockStorage: Record<string, string> = {};
+    const mockLocalStorage = {
+      getItem: (key: string) => mockStorage[key] || null,
+      setItem: (key: string, value: string) => { mockStorage[key] = value; },
+      removeItem: (key: string) => { delete mockStorage[key]; }
+    };
+    
+    // Mock WebSocket to capture session parameters
+    const capturedWebSocketUrls: string[] = [];
+    class MockWebSocket {
+      constructor(public url: string) {
+        capturedWebSocketUrls.push(url);
+        this.readyState = 1; // OPEN
+        
+        setTimeout(() => {
+          if (this.onopen) this.onopen(new Event('open'));
+          if (this.onmessage) {
+            this.onmessage(new MessageEvent('message', {
+              data: JSON.stringify({ type: 'connected', token: 'test-token' })
+            }));
+          }
+        }, 10);
+      }
+      
+      readyState = 0;
+      send() {}
+      close() {}
+      
+      onopen: ((ev: Event) => any) | null = null;
+      onmessage: ((ev: MessageEvent) => any) | null = null;
+      onerror: ((ev: Event) => any) | null = null;
+      onclose: ((ev: CloseEvent) => any) | null = null;
+    }
+    
+    // Setup globals
+    const originalWindow = (global as any).window;
+    const originalLocalStorage = (global as any).localStorage;
+    const originalWebSocket = (global as any).WebSocket;
+    
+    try {
+      (global as any).window = mockWindow;
+      (global as any).localStorage = mockLocalStorage;
+      (global as any).WebSocket = MockWebSocket;
+      // Don't modify global.navigator since it's read-only
+      
+      // Import and test the mock
+      const { injectWebBluetoothMock, clearStoredSession } = await import('../../src/index.js');
+      
+      // Clear any existing session
+      clearStoredSession();
+      expect(mockStorage['ble-mock-session-id']).toBeUndefined();
+      console.log('🧹 Cleared existing session');
+      
+      // First injection
+      injectWebBluetoothMock('ws://localhost:8080');
+      const firstBluetooth = mockWindow.navigator.bluetooth as any;
+      const firstSessionId = firstBluetooth.autoSessionId;
+      
+      console.log('📱 First injection session ID:', firstSessionId);
+      expect(firstSessionId).toBeTruthy();
+      expect(mockStorage['ble-mock-session-id']).toBe(firstSessionId);
+      
+      // Create device and connect to trigger WebSocket
+      const firstDevice = await firstBluetooth.requestDevice({
+        filters: [{ namePrefix: 'CS108' }]
+      });
+      await firstDevice.gatt.connect();
+      
+      const firstUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+      console.log('🔗 First WebSocket URL:', firstUrl);
+      
+      // Second injection (simulating page reload)
+      injectWebBluetoothMock('ws://localhost:8080');
+      const secondBluetooth = mockWindow.navigator.bluetooth as any;
+      const secondSessionId = secondBluetooth.autoSessionId;
+      
+      console.log('📱 Second injection session ID:', secondSessionId);
+      expect(secondSessionId).toBe(firstSessionId);
+      expect(mockStorage['ble-mock-session-id']).toBe(firstSessionId);
+      
+      // Create device and connect to trigger WebSocket
+      const secondDevice = await secondBluetooth.requestDevice({
+        filters: [{ namePrefix: 'CS108' }]
+      });
+      await secondDevice.gatt.connect();
+      
+      const secondUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+      console.log('🔗 Second WebSocket URL:', secondUrl);
+      
+      // Extract session parameters from URLs
+      const getSessionFromUrl = (url: string) => {
+        const urlObj = new URL(url);
+        return urlObj.searchParams.get('session');
+      };
+      
+      const firstUrlSession = getSessionFromUrl(firstUrl);
+      const secondUrlSession = getSessionFromUrl(secondUrl);
+      
+      console.log('🎯 Session consistency check:');
+      console.log('  First URL session:', firstUrlSession);
+      console.log('  Second URL session:', secondUrlSession);
+      console.log('  Sessions match:', firstUrlSession === secondUrlSession);
+      console.log('  localStorage value:', mockStorage['ble-mock-session-id']);
+      
+      // All session IDs should match
+      expect(firstSessionId).toBe(secondSessionId);
+      expect(firstUrlSession).toBe(secondUrlSession);
+      expect(firstUrlSession).toBe(firstSessionId);
+      
+      console.log('✅ localStorage session persistence working correctly');
+      
+    } finally {
+      // Restore globals
+      (global as any).window = originalWindow;
+      (global as any).localStorage = originalLocalStorage;
+      (global as any).WebSocket = originalWebSocket;
+    }
+  }, 15000);
 });

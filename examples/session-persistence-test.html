@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLE Mock - Session Persistence Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .step {
+            background: white;
+            border-left: 4px solid #007bff;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .result {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-family: monospace;
+            white-space: pre-wrap;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        code {
+            background: #f8f9fa;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+        }
+    </style>
+</head>
+<body>
+    <h1>🧪 BLE Mock - Session Persistence Test</h1>
+    
+    <div class="info">
+        <h3>📋 What This Tests</h3>
+        <p>This page demonstrates localStorage session persistence in the BLE mock. Session IDs should persist across:</p>
+        <ul>
+            <li><strong>Page reloads</strong> - Same session ID after F5/Ctrl+R</li>
+            <li><strong>Browser restarts</strong> - Session persists after closing/reopening browser</li>
+            <li><strong>Multiple injections</strong> - Calling injectWebBluetoothMock() multiple times</li>
+            <li><strong>Browser tabs</strong> - Same domain shares session ID</li>
+        </ul>
+    </div>
+    
+    <div class="container">
+        <h2>🔄 Page Refresh Test</h2>
+        <div class="warning">
+            <p><strong>To test page refresh persistence:</strong></p>
+            <ol>
+                <li>Click "Initialize Session" below</li>
+                <li>Note the session ID displayed</li>
+                <li>Refresh this page (F5 or Ctrl+R)</li>
+                <li>Click "Check Existing Session"</li>
+                <li>Verify the session ID is the same</li>
+            </ol>
+        </div>
+        
+        <button onclick="initializeSession()">Initialize Session</button>
+        <button onclick="checkExistingSession()">Check Existing Session</button>
+        <button onclick="showStorageInfo()">Show Storage Info</button>
+        <button onclick="runPersistenceTest()">🧪 Test localStorage Support</button>
+        <div id="refreshTestResult"></div>
+    </div>
+
+    <div class="container">
+        <h2>🔍 Test Steps</h2>
+        
+        <div class="step">
+            <h3>Step 1: Clear existing session</h3>
+            <p>Remove any stored session from localStorage</p>
+            <button onclick="clearSession()">Clear Session</button>
+            <div id="clearResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: First injection</h3>
+            <p>Inject the mock and check what session ID is generated/stored</p>
+            <button onclick="firstInjection()">First Injection</button>
+            <div id="firstResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Second injection</h3>
+            <p>Inject again (simulating page reload) and verify same session ID is reused</p>
+            <button onclick="secondInjection()">Second Injection</button>
+            <div id="secondResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 4: WebSocket connection test</h3>
+            <p>Connect to device and verify WebSocket uses the correct session ID</p>
+            <button onclick="testWebSocketConnection()">Test WebSocket Connection</button>
+            <div id="connectionResult"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 5: Full verification</h3>
+            <p>Run complete test to verify all session IDs match</p>
+            <button onclick="runFullTest()">Run Full Test</button>
+            <div id="fullTestResult"></div>
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>🔧 Troubleshooting</h2>
+        
+        <div class="warning">
+            <h4>⚠️ Common Issues</h4>
+            <ul>
+                <li><strong>Different session IDs:</strong> Check if localStorage is disabled or blocked</li>
+                <li><strong>Session not persisting:</strong> Verify you're on the same domain/origin</li>
+                <li><strong>Private browsing:</strong> localStorage may be restricted in incognito mode</li>
+                <li><strong>Test frameworks:</strong> Some frameworks clear localStorage between tests</li>
+            </ul>
+        </div>
+
+        <div class="info">
+            <h4>🛠️ Manual Checks</h4>
+            <p>You can manually inspect localStorage:</p>
+            <ul>
+                <li>Open DevTools (F12)</li>
+                <li>Go to Application/Storage tab</li>
+                <li>Check localStorage for key: <code>ble-mock-session-id</code></li>
+                <li>Session format: <code>IP-browser-XXXX</code></li>
+            </ul>
+        </div>
+    </div>
+
+    <script src="../dist/web-ble-mock.bundle.js"></script>
+    <script>
+        let capturedWebSocketUrls = [];
+        let firstSessionId = null;
+        let secondSessionId = null;
+        
+        // Store test history in localStorage for refresh persistence
+        const TEST_HISTORY_KEY = 'ble-test-history';
+        
+        function getTestHistory() {
+            try {
+                return JSON.parse(localStorage.getItem(TEST_HISTORY_KEY) || '[]');
+            } catch {
+                return [];
+            }
+        }
+        
+        function addToTestHistory(entry) {
+            const history = getTestHistory();
+            history.push({
+                ...entry,
+                timestamp: new Date().toISOString()
+            });
+            localStorage.setItem(TEST_HISTORY_KEY, JSON.stringify(history));
+        }
+        
+        function clearTestHistory() {
+            localStorage.removeItem(TEST_HISTORY_KEY);
+        }
+        
+        function initializeSession() {
+            clearResults('refreshTestResult');
+            try {
+                // Use mock WebSocket
+                window.WebSocket = window.MockWebSocket;
+                
+                // Clear any existing session first
+                window.WebBleMock.clearStoredSession();
+                clearTestHistory();
+                
+                // Initialize new session
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                
+                const bluetooth = navigator.bluetooth;
+                const sessionId = bluetooth.autoSessionId;
+                const stored = localStorage.getItem('ble-mock-session-id');
+                
+                // Record this initialization
+                addToTestHistory({
+                    action: 'initialize',
+                    sessionId: sessionId,
+                    stored: stored,
+                    pageLoad: performance.now()
+                });
+                
+                log('refreshTestResult', `🆕 NEW SESSION INITIALIZED`);
+                log('refreshTestResult', `Session ID: ${sessionId}`);
+                log('refreshTestResult', `Stored in localStorage: ${stored}`);
+                log('refreshTestResult', `Time: ${new Date().toLocaleTimeString()}`);
+                log('refreshTestResult', '');
+                log('refreshTestResult', '✅ Now refresh this page (F5) and click "Check Existing Session"');
+                
+            } catch (error) {
+                log('refreshTestResult', `❌ Error initializing session: ${error.message}`, true);
+            }
+        }
+        
+        function checkExistingSession() {
+            clearResults('refreshTestResult');
+            try {
+                const storedSession = localStorage.getItem('ble-mock-session-id');
+                const history = getTestHistory();
+                
+                if (!storedSession) {
+                    log('refreshTestResult', '❌ No session found in localStorage');
+                    log('refreshTestResult', 'Click "Initialize Session" first');
+                    return;
+                }
+                
+                // Re-inject the mock to see if it reuses the session
+                window.WebSocket = window.MockWebSocket;
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                
+                const bluetooth = navigator.bluetooth;
+                const currentSessionId = bluetooth.autoSessionId;
+                
+                // Record this check
+                addToTestHistory({
+                    action: 'check',
+                    sessionId: currentSessionId,
+                    stored: storedSession,
+                    pageLoad: performance.now()
+                });
+                
+                log('refreshTestResult', `🔍 CHECKING EXISTING SESSION`);
+                log('refreshTestResult', `Found in localStorage: ${storedSession}`);
+                log('refreshTestResult', `Current session ID: ${currentSessionId}`);
+                log('refreshTestResult', `Time: ${new Date().toLocaleTimeString()}`);
+                log('refreshTestResult', '');
+                
+                if (currentSessionId === storedSession) {
+                    log('refreshTestResult', '🎉 SUCCESS! Session persisted across page refresh!');
+                    log('refreshTestResult', '✅ localStorage persistence is working correctly');
+                } else {
+                    log('refreshTestResult', '❌ FAILED! Session ID changed after refresh', true);
+                    log('refreshTestResult', 'This indicates a localStorage persistence issue', true);
+                }
+                
+                // Show history
+                if (history.length > 1) {
+                    log('refreshTestResult', '');
+                    log('refreshTestResult', '📜 TEST HISTORY:');
+                    history.forEach((entry, i) => {
+                        const time = new Date(entry.timestamp).toLocaleTimeString();
+                        log('refreshTestResult', `${i + 1}. ${entry.action}: ${entry.sessionId} at ${time}`);
+                    });
+                }
+                
+            } catch (error) {
+                log('refreshTestResult', `❌ Error checking session: ${error.message}`, true);
+            }
+        }
+        
+        function showStorageInfo() {
+            clearResults('refreshTestResult');
+            
+            const storedSession = localStorage.getItem('ble-mock-session-id');
+            const history = getTestHistory();
+            
+            log('refreshTestResult', '💾 LOCALSTORAGE INFORMATION');
+            log('refreshTestResult', '');
+            log('refreshTestResult', `Current session: ${storedSession || 'None'}`);
+            log('refreshTestResult', `History entries: ${history.length}`);
+            log('refreshTestResult', `Page loaded at: ${new Date().toLocaleTimeString()}`);
+            log('refreshTestResult', '');
+            
+            // Show raw localStorage contents
+            log('refreshTestResult', '🔍 Raw localStorage contents:');
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && key.startsWith('ble-')) {
+                    const value = localStorage.getItem(key);
+                    log('refreshTestResult', `  ${key}: ${value}`);
+                }
+            }
+            
+            if (history.length > 0) {
+                log('refreshTestResult', '');
+                log('refreshTestResult', '📊 Test history:');
+                history.forEach((entry, i) => {
+                    const time = new Date(entry.timestamp).toLocaleTimeString();
+                    log('refreshTestResult', `  ${i + 1}. ${entry.action}: ${entry.sessionId} (${time})`);
+                });
+            }
+        }
+        
+        function runPersistenceTest() {
+            clearResults('refreshTestResult');
+            
+            try {
+                const testResult = window.WebBleMock.testSessionPersistence();
+                
+                log('refreshTestResult', '🧪 LOCALSTORAGE PERSISTENCE TEST');
+                log('refreshTestResult', '');
+                log('refreshTestResult', `Overall result: ${testResult.testResult.toUpperCase()}`);
+                log('refreshTestResult', '');
+                
+                testResult.details.forEach(detail => {
+                    log('refreshTestResult', detail);
+                });
+                
+                if (testResult.testResult === 'pass') {
+                    log('refreshTestResult', '');
+                    log('refreshTestResult', '🎉 localStorage is working correctly!');
+                    log('refreshTestResult', '✅ Session persistence should work properly');
+                } else if (testResult.testResult === 'no-storage') {
+                    log('refreshTestResult', '');
+                    log('refreshTestResult', '❌ localStorage is not available');
+                    log('refreshTestResult', 'Session persistence will not work in this environment', true);
+                } else {
+                    log('refreshTestResult', '');
+                    log('refreshTestResult', '⚠️ localStorage has issues');
+                    log('refreshTestResult', 'Session persistence may not work reliably', true);
+                }
+                
+                // Show environment info
+                log('refreshTestResult', '');
+                log('refreshTestResult', '🌐 Environment info:');
+                log('refreshTestResult', `  User Agent: ${navigator.userAgent}`);
+                log('refreshTestResult', `  Origin: ${window.location.origin}`);
+                log('refreshTestResult', `  Protocol: ${window.location.protocol}`);
+                
+            } catch (error) {
+                log('refreshTestResult', `❌ Error running persistence test: ${error.message}`, true);
+            }
+        }
+
+        // Mock WebSocket to capture URLs without actually connecting
+        const OriginalWebSocket = WebSocket;
+        window.MockWebSocket = class {
+            constructor(url) {
+                this.url = url;
+                capturedWebSocketUrls.push(url);
+                this.readyState = WebSocket.CONNECTING;
+                
+                // Simulate successful connection after a delay
+                setTimeout(() => {
+                    this.readyState = WebSocket.OPEN;
+                    if (this.onopen) {
+                        this.onopen(new Event('open'));
+                    }
+                    if (this.onmessage) {
+                        this.onmessage(new MessageEvent('message', {
+                            data: JSON.stringify({ type: 'connected', token: 'test-token' })
+                        }));
+                    }
+                }, 100);
+            }
+            
+            send(data) {
+                console.log('Mock WebSocket send:', data);
+            }
+            
+            close() {
+                this.readyState = WebSocket.CLOSED;
+                if (this.onclose) {
+                    this.onclose(new CloseEvent('close'));
+                }
+            }
+            
+            addEventListener(event, handler) {
+                this[`on${event}`] = handler;
+            }
+        };
+
+        function log(elementId, message, isError = false) {
+            const element = document.getElementById(elementId);
+            const resultDiv = document.createElement('div');
+            resultDiv.className = isError ? 'result error' : 'result';
+            resultDiv.textContent = message;
+            element.appendChild(resultDiv);
+        }
+
+        function clearResults(elementId) {
+            document.getElementById(elementId).innerHTML = '';
+        }
+
+        function clearSession() {
+            clearResults('clearResult');
+            try {
+                window.WebBleMock.clearStoredSession();
+                const stored = localStorage.getItem('ble-mock-session-id');
+                if (stored) {
+                    log('clearResult', `❌ Session still exists: ${stored}`, true);
+                } else {
+                    log('clearResult', '✅ Session cleared successfully');
+                }
+            } catch (error) {
+                log('clearResult', `❌ Error clearing session: ${error.message}`, true);
+            }
+        }
+
+        function firstInjection() {
+            clearResults('firstResult');
+            try {
+                // Use mock WebSocket to avoid actual connections
+                window.WebSocket = window.MockWebSocket;
+                
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                
+                const bluetooth = navigator.bluetooth;
+                firstSessionId = bluetooth.autoSessionId;
+                const stored = localStorage.getItem('ble-mock-session-id');
+                
+                log('firstResult', `Generated session ID: ${firstSessionId}`);
+                log('firstResult', `Stored in localStorage: ${stored}`);
+                log('firstResult', `IDs match: ${firstSessionId === stored ? '✅ Yes' : '❌ No'}`);
+                
+                if (firstSessionId && firstSessionId === stored) {
+                    log('firstResult', '✅ First injection successful');
+                } else {
+                    log('firstResult', '❌ Session ID mismatch or not stored', true);
+                }
+            } catch (error) {
+                log('firstResult', `❌ Error in first injection: ${error.message}`, true);
+            }
+        }
+
+        function secondInjection() {
+            clearResults('secondResult');
+            try {
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                
+                const bluetooth = navigator.bluetooth;
+                secondSessionId = bluetooth.autoSessionId;
+                const stored = localStorage.getItem('ble-mock-session-id');
+                
+                log('secondResult', `Reused session ID: ${secondSessionId}`);
+                log('secondResult', `Stored in localStorage: ${stored}`);
+                log('secondResult', `Matches first injection: ${firstSessionId === secondSessionId ? '✅ Yes' : '❌ No'}`);
+                log('secondResult', `Matches localStorage: ${secondSessionId === stored ? '✅ Yes' : '❌ No'}`);
+                
+                if (firstSessionId && secondSessionId === firstSessionId && secondSessionId === stored) {
+                    log('secondResult', '✅ Session persistence working correctly');
+                } else {
+                    log('secondResult', '❌ Session not persisted correctly', true);
+                }
+            } catch (error) {
+                log('secondResult', `❌ Error in second injection: ${error.message}`, true);
+            }
+        }
+
+        async function testWebSocketConnection() {
+            clearResults('connectionResult');
+            try {
+                if (!navigator.bluetooth) {
+                    log('connectionResult', '❌ No bluetooth mock injected. Run injections first.', true);
+                    return;
+                }
+
+                // Clear captured URLs
+                capturedWebSocketUrls = [];
+                
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: 'CS108' }]
+                });
+                
+                log('connectionResult', `Device session ID: ${device.sessionId}`);
+                
+                await device.gatt.connect();
+                
+                if (capturedWebSocketUrls.length > 0) {
+                    const url = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+                    log('connectionResult', `WebSocket URL: ${url}`);
+                    
+                    const urlObj = new URL(url);
+                    const sessionParam = urlObj.searchParams.get('session');
+                    
+                    log('connectionResult', `Session parameter: ${sessionParam}`);
+                    log('connectionResult', `Matches device session: ${device.sessionId === sessionParam ? '✅ Yes' : '❌ No'}`);
+                    log('connectionResult', `Matches stored session: ${sessionParam === localStorage.getItem('ble-mock-session-id') ? '✅ Yes' : '❌ No'}`);
+                    
+                    if (device.sessionId === sessionParam && sessionParam === localStorage.getItem('ble-mock-session-id')) {
+                        log('connectionResult', '✅ WebSocket using correct session ID');
+                    } else {
+                        log('connectionResult', '❌ WebSocket session ID mismatch', true);
+                    }
+                } else {
+                    log('connectionResult', '❌ No WebSocket connection captured', true);
+                }
+                
+            } catch (error) {
+                log('connectionResult', `❌ Error testing WebSocket: ${error.message}`, true);
+            }
+        }
+
+        async function runFullTest() {
+            clearResults('fullTestResult');
+            
+            log('fullTestResult', '🧪 Running complete session persistence test...');
+            log('fullTestResult', '');
+            
+            // Step 1: Clear
+            window.WebBleMock.clearStoredSession();
+            log('fullTestResult', '1️⃣ Cleared existing session');
+            
+            // Step 2: First injection
+            window.WebSocket = window.MockWebSocket;
+            capturedWebSocketUrls = [];
+            
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            const firstId = navigator.bluetooth.autoSessionId;
+            const storedAfterFirst = localStorage.getItem('ble-mock-session-id');
+            
+            log('fullTestResult', `2️⃣ First injection: ${firstId}`);
+            log('fullTestResult', `   Stored: ${storedAfterFirst}`);
+            
+            // Step 3: Connect to capture WebSocket URL
+            const device1 = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'CS108' }] });
+            await device1.gatt.connect();
+            const firstUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+            const firstUrlSession = new URL(firstUrl).searchParams.get('session');
+            
+            log('fullTestResult', `   WebSocket session: ${firstUrlSession}`);
+            
+            // Step 4: Second injection
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            const secondId = navigator.bluetooth.autoSessionId;
+            const storedAfterSecond = localStorage.getItem('ble-mock-session-id');
+            
+            log('fullTestResult', `3️⃣ Second injection: ${secondId}`);
+            log('fullTestResult', `   Stored: ${storedAfterSecond}`);
+            
+            // Step 5: Connect again
+            const device2 = await navigator.bluetooth.requestDevice({ filters: [{ namePrefix: 'CS108' }] });
+            await device2.gatt.connect();
+            const secondUrl = capturedWebSocketUrls[capturedWebSocketUrls.length - 1];
+            const secondUrlSession = new URL(secondUrl).searchParams.get('session');
+            
+            log('fullTestResult', `   WebSocket session: ${secondUrlSession}`);
+            log('fullTestResult', '');
+            
+            // Verification
+            const allMatch = firstId === secondId && 
+                           firstId === storedAfterFirst && 
+                           firstId === storedAfterSecond &&
+                           firstId === firstUrlSession && 
+                           firstId === secondUrlSession;
+            
+            if (allMatch) {
+                log('fullTestResult', '🎉 ALL CHECKS PASSED!');
+                log('fullTestResult', '✅ Session IDs are consistent across all operations');
+                log('fullTestResult', '✅ localStorage persistence is working correctly');
+                log('fullTestResult', '✅ WebSocket connections use the correct session ID');
+            } else {
+                log('fullTestResult', '❌ SOME CHECKS FAILED:');
+                log('fullTestResult', `   First == Second: ${firstId === secondId ? '✅' : '❌'}`);
+                log('fullTestResult', `   First == Stored1: ${firstId === storedAfterFirst ? '✅' : '❌'}`);
+                log('fullTestResult', `   First == Stored2: ${firstId === storedAfterSecond ? '✅' : '❌'}`);
+                log('fullTestResult', `   First == URL1: ${firstId === firstUrlSession ? '✅' : '❌'}`);
+                log('fullTestResult', `   First == URL2: ${firstId === secondUrlSession ? '✅' : '❌'}`);
+            }
+            
+            // Restore WebSocket
+            window.WebSocket = OriginalWebSocket;
+        }
+
+        // Show localStorage availability and session status on page load
+        window.addEventListener('DOMContentLoaded', function() {
+            if (typeof localStorage === 'undefined') {
+                document.body.insertAdjacentHTML('afterbegin', 
+                    '<div class="error"><strong>⚠️ localStorage not available!</strong> This test requires localStorage support.</div>'
+                );
+            } else {
+                const stored = localStorage.getItem('ble-mock-session-id');
+                const history = getTestHistory();
+                
+                if (stored) {
+                    const lastEntry = history[history.length - 1];
+                    const wasRefresh = history.some(entry => entry.action === 'initialize');
+                    
+                    let message = `<strong>💾 Existing session found:</strong> ${stored}`;
+                    if (wasRefresh) {
+                        message += `<br><strong>🔄 This appears to be after a page refresh!</strong> Click "Check Existing Session" to verify persistence.`;
+                    }
+                    
+                    document.body.insertAdjacentHTML('afterbegin', 
+                        `<div class="success">${message}</div>`
+                    );
+                } else if (history.length > 0) {
+                    document.body.insertAdjacentHTML('afterbegin', 
+                        '<div class="warning"><strong>⚠️ Test history found but no session!</strong> This may indicate a localStorage issue.</div>'
+                    );
+                }
+            }
+        });
+    </script>
+</body>
+</html>
