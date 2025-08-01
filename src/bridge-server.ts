@@ -53,6 +53,13 @@ export class BridgeServer {
         // Get or create session
         const session = this.sessionManager.getOrCreateSession(sessionId, config);
         
+        if (!session) {
+          // Session rejected - device is busy
+          ws.send(JSON.stringify({ type: 'error', error: 'Device is busy with another session' }));
+          ws.close();
+          return;
+        }
+        
         // Connect BLE if not already connected
         const deviceName = await session.connect();
         

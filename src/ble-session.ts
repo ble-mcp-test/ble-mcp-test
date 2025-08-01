@@ -198,6 +198,7 @@ export class BleSession extends EventEmitter {
     return {
       sessionId: this.sessionId,
       connected: !!this.transport && !!this.deviceName,
+      hasTransport: !!this.transport,
       deviceName: this.deviceName,
       activeWebSockets: this.activeWebSockets.size,
       idleTime,

@@ -25,10 +25,21 @@ export class SessionManager {
   /**
    * Get or create a BLE session
    */
-  getOrCreateSession(sessionId: string, config: BleConfig): BleSession {
+  getOrCreateSession(sessionId: string, config: BleConfig): BleSession | null {
     let session = this.sessions.get(sessionId);
     
     if (!session) {
+      // Check if any other session has a BLE transport (connected or in grace period)
+      const activeSessions = Array.from(this.sessions.values());
+      const sessionWithTransport = activeSessions.find(s => s.getStatus().hasTransport);
+      
+      if (sessionWithTransport && sessionWithTransport.sessionId !== sessionId) {
+        // Reject new session - device is busy
+        const status = sessionWithTransport.getStatus();
+        console.log(`[SessionManager] Rejecting new session ${sessionId} - device busy with session ${sessionWithTransport.sessionId} (grace period: ${status.hasGracePeriod})`);
+        return null;
+      }
+      
       console.log(`[SessionManager] Creating new session: ${sessionId}`);
       session = new BleSession(sessionId, config, this.sharedState);
       this.sessions.set(sessionId, session);
