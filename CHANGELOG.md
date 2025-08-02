@@ -8,15 +8,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.8] - 2025-08-02
 
 ### Fixed
-- **Enhanced BLE stack recovery**: Added rfkill-based recovery when hcitool fails with I/O errors
-  - Detects "Input/output error" from hcitool which indicates BLE stack corruption
-  - Automatically attempts `rfkill block/unblock bluetooth` to reset BLE hardware
-  - Waits for Noble to detect the power cycle before continuing
-  - Provides clear error messages when manual intervention is required
-  - Prevents the "device not found" issue after failed OS-level disconnects
+- **Enhanced BLE stack recovery**: Added OS-aware recovery mechanisms
+  - **Linux**: Added rfkill-based recovery when hcitool fails with I/O errors
+    - Detects "Input/output error" from hcitool which indicates BLE stack corruption
+    - Automatically attempts `rfkill block/unblock bluetooth` to reset BLE hardware
+    - Waits for Noble to detect the power cycle before continuing
+    - Provides clear error messages when manual intervention is required
+    - Prevents the "device not found" issue after failed OS-level disconnects
+  - **macOS/Windows**: Graceful fallback with platform-specific messages
+  - OS-level disconnect only attempted on Linux where hcitool is available
 
 ### Changed
-- Updated README to recommend rfkill installation for BLE stack recovery
+- Made all OS-specific interventions conditional on `process.platform`
+- Updated README to clarify platform-specific requirements
+- Error messages now indicate which platform-specific recovery options are available
 
 ## [0.5.7] - 2025-08-02
 

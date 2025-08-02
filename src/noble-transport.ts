@@ -143,23 +143,34 @@ export class NobleTransport extends EventEmitter {
       // Ignore stop scanning errors during reset
     }
     
-    // Try software reset via rfkill (less aggressive than systemctl restart)
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      
-      console.log('[Noble] Power cycling Bluetooth radio via rfkill');
-      await execAsync('sudo rfkill block bluetooth');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await execAsync('sudo rfkill unblock bluetooth');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-    } catch (e) {
-      console.log('[Noble] rfkill failed, trying Noble internal reset:', e);
+    // Platform-specific reset
+    if (process.platform === 'linux') {
+      // Try software reset via rfkill (less aggressive than systemctl restart)
+      try {
+        const { exec } = await import('child_process');
+        const { promisify } = await import('util');
+        const execAsync = promisify(exec);
+        
+        console.log('[Noble] Power cycling Bluetooth radio via rfkill (Linux)');
+        await execAsync('sudo rfkill block bluetooth');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        await execAsync('sudo rfkill unblock bluetooth');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+      } catch (e) {
+        console.log('[Noble] rfkill failed, continuing with Noble state wait:', e);
+      }
+    } else if (process.platform === 'darwin') {
+      console.log('[Noble] macOS: BLE reset requires manual intervention or system API');
+      // On macOS, we might need to use blueutil or system commands
+      // For now, just wait for Noble state recovery
+    } else if (process.platform === 'win32') {
+      console.log('[Noble] Windows: BLE reset requires manual intervention or PowerShell');
+      // On Windows, we might need PowerShell commands to reset Bluetooth
+      // For now, just wait for Noble state recovery
     }
     
-    // Wait for Noble to detect the power cycle
+    // Wait for Noble to detect the power cycle (all platforms)
     console.log('[Noble] Waiting for Noble power state recovery...');
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
@@ -542,7 +553,13 @@ export class NobleTransport extends EventEmitter {
    * OS-level disconnect as last resort
    */
   private async osLevelDisconnect(address: string): Promise<void> {
-    console.log(`[Noble] Attempting OS-level disconnect for ${address}`);
+    // Only supported on Linux currently
+    if (process.platform !== 'linux') {
+      console.log(`[Noble] OS-level disconnect not available on ${process.platform}`);
+      return;
+    }
+    
+    console.log(`[Noble] Attempting OS-level disconnect for ${address} (Linux)`);
     
     const { exec } = await import('child_process');
     const { promisify } = await import('util');
@@ -552,7 +569,7 @@ export class NobleTransport extends EventEmitter {
       // Format address for hcitool (uppercase with colons)
       const formattedAddress = address.toUpperCase();
       
-      // Try hcitool disconnect
+      // Try hcitool disconnect (Linux only)
       await execAsync(`sudo hcitool ledc ${formattedAddress}`);
       console.log(`[Noble] OS-level disconnect successful`);
       
@@ -567,7 +584,7 @@ export class NobleTransport extends EventEmitter {
         console.log(`[Noble] Attempting rfkill recovery to reset BLE hardware...`);
         
         try {
-          // Try rfkill block/unblock to reset the BLE hardware
+          // Try rfkill block/unblock to reset the BLE hardware (Linux only)
           await execAsync('sudo rfkill block bluetooth');
           await new Promise(resolve => setTimeout(resolve, 1000));
           
@@ -599,7 +616,7 @@ export class NobleTransport extends EventEmitter {
         } catch (rfkillError) {
           console.error(`[Noble] rfkill recovery failed: ${rfkillError}`);
           console.error(`[Noble] MANUAL INTERVENTION REQUIRED: The BLE stack is corrupted.`);
-          console.error(`[Noble] Run 'sudo systemctl restart bluetooth' to recover.`);
+          console.error(`[Noble] On Linux: Run 'sudo systemctl restart bluetooth' to recover.`);
         }
       }
       // For other errors, we already logged them - not fatal
