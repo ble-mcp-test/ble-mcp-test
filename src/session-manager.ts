@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import { BleSession } from './ble-session.js';
 import { WebSocketHandler } from './ws-handler.js';
-import { NobleTransport, type BleConfig, type NobleResourceState } from './noble-transport.js';
+import { NobleTransport, type BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
 
 /**
@@ -142,11 +142,9 @@ export class SessionManager {
   }
 
   /**
-   * Check for and clean up stale/zombie sessions with enhanced detection
+   * Check for and clean up stale/zombie sessions
    */
   private async checkStaleSessions(): Promise<void> {
-    const zombieSessions = [];
-    
     for (const [sessionId, session] of this.sessions) {
       const status = session.getStatus();
       
@@ -160,114 +158,40 @@ export class SessionManager {
           `HasTransport: ${status.hasTransport}`);
       }
       
+      let shouldCleanup = false;
+      let reason = '';
+      
       // Detect zombie sessions: has transport but not properly connected
       if (status.hasTransport && !status.connected && !status.hasGracePeriod) {
-        zombieSessions.push({ sessionId, session, reason: 'zombie session - has transport but not connected' });
-        console.log(`[SessionManager] Detected zombie session ${sessionId} - has transport but not connected`);
+        shouldCleanup = true;
+        reason = 'zombie session - has transport but not connected';
       }
       
       // Force cleanup sessions that are idle too long without grace period  
       if (!status.hasGracePeriod && status.activeWebSockets === 0 && 
           status.idleTime > status.idleTimeoutSec + 60) {
-        zombieSessions.push({ sessionId, session, reason: `stale session - idle for ${status.idleTime}s` });
-        console.log(`[SessionManager] Detected stale session ${sessionId} - idle for ${status.idleTime}s`);
+        shouldCleanup = true;
+        reason = `stale session - idle for ${status.idleTime}s`;
       }
-    }
-    
-    // Clean up detected zombie/stale sessions
-    for (const { sessionId, session, reason } of zombieSessions) {
-      try {
-        await this.performVerifiedCleanup(session, reason);
-      } catch (e) {
-        console.error(`[SessionManager] Failed to clean up session ${sessionId}: ${e}`);
+      
+      if (shouldCleanup) {
+        console.log(`[SessionManager] Cleaning up session ${sessionId}: ${reason}`);
+        try {
+          // Use force cleanup for zombie/stale sessions
+          await session.forceCleanup(reason);
+          
+          // Verify resource cleanup
+          const state = await NobleTransport.getResourceState();
+          if (state.listenerCounts.scanStop > 90 || 
+              state.listenerCounts.discover > 10 || 
+              state.peripheralCount > 100) {
+            console.log(`[SessionManager] Resource leak detected after cleanup - forcing resource cleanup`);
+            await NobleTransport.forceCleanupResources();
+          }
+        } catch (e) {
+          console.error(`[SessionManager] Failed to clean up session ${sessionId}: ${e}`);
+        }
       }
-    }
-  }
-
-  /**
-   * Perform verified cleanup with Noble resource verification
-   */
-  private async performVerifiedCleanup(session: BleSession, reason: string): Promise<void> {
-    const sessionId = session.sessionId;
-    console.log(`[SessionManager] Performing verified cleanup for session ${sessionId}: ${reason}`);
-    
-    // Get initial Noble resource state
-    const initialState = await NobleTransport.getResourceState();
-    
-    // Force cleanup the session
-    await session.forceCleanup(reason);
-    
-    // Verify cleanup was effective
-    const cleanupVerification = await this.verifySessionCleanup(sessionId, initialState);
-    
-    if (!cleanupVerification.success) {
-      console.log(`[SessionManager] Cleanup verification failed for ${sessionId} - triggering Noble reset`);
-      await this.triggerNobleReset(`cleanup verification failed: ${cleanupVerification.reason}`);
-    }
-  }
-
-  /**
-   * Verify session cleanup was successful
-   */
-  private async verifySessionCleanup(sessionId: string, initialState: NobleResourceState): Promise<{success: boolean, reason?: string}> {
-    console.log(`[SessionManager] Verifying cleanup for session ${sessionId}`);
-    
-    // Wait for cleanup to complete
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const finalState = await NobleTransport.getResourceState();
-    
-    // Check if resources were properly freed
-    const resourcesFreed = initialState.peripheralCount - finalState.peripheralCount;
-    const listenersFreed = (initialState.listenerCounts.scanStop + initialState.listenerCounts.discover) - 
-                          (finalState.listenerCounts.scanStop + finalState.listenerCounts.discover);
-    
-    console.log(`[SessionManager] Cleanup verification - freed ${resourcesFreed} peripherals, ${listenersFreed} listeners`);
-    
-    // Check for excessive resource accumulation
-    if (finalState.listenerCounts.scanStop > 90) {
-      return { success: false, reason: `scanStop listeners excessive: ${finalState.listenerCounts.scanStop}` };
-    }
-    
-    if (finalState.listenerCounts.discover > 10) {
-      return { success: false, reason: `discover listeners excessive: ${finalState.listenerCounts.discover}` };
-    }
-    
-    if (finalState.peripheralCount > 100) {
-      return { success: false, reason: `peripheral cache excessive: ${finalState.peripheralCount}` };
-    }
-    
-    return { success: true };
-  }
-
-  /**
-   * Trigger Noble stack reset for escalated cleanup
-   */
-  private async triggerNobleReset(reason: string): Promise<void> {
-    console.log(`[SessionManager] Triggering Noble stack reset: ${reason}`);
-    
-    try {
-      // Force cleanup all Noble resources
-      await NobleTransport.forceCleanupResources();
-      
-      // Create temporary transport to trigger stack reset
-      const resetTransport = new NobleTransport();
-      await resetTransport.resetNobleStack();
-      
-      console.log('[SessionManager] Noble stack reset completed successfully');
-    } catch (e) {
-      console.error(`[SessionManager] Noble stack reset failed: ${e}`);
-      
-      // Log detailed recovery instructions for manual intervention
-      console.error('');
-      console.error('⚠️  NOBLE STACK RESET FAILED - MANUAL INTERVENTION REQUIRED');
-      console.error('');
-      console.error('ACTION REQUIRED: Ask the user to:');
-      console.error('  1. Restart the BLE service: sudo systemctl restart bluetooth');
-      console.error('  2. Restart the application completely');
-      console.error('  3. Check for hardware issues if problem persists');
-      console.error('  4. Consider system reboot if Bluetooth stack is corrupted');
-      console.error('');
     }
   }
 

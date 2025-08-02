@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import type { WebSocket } from 'ws';
-import { NobleTransport, type BleConfig, type NobleResourceState } from './noble-transport.js';
+import { NobleTransport, type BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
 
 /**
@@ -166,16 +166,28 @@ export class BleSession extends EventEmitter {
   }
 
   /**
-   * Clean up session with enhanced resource verification and emit cleanup event
+   * Unified cleanup method for session termination
+   * @param reason - Reason for cleanup
+   * @param error - Optional error that triggered cleanup
+   * @param force - Use force cleanup on transport (default: false)
    */
-  private async cleanup(reason: string, error?: any): Promise<void> {
-    console.log(`[Session:${this.sessionId}] Starting enhanced cleanup (reason: ${reason}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
+  async cleanup(reason: string, error?: any, force: boolean = false): Promise<void> {
+    console.log(`[Session:${this.sessionId}] Cleanup (reason: ${reason}, force: ${force}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
     
-    // Get initial resource state for logging
+    // Clear timers
+    if (this.graceTimer) {
+      clearTimeout(this.graceTimer);
+      this.graceTimer = null;
+    }
+    if (this.idleTimer) {
+      clearTimeout(this.idleTimer);
+      this.idleTimer = null;
+    }
+
+    // Get initial resource state for monitoring
     const initialState = await NobleTransport.getResourceState();
-    console.log(`[Session:${this.sessionId}] Initial Noble resources:`, initialState);
     
-    // Check device availability if we have device info
+    // Check device availability before cleanup
     let deviceAvailable = false;
     if (this.deviceName && this.config?.devicePrefix) {
       try {
@@ -185,40 +197,31 @@ export class BleSession extends EventEmitter {
         console.log(`[Session:${this.sessionId}] Device availability check failed: ${e}`);
       }
     }
-    
-    // Clear timers
-    if (this.graceTimer) {
-      clearTimeout(this.graceTimer);
-      this.graceTimer = null;
-      console.log(`[Session:${this.sessionId}] Cleared grace timer`);
-    }
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-      console.log(`[Session:${this.sessionId}] Cleared idle timer`);
-    }
 
-    // Close transport with progressive cleanup escalation
+    // Clean up transport
     if (this.transport) {
       try {
-        console.log(`[Session:${this.sessionId}] Disconnecting BLE transport`);
-        await this.transport.disconnect();
-        console.log(`[Session:${this.sessionId}] BLE transport disconnected successfully`);
+        await this.transport.cleanup({ 
+          force, 
+          verifyResources: true,
+          deviceName: this.deviceName || undefined
+        });
       } catch (e) {
         console.log(`[Session:${this.sessionId}] Transport cleanup error: ${e}`);
-        
-        // Escalate to force cleanup on transport error
-        try {
-          console.log(`[Session:${this.sessionId}] Escalating to force cleanup`);
-          await this.transport.forceCleanup();
-        } catch (forceError) {
-          console.log(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);
+        // If graceful cleanup failed and we're not already forcing, try force cleanup
+        if (!force) {
+          try {
+            console.log(`[Session:${this.sessionId}] Escalating to force cleanup`);
+            await this.transport.cleanup({ force: true, resetStack: true });
+          } catch (forceError) {
+            console.log(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);
+          }
         }
       }
       this.transport = null;
     }
 
-    // Close any remaining WebSockets
+    // Close WebSockets
     for (const ws of this.activeWebSockets) {
       try {
         ws.close();
@@ -227,30 +230,32 @@ export class BleSession extends EventEmitter {
       }
     }
     this.activeWebSockets.clear();
-
-    // Verify Noble resource cleanup
-    let finalState: NobleResourceState;
-    try {
-      finalState = await NobleTransport.verifyResourceCleanup(this.deviceName || undefined);
-    } catch (e) {
-      console.log(`[Session:${this.sessionId}] Resource verification failed: ${e}`);
-      finalState = await NobleTransport.getResourceState();
-    }
     
-    // Log cleanup summary
+    // Get final resource state for monitoring
+    const finalState = await NobleTransport.getResourceState();
     const resourcesDelta = initialState.peripheralCount - finalState.peripheralCount;
     const listenersDelta = (initialState.listenerCounts.scanStop + initialState.listenerCounts.discover) - 
                           (finalState.listenerCounts.scanStop + finalState.listenerCounts.discover);
-    console.log(`[Session:${this.sessionId}] Cleanup complete - freed ${resourcesDelta} peripherals, ${listenersDelta} listeners, device available: ${deviceAvailable}`);
     
-    // Provide user guidance if device becomes unavailable
+    console.log(`[Session:${this.sessionId}] Cleanup complete - freed ${resourcesDelta} peripherals, ${listenersDelta} listeners`);
+    
+    // Notify if device became unavailable
     if (this.deviceName && !deviceAvailable && !error) {
-      await this.notifyDeviceUnavailable();
+      this.emit('deviceUnavailable', { 
+        sessionId: this.sessionId, 
+        deviceName: this.deviceName,
+        guidance: [
+          'Check if device is powered on and in range',
+          'Press device button to wake from sleep',
+          'Power cycle device if needed',
+          'Check Bluetooth adapter: sudo systemctl restart bluetooth'
+        ]
+      });
     }
 
     this.deviceName = null;
     
-    // Emit cleanup event for session manager with enhanced info
+    // Emit cleanup event
     this.emit('cleanup', { 
       sessionId: this.sessionId, 
       reason, 
@@ -262,34 +267,10 @@ export class BleSession extends EventEmitter {
   }
 
   /**
-   * Notify user when device becomes unavailable (future enhancement hook)
-   */
-  private async notifyDeviceUnavailable(): Promise<void> {
-    console.log(`[Session:${this.sessionId}] DEVICE UNAVAILABLE: ${this.deviceName}`);
-    console.log(`[Session:${this.sessionId}] User action may be required:`);
-    console.log(`[Session:${this.sessionId}]   1. Check if device is powered on and in range`);
-    console.log(`[Session:${this.sessionId}]   2. Press device button to wake from sleep`);
-    console.log(`[Session:${this.sessionId}]   3. Power cycle device if needed`);
-    console.log(`[Session:${this.sessionId}]   4. Check Bluetooth adapter: sudo systemctl restart bluetooth`);
-    
-    // Future enhancement: emit event for user notification system
-    this.emit('deviceUnavailable', { 
-      sessionId: this.sessionId, 
-      deviceName: this.deviceName,
-      guidance: [
-        'Check if device is powered on and in range',
-        'Press device button to wake from sleep',
-        'Power cycle device if needed',
-        'Check Bluetooth adapter: sudo systemctl restart bluetooth'
-      ]
-    });
-  }
-
-  /**
    * Force cleanup (for external triggers)
    */
   async forceCleanup(reason: string = 'forced'): Promise<void> {
-    await this.cleanup(reason);
+    await this.cleanup(reason, undefined, true);
   }
 
   /**
