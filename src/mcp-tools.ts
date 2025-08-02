@@ -116,7 +116,7 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
           const excludePattern = new RegExp(exclude_regex, 'i');
           logs = logs.filter((log: any) => !excludePattern.test(log.hex));
         } catch (error) {
-          throw new Error(`Invalid exclude regex pattern: ${exclude_regex}`);
+          throw new Error(`Invalid exclude regex pattern: ${exclude_regex} - ${error}`);
         }
       }
       
@@ -130,7 +130,7 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
             const pattern = new RegExp(filter, 'i');
             logs = logs.filter((log: any) => pattern.test(log.hex));
           } catch (error) {
-            throw new Error(`Invalid regex pattern: ${filter}`);
+            throw new Error(`Invalid regex pattern: ${filter} - ${error}`);
           }
         } else if (filterUpper === 'TX' || filterUpper === 'RX') {
           // Direction filtering

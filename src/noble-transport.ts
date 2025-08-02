@@ -20,10 +20,157 @@ export interface BleConfig {
   notifyUuid: string;
 }
 
+export interface NobleResourceState {
+  peripheralCount: number;
+  listenerCounts: Record<string, number>;
+  scanningActive: boolean;
+  hciConnections: number;
+  cacheSize: number;
+}
+
 export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
+
+  /**
+   * Get current Noble resource state for monitoring
+   */
+  static async getResourceState(): Promise<NobleResourceState> {
+    return {
+      peripheralCount: Object.keys((noble as any)._peripherals || {}).length,
+      listenerCounts: {
+        discover: noble.listenerCount('discover'),
+        scanStop: noble.listenerCount('scanStop'),
+        stateChange: noble.listenerCount('stateChange'),
+        warning: noble.listenerCount('warning')
+      },
+      scanningActive: (noble as any)._discovering || false,
+      hciConnections: (noble as any)._bindings?.listenerCount?.('warning') || 0,
+      cacheSize: Object.keys((noble as any)._services || {}).length + Object.keys((noble as any)._characteristics || {}).length
+    };
+  }
+
+  /**
+   * Force cleanup of Noble resources with leak detection
+   */
+  static async forceCleanupResources(deviceId?: string): Promise<void> {
+    console.log(`[Noble] Force cleaning Noble resources${deviceId ? ` for device ${deviceId}` : ''}`);
+    
+    const initialState = await NobleTransport.getResourceState();
+    console.log('[Noble] Initial resource state:', initialState);
+
+    // Clean up scanStop listeners (critical leak source per docs/NOBLE-DISCOVERASYNC-LEAK.md)
+    if (initialState.listenerCounts.scanStop > 90) {
+      console.log('[Noble] Cleaning up scanStop listener leak (count > 90)');
+      noble.removeAllListeners('scanStop');
+    }
+
+    // Clean up discover listeners
+    if (initialState.listenerCounts.discover > 10) {
+      console.log('[Noble] Cleaning up discover listener leak (count > 10)');
+      noble.removeAllListeners('discover');
+    }
+
+    // Force stop scanning
+    try {
+      await noble.stopScanningAsync();
+    } catch (e) {
+      console.log('[Noble] Force stop scanning failed:', e);
+    }
+
+    // Clear peripheral cache if excessive
+    if (initialState.peripheralCount > 50) {
+      console.log('[Noble] Clearing excessive peripheral cache');
+      const peripherals = (noble as any)._peripherals || {};
+      Object.keys(peripherals).forEach(key => {
+        try {
+          peripherals[key]?.removeAllListeners?.();
+        } catch {
+          // Ignore cleanup errors
+        }
+      });
+      (noble as any)._peripherals = {};
+    }
+
+    const finalState = await NobleTransport.getResourceState();
+    console.log('[Noble] Final resource state:', finalState);
+    
+    const listenersFreed = (initialState.listenerCounts.scanStop + initialState.listenerCounts.discover) - 
+                          (finalState.listenerCounts.scanStop + finalState.listenerCounts.discover);
+    console.log(`[Noble] Resource cleanup complete - freed ${listenersFreed} listeners, ${initialState.peripheralCount - finalState.peripheralCount} peripherals`);
+  }
+
+  /**
+   * Scan for device availability (based on check-device-available.js pattern)
+   */
+  static async scanDeviceAvailability(devicePrefix: string, timeoutMs: number = 5000): Promise<boolean> {
+    if (noble.state !== 'poweredOn') {
+      try {
+        await noble.waitForPoweredOnAsync();
+      } catch (e) {
+        console.log(`[Noble] Device availability check failed - Bluetooth not powered on: ${e}`);
+        return false;
+      }
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        noble.removeAllListeners('discover');
+        noble.stopScanningAsync().catch(() => {});
+        resolve(false);
+      }, timeoutMs);
+
+      noble.on('discover', (peripheral) => {
+        const id = peripheral.id;
+        const name = peripheral.advertisement.localName || '';
+        
+        if (id.startsWith(devicePrefix) || name.startsWith(devicePrefix)) {
+          clearTimeout(timeout);
+          noble.removeAllListeners('discover');
+          noble.stopScanningAsync().catch(() => {});
+          console.log(`[Noble] Device availability confirmed: ${name || 'Unknown'} [${id}]`);
+          resolve(true);
+        }
+      });
+
+      noble.startScanningAsync([], true).catch(() => resolve(false));
+    });
+  }
+
+  /**
+   * Verify Noble resource cleanup after disconnect
+   */
+  static async verifyResourceCleanup(deviceName?: string): Promise<NobleResourceState> {
+    console.log(`[Noble] Verifying resource cleanup${deviceName ? ` for ${deviceName}` : ''}`);
+    
+    // Small delay to allow async cleanup to complete
+    await new Promise(resolve => setTimeout(resolve, 500));
+    
+    const state = await NobleTransport.getResourceState();
+    
+    // Check for resource leaks
+    const leakWarnings = [];
+    if (state.listenerCounts.scanStop > 90) {
+      leakWarnings.push(`scanStop listeners: ${state.listenerCounts.scanStop} (threshold: 90)`);
+    }
+    if (state.listenerCounts.discover > 10) {
+      leakWarnings.push(`discover listeners: ${state.listenerCounts.discover} (threshold: 10)`);
+    }
+    if (state.peripheralCount > 100) {
+      leakWarnings.push(`peripheral cache: ${state.peripheralCount} (threshold: 100)`);
+    }
+    
+    if (leakWarnings.length > 0) {
+      console.log(`[Noble] Resource leak detected: ${leakWarnings.join(', ')}`);
+      // Trigger force cleanup if leaks detected
+      await NobleTransport.forceCleanupResources(deviceName);
+      return await NobleTransport.getResourceState();
+    }
+    
+    console.log('[Noble] Resource verification passed - no leaks detected');
+    return state;
+  }
 
   async resetNobleStack(): Promise<void> {
     console.log('[Noble] Resetting BLE stack for error recovery');
