@@ -95,11 +95,13 @@ export class BleSession extends EventEmitter {
    * Remove WebSocket from this session
    */
   removeWebSocket(ws: WebSocket): void {
+    const wasActive = this.activeWebSockets.has(ws);
     this.activeWebSockets.delete(ws);
-    console.log(`[Session:${this.sessionId}] Removed WebSocket (${this.activeWebSockets.size} active)`);
+    console.log(`[Session:${this.sessionId}] Removed WebSocket (${this.activeWebSockets.size} active, was active: ${wasActive})`);
     
     // Start grace period if no more WebSockets
     if (this.activeWebSockets.size === 0) {
+      console.log(`[Session:${this.sessionId}] No active WebSockets remaining - starting grace period`);
       this.startGracePeriod();
     }
   }
@@ -123,16 +125,23 @@ export class BleSession extends EventEmitter {
   private startGracePeriod(): void {
     console.log(`[Session:${this.sessionId}] Starting ${this.gracePeriodSec}s grace period`);
     
-    // Clear idle timer during grace period to avoid competing timers
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
+    // Don't clear idle timer - let it run in parallel with grace period
+    // This prevents the dead zone where neither timer is active
     
-    this.graceTimer = setTimeout(() => {
+    this.graceTimer = setTimeout(async () => {
       console.log(`[Session:${this.sessionId}] Grace period expired - cleaning up`);
-      this.cleanup('grace period expired');
+      try {
+        await this.cleanup('grace period expired');
+      } catch (e) {
+        console.error(`[Session:${this.sessionId}] Error during grace period cleanup:`, e);
+      }
     }, this.gracePeriodSec * 1000);
+    
+    // Also ensure idle timer is running during grace period
+    if (!this.idleTimer) {
+      console.log(`[Session:${this.sessionId}] Starting idle timer during grace period`);
+      this.resetIdleTimer();
+    }
   }
 
   /**
@@ -143,22 +152,27 @@ export class BleSession extends EventEmitter {
       clearTimeout(this.idleTimer);
     }
     
-    // Only set idle timer if we have active websockets or no grace period
-    // Avoid competing timers during grace period
-    if (this.activeWebSockets.size > 0 || !this.graceTimer) {
-      this.idleTimer = setTimeout(() => {
-        const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
-        console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
-        this.cleanup('idle timeout');
-      }, this.idleTimeoutSec * 1000);
-    }
+    // Always set idle timer - it should run even during grace period
+    // This prevents zombie connections when grace timer fails
+    this.idleTimer = setTimeout(async () => {
+      const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
+      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
+      try {
+        await this.cleanup('idle timeout');
+      } catch (e) {
+        console.error(`[Session:${this.sessionId}] Error during idle timeout cleanup:`, e);
+      }
+    }, this.idleTimeoutSec * 1000);
   }
 
   /**
-   * Clean up session and emit cleanup event
+   * Unified cleanup method for session termination
+   * @param reason - Reason for cleanup
+   * @param error - Optional error that triggered cleanup
+   * @param force - Use force cleanup on transport (default: false)
    */
-  private async cleanup(reason: string, error?: any): Promise<void> {
-    console.log(`[Session:${this.sessionId}] Cleaning up (reason: ${reason})`);
+  async cleanup(reason: string, error?: any, force: boolean = false): Promise<void> {
+    console.log(`[Session:${this.sessionId}] Cleanup (reason: ${reason}, force: ${force}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
     
     // Clear timers
     if (this.graceTimer) {
@@ -170,17 +184,44 @@ export class BleSession extends EventEmitter {
       this.idleTimer = null;
     }
 
-    // Close transport
+    // Get initial resource state for monitoring
+    const initialState = await NobleTransport.getResourceState();
+    
+    // Check device availability before cleanup
+    let deviceAvailable = false;
+    if (this.deviceName && this.config?.devicePrefix) {
+      try {
+        deviceAvailable = await NobleTransport.scanDeviceAvailability(this.config.devicePrefix, 3000);
+        console.log(`[Session:${this.sessionId}] Device ${this.deviceName} available: ${deviceAvailable}`);
+      } catch (e) {
+        console.log(`[Session:${this.sessionId}] Device availability check failed: ${e}`);
+      }
+    }
+
+    // Clean up transport
     if (this.transport) {
       try {
-        await this.transport.disconnect();
+        await this.transport.cleanup({ 
+          force, 
+          verifyResources: true,
+          deviceName: this.deviceName || undefined
+        });
       } catch (e) {
         console.log(`[Session:${this.sessionId}] Transport cleanup error: ${e}`);
+        // If graceful cleanup failed and we're not already forcing, try force cleanup
+        if (!force) {
+          try {
+            console.log(`[Session:${this.sessionId}] Escalating to force cleanup`);
+            await this.transport.cleanup({ force: true, resetStack: true });
+          } catch (forceError) {
+            console.log(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);
+          }
+        }
       }
       this.transport = null;
     }
 
-    // Close any remaining WebSockets
+    // Close WebSockets
     for (const ws of this.activeWebSockets) {
       try {
         ws.close();
@@ -189,18 +230,47 @@ export class BleSession extends EventEmitter {
       }
     }
     this.activeWebSockets.clear();
+    
+    // Get final resource state for monitoring
+    const finalState = await NobleTransport.getResourceState();
+    const resourcesDelta = initialState.peripheralCount - finalState.peripheralCount;
+    const listenersDelta = (initialState.listenerCounts.scanStop + initialState.listenerCounts.discover) - 
+                          (finalState.listenerCounts.scanStop + finalState.listenerCounts.discover);
+    
+    console.log(`[Session:${this.sessionId}] Cleanup complete - freed ${resourcesDelta} peripherals, ${listenersDelta} listeners`);
+    
+    // Notify if device became unavailable
+    if (this.deviceName && !deviceAvailable && !error) {
+      this.emit('deviceUnavailable', { 
+        sessionId: this.sessionId, 
+        deviceName: this.deviceName,
+        guidance: [
+          'Check if device is powered on and in range',
+          'Press device button to wake from sleep',
+          'Power cycle device if needed',
+          'Check Bluetooth adapter: sudo systemctl restart bluetooth'
+        ]
+      });
+    }
 
     this.deviceName = null;
     
-    // Emit cleanup event for session manager
-    this.emit('cleanup', { sessionId: this.sessionId, reason, error });
+    // Emit cleanup event
+    this.emit('cleanup', { 
+      sessionId: this.sessionId, 
+      reason, 
+      error, 
+      deviceAvailable, 
+      resourceState: finalState,
+      resourcesFreed: { peripherals: resourcesDelta, listeners: listenersDelta }
+    });
   }
 
   /**
    * Force cleanup (for external triggers)
    */
   async forceCleanup(reason: string = 'forced'): Promise<void> {
-    await this.cleanup(reason);
+    await this.cleanup(reason, undefined, true);
   }
 
   /**

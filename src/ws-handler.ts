@@ -65,8 +65,8 @@ export class WebSocketHandler extends EventEmitter {
     });
 
     // Handle WebSocket close
-    this.ws.on('close', () => {
-      console.log('[WSHandler] WebSocket closed');
+    this.ws.on('close', (code, reason) => {
+      console.log(`[WSHandler] WebSocket closed - code: ${code}, reason: ${reason || 'none'}, session: ${this.session.sessionId}`);
       this.session.removeWebSocket(this.ws);
       this.emit('close');
     });

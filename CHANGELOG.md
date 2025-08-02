@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.6] - 2025-08-02
+
+### Added
+- **Comprehensive Timeout Stabilization**: Eliminate zombie connections and ensure robust connection lifecycle management
+  - Enhanced Noble resource state verification with leak detection thresholds (scanStop <90, discover <10)
+  - Device availability scanning after cleanup operations using check-device-available.js pattern
+  - Progressive cleanup escalation (graceful → verified → aggressive → manual intervention)
+  - Zombie session detection for sessions with transport but not properly connected
+  - User notification capability when devices become unavailable
+  - Comprehensive timeout stabilization integration tests
+  - Testing environment configuration with shortened timeouts (5s grace, 10s idle vs 60s/300s production)
+
+### Changed
+- **Refactored Cleanup Architecture**: Consolidated redundant cleanup methods for simplicity
+  - `NobleTransport.cleanup()` - Single unified method with configurable options (force, resetStack, verifyResources)
+  - `BleSession.cleanup()` - Simplified to use transport's unified cleanup with progressive escalation
+  - `SessionManager.checkStaleSessions()` - Streamlined zombie detection and resource verification
+  - Reduced cleanup methods from 9+ scattered methods to 2 core methods
+  - Removed redundant `performVerifiedCleanup()`, `verifySessionCleanup()`, and `triggerNobleReset()` methods
+
+### Fixed
+- **Noble Resource Leaks**: Automatic detection and cleanup of scanStop/discover listener accumulation
+- **Zombie Connections**: Sessions with transport but no active connection are now properly detected and cleaned
+- **Device Availability**: Cleanup operations now verify device is available for reconnection
+- **Resource State Monitoring**: Noble peripheral cache and listener counts tracked throughout lifecycle
+
 ## [0.5.5] - 2025-08-01
 
 ### Added

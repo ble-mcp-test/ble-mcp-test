@@ -20,10 +20,114 @@ export interface BleConfig {
   notifyUuid: string;
 }
 
+export interface NobleResourceState {
+  peripheralCount: number;
+  listenerCounts: Record<string, number>;
+  scanningActive: boolean;
+  hciConnections: number;
+  cacheSize: number;
+}
+
 export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
+
+  /**
+   * Get current Noble resource state for monitoring
+   */
+  static async getResourceState(): Promise<NobleResourceState> {
+    return {
+      peripheralCount: Object.keys((noble as any)._peripherals || {}).length,
+      listenerCounts: {
+        discover: noble.listenerCount('discover'),
+        scanStop: noble.listenerCount('scanStop'),
+        stateChange: noble.listenerCount('stateChange'),
+        warning: noble.listenerCount('warning')
+      },
+      scanningActive: (noble as any)._discovering || false,
+      hciConnections: (noble as any)._bindings?.listenerCount?.('warning') || 0,
+      cacheSize: Object.keys((noble as any)._services || {}).length + Object.keys((noble as any)._characteristics || {}).length
+    };
+  }
+
+  /**
+   * Clean up Noble global resources (static helper for cleanup method)
+   */
+  private static async cleanupGlobalResources(): Promise<void> {
+    const state = await NobleTransport.getResourceState();
+
+    // Clean up scanStop listeners (critical leak source per docs/NOBLE-DISCOVERASYNC-LEAK.md)
+    if (state.listenerCounts.scanStop > 90) {
+      console.log('[Noble] Cleaning up scanStop listener leak (count > 90)');
+      noble.removeAllListeners('scanStop');
+    }
+
+    // Clean up discover listeners
+    if (state.listenerCounts.discover > 10) {
+      console.log('[Noble] Cleaning up discover listener leak (count > 10)');
+      noble.removeAllListeners('discover');
+    }
+
+    // Force stop scanning
+    try {
+      await noble.stopScanningAsync();
+    } catch {
+      // Ignore stop scanning errors
+    }
+
+    // Clear peripheral cache if excessive
+    if (state.peripheralCount > 50) {
+      console.log('[Noble] Clearing excessive peripheral cache');
+      const peripherals = (noble as any)._peripherals || {};
+      Object.keys(peripherals).forEach(key => {
+        try {
+          peripherals[key]?.removeAllListeners?.();
+        } catch {
+          // Ignore cleanup errors
+        }
+      });
+      (noble as any)._peripherals = {};
+    }
+  }
+
+  /**
+   * Scan for device availability (based on check-device-available.js pattern)
+   */
+  static async scanDeviceAvailability(devicePrefix: string, timeoutMs: number = 5000): Promise<boolean> {
+    if (noble.state !== 'poweredOn') {
+      try {
+        await noble.waitForPoweredOnAsync();
+      } catch (e) {
+        console.log(`[Noble] Device availability check failed - Bluetooth not powered on: ${e}`);
+        return false;
+      }
+    }
+
+    return new Promise((resolve) => {
+      const timeout = setTimeout(() => {
+        noble.removeAllListeners('discover');
+        noble.stopScanningAsync().catch(() => {});
+        resolve(false);
+      }, timeoutMs);
+
+      noble.on('discover', (peripheral) => {
+        const id = peripheral.id;
+        const name = peripheral.advertisement.localName || '';
+        
+        if (id.startsWith(devicePrefix) || name.startsWith(devicePrefix)) {
+          clearTimeout(timeout);
+          noble.removeAllListeners('discover');
+          noble.stopScanningAsync().catch(() => {});
+          console.log(`[Noble] Device availability confirmed: ${name || 'Unknown'} [${id}]`);
+          resolve(true);
+        }
+      });
+
+      noble.startScanningAsync([], true).catch(() => resolve(false));
+    });
+  }
+
 
   async resetNobleStack(): Promise<void> {
     console.log('[Noble] Resetting BLE stack for error recovery');
@@ -282,51 +386,27 @@ export class NobleTransport extends EventEmitter {
     }
   }
 
-  async disconnect(): Promise<void> {
-    try {
-      await this.cleanup();
-    } catch (e) {
-      console.log(`[Noble] Disconnect failed:`, e);
-      throw e;
-    }
-  }
-  
-  async forceCleanup(): Promise<void> {
-    console.log('[Noble] Starting aggressive cleanup for error recovery');
-    
-    // Remove all listeners
-    if (this.peripheral) {
-      this.peripheral.removeAllListeners?.();
-      
-      if (this.notifyChar) {
-        this.notifyChar.removeAllListeners?.();
-      }
-      
-      // Force disconnect
-      try {
-        (this.peripheral as any)._peripheral?.disconnect?.();
-      } catch (e) {
-        console.log(`[Noble] Force disconnect failed: ${e}`);
-      }
-    }
-    
-    // Clear references
-    this.peripheral = null;
-    this.writeChar = null;
-    this.notifyChar = null;
-    this.findDeviceCleanup = null;
-    
-    // Reset BLE stack
-    await this.resetNobleStack();
-    
-    // Remove transport listeners
-    this.removeAllListeners();
-    
-    console.log('[Noble] Aggressive cleanup complete');
-  }
+  /**
+   * Unified cleanup method with configurable options
+   * @param options - Cleanup configuration
+   * @param options.force - Use aggressive cleanup (default: false)
+   * @param options.resetStack - Reset BLE stack after cleanup (default: false for graceful, true for force)
+   * @param options.verifyResources - Verify and clean Noble resources after cleanup (default: true)
+   * @param options.deviceName - Device name for resource verification
+   */
+  async cleanup(options: {
+    force?: boolean;
+    resetStack?: boolean;
+    verifyResources?: boolean;
+    deviceName?: string;
+  } = {}): Promise<void> {
+    const { 
+      force = false, 
+      resetStack = force,
+      verifyResources = true
+    } = options;
 
-  private async cleanup(): Promise<void> {
-    console.log('[Noble] Starting graceful cleanup');
+    console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
     
     // Clean up any active device search
     if (this.findDeviceCleanup) {
@@ -335,42 +415,55 @@ export class NobleTransport extends EventEmitter {
     }
     
     // Stop scanning
-    await noble.stopScanningAsync();
-    
-    // Graceful disconnect sequence
-    if (this.peripheral) {
-      // Remove listeners first to prevent event loops during cleanup
-      this.peripheral.removeAllListeners?.();
-      
-      try {
-        // Try graceful unsubscribe first
-        if (this.notifyChar) {
-          await Promise.race([
-            this.notifyChar.unsubscribeAsync(),
-            new Promise(resolve => setTimeout(resolve, 1000))
-          ]);
-        }
-        
-        // Try graceful disconnect
-        await Promise.race([
-          this.peripheral.disconnectAsync(),
-          new Promise(resolve => setTimeout(resolve, 2000))
-        ]);
-      } catch (e) {
-        console.log(`[Noble] Graceful disconnect failed: ${e}`);
-        // Force disconnect as fallback
-        try {
-          (this.peripheral as any)._peripheral?.disconnect?.();
-          await new Promise(resolve => setTimeout(resolve, 3000));
-        } catch (forceError) {
-          console.log(`[Noble] Force disconnect also failed: ${forceError}`);
-        }
-      }
+    try {
+      await noble.stopScanningAsync();
+    } catch {
+      // Ignore scan stop errors
     }
     
-    // Clear notification handler after peripheral cleanup
-    if (this.notifyChar) {
-      this.notifyChar.removeAllListeners?.();
+    // Handle peripheral cleanup
+    if (this.peripheral) {
+      // Remove listeners first
+      this.peripheral.removeAllListeners?.();
+      
+      if (this.notifyChar) {
+        this.notifyChar.removeAllListeners?.();
+      }
+      
+      if (!force) {
+        // Graceful cleanup
+        try {
+          // Try graceful unsubscribe
+          if (this.notifyChar) {
+            await Promise.race([
+              this.notifyChar.unsubscribeAsync(),
+              new Promise(resolve => setTimeout(resolve, 1000))
+            ]);
+          }
+          
+          // Try graceful disconnect
+          await Promise.race([
+            this.peripheral.disconnectAsync(),
+            new Promise(resolve => setTimeout(resolve, 2000))
+          ]);
+        } catch (e) {
+          console.log(`[Noble] Graceful disconnect failed: ${e}`);
+          // Force disconnect as fallback
+          try {
+            (this.peripheral as any)._peripheral?.disconnect?.();
+            await new Promise(resolve => setTimeout(resolve, 3000));
+          } catch (forceError) {
+            console.log(`[Noble] Force disconnect also failed: ${forceError}`);
+          }
+        }
+      } else {
+        // Aggressive cleanup - skip graceful attempts
+        try {
+          (this.peripheral as any)._peripheral?.disconnect?.();
+        } catch (e) {
+          console.log(`[Noble] Force disconnect failed: ${e}`);
+        }
+      }
     }
     
     // Clear references
@@ -381,6 +474,35 @@ export class NobleTransport extends EventEmitter {
     // Remove all transport listeners
     this.removeAllListeners();
     
-    console.log('[Noble] Graceful cleanup complete');
+    // Reset BLE stack if requested
+    if (resetStack) {
+      await this.resetNobleStack();
+    }
+    
+    // Verify and clean resources if requested
+    if (verifyResources) {
+      // Small delay to allow async cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const state = await NobleTransport.getResourceState();
+      
+      // Check for resource leaks and clean if needed
+      if (state.listenerCounts.scanStop > 90 || 
+          state.listenerCounts.discover > 10 || 
+          state.peripheralCount > 100) {
+        console.log('[Noble] Resource leak detected - cleaning global resources');
+        await NobleTransport.cleanupGlobalResources();
+      }
+    }
+    
+    console.log(`[Noble] ${force ? 'Aggressive' : 'Graceful'} cleanup complete`);
+  }
+
+  async disconnect(): Promise<void> {
+    await this.cleanup({ force: false, verifyResources: true });
+  }
+  
+  async forceCleanup(): Promise<void> {
+    await this.cleanup({ force: true, resetStack: true, verifyResources: true });
   }
 }

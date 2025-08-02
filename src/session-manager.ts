@@ -118,6 +118,12 @@ export class SessionManager {
         connected: true, 
         deviceName: status.deviceName 
       });
+    } else {
+      // No connected sessions - update state to disconnected
+      this.sharedState.setConnectionState({ 
+        connected: false, 
+        deviceName: null 
+      });
     }
   }
 
@@ -126,15 +132,19 @@ export class SessionManager {
    */
   private startCleanupTimer(): void {
     // Check for stale sessions every 30 seconds
-    this.cleanupInterval = setInterval(() => {
-      this.checkStaleSessions();
+    this.cleanupInterval = setInterval(async () => {
+      try {
+        await this.checkStaleSessions();
+      } catch (e) {
+        console.error('[SessionManager] Error during stale session check:', e);
+      }
     }, 30000);
   }
 
   /**
-   * Check for and clean up stale sessions
+   * Check for and clean up stale/zombie sessions
    */
-  private checkStaleSessions(): void {
+  private async checkStaleSessions(): Promise<void> {
     for (const [sessionId, session] of this.sessions) {
       const status = session.getStatus();
       
@@ -144,15 +154,34 @@ export class SessionManager {
           `WebSockets: ${status.activeWebSockets}, ` +
           `Idle: ${status.idleTime}s, ` +
           `Grace: ${status.hasGracePeriod}, ` +
-          `Connected: ${status.connected}`);
+          `Connected: ${status.connected}, ` +
+          `HasTransport: ${status.hasTransport}`);
       }
       
-      // Force cleanup sessions that are idle too long without grace period
-      // This handles the case where sessions are stuck without proper cleanup
+      let shouldCleanup = false;
+      let reason = '';
+      
+      // Detect zombie sessions: has transport but not properly connected
+      if (status.hasTransport && !status.connected && !status.hasGracePeriod) {
+        shouldCleanup = true;
+        reason = 'zombie session - has transport but not connected';
+      }
+      
+      // Force cleanup sessions that are idle too long without grace period  
       if (!status.hasGracePeriod && status.activeWebSockets === 0 && 
           status.idleTime > status.idleTimeoutSec + 60) {
-        console.log(`[SessionManager] Force cleaning up stale session ${sessionId} - idle for ${status.idleTime}s`);
-        session.forceCleanup('stale session cleanup');
+        shouldCleanup = true;
+        reason = `stale session - idle for ${status.idleTime}s`;
+      }
+      
+      if (shouldCleanup) {
+        console.log(`[SessionManager] Cleaning up session ${sessionId}: ${reason}`);
+        try {
+          // Use force cleanup for zombie/stale sessions (includes resource verification)
+          await session.forceCleanup(reason);
+        } catch (e) {
+          console.error(`[SessionManager] Failed to clean up session ${sessionId}: ${e}`);
+        }
       }
     }
   }
