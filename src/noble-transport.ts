@@ -32,6 +32,10 @@ export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
+  
+  // Static flags to prevent connections during cleanup
+  private static cleanupInProgress = false;
+  private static cleanupStartTime: number | null = null;
 
   /**
    * Get current Noble resource state for monitoring
@@ -182,6 +186,14 @@ export class NobleTransport extends EventEmitter {
   }
 
   async connect(config: BleConfig): Promise<string> {
+    // Block connection if cleanup is in progress
+    if (NobleTransport.cleanupInProgress) {
+      const cleanupTime = NobleTransport.cleanupStartTime ? 
+        Math.ceil((Date.now() - NobleTransport.cleanupStartTime) / 1000) : 0;
+      const remainingTime = Math.max(1, 15 - cleanupTime); // Assume max 15s cleanup
+      throw new Error(`BLE stack recovering, please try again in ${remainingTime} seconds`);
+    }
+    
     try {
       // Wait for Noble to be ready with timeout
       if (noble.state !== 'poweredOn') {
@@ -403,10 +415,15 @@ export class NobleTransport extends EventEmitter {
     const { 
       force = false, 
       resetStack = force,
-      verifyResources = true
+      verifyResources = true,
+      deviceName = options.deviceName
     } = options;
 
     console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
+    
+    // Set cleanup flag to block new connections
+    NobleTransport.cleanupInProgress = true;
+    NobleTransport.cleanupStartTime = Date.now();
     
     // Clean up any active device search
     if (this.findDeviceCleanup) {
@@ -441,20 +458,39 @@ export class NobleTransport extends EventEmitter {
             ]);
           }
           
-          // Try graceful disconnect
+          // Try graceful disconnect with longer timeout
+          console.log(`[Noble] Attempting graceful disconnect...`);
           await Promise.race([
             this.peripheral.disconnectAsync(),
-            new Promise(resolve => setTimeout(resolve, 2000))
+            new Promise(resolve => setTimeout(resolve, 10000)) // Increased from 2s to 10s
           ]);
         } catch (e) {
           console.log(`[Noble] Graceful disconnect failed: ${e}`);
           // Force disconnect as fallback
           try {
+            console.log(`[Noble] Attempting force disconnect...`);
             (this.peripheral as any)._peripheral?.disconnect?.();
             await new Promise(resolve => setTimeout(resolve, 3000));
           } catch (forceError) {
             console.log(`[Noble] Force disconnect also failed: ${forceError}`);
           }
+        }
+        
+        // Verify disconnect actually worked
+        try {
+          const state = this.peripheral.state;
+          if (state === 'connected') {
+            console.error(`[Noble] WARNING: Peripheral still shows connected after disconnect attempts`);
+            
+            // Last resort: OS-level disconnect if we have the address
+            if (this.peripheral.address && process.platform === 'linux') {
+              await this.osLevelDisconnect(this.peripheral.address);
+            }
+          } else {
+            console.log(`[Noble] Disconnect verified - peripheral state: ${state}`);
+          }
+        } catch (e) {
+          console.log(`[Noble] Could not verify disconnect state: ${e}`);
         }
       } else {
         // Aggressive cleanup - skip graceful attempts
@@ -496,6 +532,35 @@ export class NobleTransport extends EventEmitter {
     }
     
     console.log(`[Noble] ${force ? 'Aggressive' : 'Graceful'} cleanup complete`);
+    
+    // Clear cleanup flag
+    NobleTransport.cleanupInProgress = false;
+    NobleTransport.cleanupStartTime = null;
+  }
+  
+  /**
+   * OS-level disconnect as last resort
+   */
+  private async osLevelDisconnect(address: string): Promise<void> {
+    console.log(`[Noble] Attempting OS-level disconnect for ${address}`);
+    try {
+      const { exec } = await import('child_process');
+      const { promisify } = await import('util');
+      const execAsync = promisify(exec);
+      
+      // Format address for hcitool (uppercase with colons)
+      const formattedAddress = address.toUpperCase();
+      
+      // Try hcitool disconnect
+      await execAsync(`sudo hcitool ledc ${formattedAddress}`);
+      console.log(`[Noble] OS-level disconnect successful`);
+      
+      // Give it a moment to take effect
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    } catch (e) {
+      console.error(`[Noble] OS-level disconnect failed: ${e}`);
+      // Not fatal - we tried our best
+    }
   }
 
   async disconnect(): Promise<void> {

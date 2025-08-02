@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7] - 2025-08-02
+
+### Fixed
+- **CRITICAL**: Fixed zombie connection bug where cleanup failures would null transport references but leave BLE hardware connections active
+- Session cleanup now properly verifies success before clearing state and emitting cleanup events
+- Failed cleanups no longer result in sessions being incorrectly marked as disconnected
+- Added explicit error logging for cleanup failures to aid debugging
+- **Noble disconnect improvements**:
+  - Increased disconnect timeout from 2s to 10s for more reliable cleanup
+  - Added disconnect verification to check peripheral state after disconnect
+  - Added OS-level disconnect fallback using `hcitool ledc` when Noble fails
+  - Block new connections during cleanup with user-friendly "BLE stack recovering" message
+  - Fixed Chrome interactive testing disconnects that were leaving zombie connections
+
 ## [0.5.6] - 2025-08-02
 
 ### Added

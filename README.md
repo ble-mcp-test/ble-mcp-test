@@ -193,6 +193,24 @@ See [CHANGELOG](CHANGELOG.md) for version history.
 - **Bridge Server**: Node.js 24+ (for Noble.js BLE support)
 - **Test Environment**: Any modern browser
 - **BLE Hardware**: Only on bridge server machine
+- **Linux OS Tools** (for bridge server):
+  - `bluez` - Bluetooth stack with `hcitool` (usually pre-installed)
+  - `rfkill` - Optional, suppresses Noble warnings about Bluetooth state
+
+### Installing Linux Dependencies
+
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install bluez    # Includes hcitool
+
+# Optional: Install rfkill to suppress Noble warnings
+sudo apt-get install rfkill
+
+# Verify installation
+hcitool --version
+rfkill --version  # optional
+```
 
 ## License
 
