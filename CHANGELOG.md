@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2025-08-02
+
+### Fixed
+- **CRITICAL**: Fixed Noble crash during rfkill operations
+  - Removed rfkill from resetNobleStack to prevent "terminate called without an active exception"
+  - rfkill operations crash Noble when it has active BLE handles
+  - Now only performs safe Noble state checks without hardware reset
+  - Manual intervention required for stuck BLE: `sudo systemctl restart bluetooth`
+- **Zombie detection timing**: Give connections 30 seconds to complete before marking as zombie
+  - Prevents cleanup during active connection attempts
+  - Fixes race condition where transport exists but deviceName not yet set
+
+### Changed
+- Disabled resetStack in force cleanup to prevent crashes
+- Added warnings about rfkill safety with Noble
+
 ## [0.5.8] - 2025-08-02
 
 ### Fixed

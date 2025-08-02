@@ -134,58 +134,36 @@ export class NobleTransport extends EventEmitter {
 
 
   async resetNobleStack(): Promise<void> {
-    console.log('[Noble] Resetting BLE stack for error recovery');
+    console.log('[Noble] WARNING: Skipping BLE stack reset to prevent crashes');
+    console.log('[Noble] rfkill operations can crash Noble if done during active operations');
+    console.log('[Noble] If BLE is truly stuck, manually run: sudo systemctl restart bluetooth');
     
-    // Force stop scanning first
+    // Force stop scanning first (safe operation)
     try {
       await noble.stopScanningAsync();
     } catch {
       // Ignore stop scanning errors during reset
     }
     
-    // Platform-specific reset
-    if (process.platform === 'linux') {
-      // Try software reset via rfkill (less aggressive than systemctl restart)
-      try {
-        const { exec } = await import('child_process');
-        const { promisify } = await import('util');
-        const execAsync = promisify(exec);
-        
-        console.log('[Noble] Power cycling Bluetooth radio via rfkill (Linux)');
-        await execAsync('sudo rfkill block bluetooth');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        await execAsync('sudo rfkill unblock bluetooth');
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        
-      } catch (e) {
-        console.log('[Noble] rfkill failed, continuing with Noble state wait:', e);
-      }
-    } else if (process.platform === 'darwin') {
-      console.log('[Noble] macOS: BLE reset requires manual intervention or system API');
-      // On macOS, we might need to use blueutil or system commands
-      // For now, just wait for Noble state recovery
-    } else if (process.platform === 'win32') {
-      console.log('[Noble] Windows: BLE reset requires manual intervention or PowerShell');
-      // On Windows, we might need PowerShell commands to reset Bluetooth
-      // For now, just wait for Noble state recovery
-    }
+    // DO NOT use rfkill here - it crashes Noble if there are active handles
+    // Only wait for Noble state recovery
     
-    // Wait for Noble to detect the power cycle (all platforms)
-    console.log('[Noble] Waiting for Noble power state recovery...');
+    // Wait for Noble to stabilize (all platforms)
+    console.log('[Noble] Waiting for Noble state to stabilize...');
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        console.log('[Noble] Power state recovery timeout - continuing anyway');
+        console.log('[Noble] State stabilization timeout - continuing anyway');
         resolve();
-      }, 8000);
+      }, 3000);
       
       const checkState = () => {
         if (noble.state === 'poweredOn') {
           clearTimeout(timeout);
-          console.log('[Noble] Noble powered on successfully');
+          console.log('[Noble] Noble is powered on');
           resolve();
         } else {
           console.log(`[Noble] Current state: ${noble.state}, waiting...`);
-          setTimeout(checkState, 1000);
+          setTimeout(checkState, 500);
         }
       };
       
@@ -193,7 +171,7 @@ export class NobleTransport extends EventEmitter {
       checkState();
     });
     
-    console.log('[Noble] BLE stack reset complete');
+    console.log('[Noble] Noble state check complete');
   }
 
   async connect(config: BleConfig): Promise<string> {
