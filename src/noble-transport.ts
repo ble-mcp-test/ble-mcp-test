@@ -52,22 +52,19 @@ export class NobleTransport extends EventEmitter {
   }
 
   /**
-   * Force cleanup of Noble resources with leak detection
+   * Clean up Noble global resources (static helper for cleanup method)
    */
-  static async forceCleanupResources(deviceId?: string): Promise<void> {
-    console.log(`[Noble] Force cleaning Noble resources${deviceId ? ` for device ${deviceId}` : ''}`);
-    
-    const initialState = await NobleTransport.getResourceState();
-    console.log('[Noble] Initial resource state:', initialState);
+  private static async cleanupGlobalResources(): Promise<void> {
+    const state = await NobleTransport.getResourceState();
 
     // Clean up scanStop listeners (critical leak source per docs/NOBLE-DISCOVERASYNC-LEAK.md)
-    if (initialState.listenerCounts.scanStop > 90) {
+    if (state.listenerCounts.scanStop > 90) {
       console.log('[Noble] Cleaning up scanStop listener leak (count > 90)');
       noble.removeAllListeners('scanStop');
     }
 
     // Clean up discover listeners
-    if (initialState.listenerCounts.discover > 10) {
+    if (state.listenerCounts.discover > 10) {
       console.log('[Noble] Cleaning up discover listener leak (count > 10)');
       noble.removeAllListeners('discover');
     }
@@ -75,12 +72,12 @@ export class NobleTransport extends EventEmitter {
     // Force stop scanning
     try {
       await noble.stopScanningAsync();
-    } catch (e) {
-      console.log('[Noble] Force stop scanning failed:', e);
+    } catch {
+      // Ignore stop scanning errors
     }
 
     // Clear peripheral cache if excessive
-    if (initialState.peripheralCount > 50) {
+    if (state.peripheralCount > 50) {
       console.log('[Noble] Clearing excessive peripheral cache');
       const peripherals = (noble as any)._peripherals || {};
       Object.keys(peripherals).forEach(key => {
@@ -92,13 +89,6 @@ export class NobleTransport extends EventEmitter {
       });
       (noble as any)._peripherals = {};
     }
-
-    const finalState = await NobleTransport.getResourceState();
-    console.log('[Noble] Final resource state:', finalState);
-    
-    const listenersFreed = (initialState.listenerCounts.scanStop + initialState.listenerCounts.discover) - 
-                          (finalState.listenerCounts.scanStop + finalState.listenerCounts.discover);
-    console.log(`[Noble] Resource cleanup complete - freed ${listenersFreed} listeners, ${initialState.peripheralCount - finalState.peripheralCount} peripherals`);
   }
 
   /**
@@ -138,39 +128,6 @@ export class NobleTransport extends EventEmitter {
     });
   }
 
-  /**
-   * Verify Noble resource cleanup after disconnect
-   */
-  static async verifyResourceCleanup(deviceName?: string): Promise<NobleResourceState> {
-    console.log(`[Noble] Verifying resource cleanup${deviceName ? ` for ${deviceName}` : ''}`);
-    
-    // Small delay to allow async cleanup to complete
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    const state = await NobleTransport.getResourceState();
-    
-    // Check for resource leaks
-    const leakWarnings = [];
-    if (state.listenerCounts.scanStop > 90) {
-      leakWarnings.push(`scanStop listeners: ${state.listenerCounts.scanStop} (threshold: 90)`);
-    }
-    if (state.listenerCounts.discover > 10) {
-      leakWarnings.push(`discover listeners: ${state.listenerCounts.discover} (threshold: 10)`);
-    }
-    if (state.peripheralCount > 100) {
-      leakWarnings.push(`peripheral cache: ${state.peripheralCount} (threshold: 100)`);
-    }
-    
-    if (leakWarnings.length > 0) {
-      console.log(`[Noble] Resource leak detected: ${leakWarnings.join(', ')}`);
-      // Trigger force cleanup if leaks detected
-      await NobleTransport.forceCleanupResources(deviceName);
-      return await NobleTransport.getResourceState();
-    }
-    
-    console.log('[Noble] Resource verification passed - no leaks detected');
-    return state;
-  }
 
   async resetNobleStack(): Promise<void> {
     console.log('[Noble] Resetting BLE stack for error recovery');
@@ -446,8 +403,7 @@ export class NobleTransport extends EventEmitter {
     const { 
       force = false, 
       resetStack = force,
-      verifyResources = true,
-      deviceName
+      verifyResources = true
     } = options;
 
     console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
@@ -525,7 +481,18 @@ export class NobleTransport extends EventEmitter {
     
     // Verify and clean resources if requested
     if (verifyResources) {
-      await NobleTransport.verifyResourceCleanup(deviceName);
+      // Small delay to allow async cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const state = await NobleTransport.getResourceState();
+      
+      // Check for resource leaks and clean if needed
+      if (state.listenerCounts.scanStop > 90 || 
+          state.listenerCounts.discover > 10 || 
+          state.peripheralCount > 100) {
+        console.log('[Noble] Resource leak detected - cleaning global resources');
+        await NobleTransport.cleanupGlobalResources();
+      }
     }
     
     console.log(`[Noble] ${force ? 'Aggressive' : 'Graceful'} cleanup complete`);

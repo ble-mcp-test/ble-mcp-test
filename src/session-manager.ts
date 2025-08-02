@@ -1,7 +1,7 @@
 import type { WebSocket } from 'ws';
 import { BleSession } from './ble-session.js';
 import { WebSocketHandler } from './ws-handler.js';
-import { NobleTransport, type BleConfig } from './noble-transport.js';
+import type { BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
 
 /**
@@ -177,17 +177,8 @@ export class SessionManager {
       if (shouldCleanup) {
         console.log(`[SessionManager] Cleaning up session ${sessionId}: ${reason}`);
         try {
-          // Use force cleanup for zombie/stale sessions
+          // Use force cleanup for zombie/stale sessions (includes resource verification)
           await session.forceCleanup(reason);
-          
-          // Verify resource cleanup
-          const state = await NobleTransport.getResourceState();
-          if (state.listenerCounts.scanStop > 90 || 
-              state.listenerCounts.discover > 10 || 
-              state.peripheralCount > 100) {
-            console.log(`[SessionManager] Resource leak detected after cleanup - forcing resource cleanup`);
-            await NobleTransport.forceCleanupResources();
-          }
         } catch (e) {
           console.error(`[SessionManager] Failed to clean up session ${sessionId}: ${e}`);
         }
