@@ -195,7 +195,7 @@ See [CHANGELOG](CHANGELOG.md) for version history.
 - **BLE Hardware**: Only on bridge server machine
 - **Linux OS Tools** (for bridge server):
   - `bluez` - Bluetooth stack with `hcitool` (usually pre-installed)
-  - `rfkill` - Optional, suppresses Noble warnings about Bluetooth state
+  - `rfkill` - Recommended for BLE stack recovery when connections fail
 
 ### Installing Linux Dependencies
 

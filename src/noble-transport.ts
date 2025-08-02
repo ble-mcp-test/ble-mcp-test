@@ -543,11 +543,12 @@ export class NobleTransport extends EventEmitter {
    */
   private async osLevelDisconnect(address: string): Promise<void> {
     console.log(`[Noble] Attempting OS-level disconnect for ${address}`);
+    
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      
       // Format address for hcitool (uppercase with colons)
       const formattedAddress = address.toUpperCase();
       
@@ -557,9 +558,51 @@ export class NobleTransport extends EventEmitter {
       
       // Give it a moment to take effect
       await new Promise(resolve => setTimeout(resolve, 1000));
-    } catch (e) {
+    } catch (e: any) {
       console.error(`[Noble] OS-level disconnect failed: ${e}`);
-      // Not fatal - we tried our best
+      
+      // Check if it's an I/O error which indicates BLE stack corruption
+      if (e.message?.includes('Input/output error')) {
+        console.error(`[Noble] CRITICAL: BLE stack appears corrupted (I/O error)`);
+        console.log(`[Noble] Attempting rfkill recovery to reset BLE hardware...`);
+        
+        try {
+          // Try rfkill block/unblock to reset the BLE hardware
+          await execAsync('sudo rfkill block bluetooth');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          await execAsync('sudo rfkill unblock bluetooth');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          console.log(`[Noble] rfkill recovery completed - BLE hardware reset`);
+          
+          // Wait for Noble to detect the power cycle
+          console.log('[Noble] Waiting for Noble to detect BLE power cycle...');
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              console.log('[Noble] Power state recovery timeout - continuing anyway');
+              resolve();
+            }, 5000);
+            
+            const checkState = () => {
+              if (noble.state === 'poweredOn') {
+                clearTimeout(timeout);
+                console.log('[Noble] Noble detected BLE power on');
+                resolve();
+              } else {
+                setTimeout(checkState, 500);
+              }
+            };
+            
+            checkState();
+          });
+        } catch (rfkillError) {
+          console.error(`[Noble] rfkill recovery failed: ${rfkillError}`);
+          console.error(`[Noble] MANUAL INTERVENTION REQUIRED: The BLE stack is corrupted.`);
+          console.error(`[Noble] Run 'sudo systemctl restart bluetooth' to recover.`);
+        }
+      }
+      // For other errors, we already logged them - not fatal
     }
   }
 
