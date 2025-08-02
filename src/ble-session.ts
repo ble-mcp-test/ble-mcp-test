@@ -95,11 +95,13 @@ export class BleSession extends EventEmitter {
    * Remove WebSocket from this session
    */
   removeWebSocket(ws: WebSocket): void {
+    const wasActive = this.activeWebSockets.has(ws);
     this.activeWebSockets.delete(ws);
-    console.log(`[Session:${this.sessionId}] Removed WebSocket (${this.activeWebSockets.size} active)`);
+    console.log(`[Session:${this.sessionId}] Removed WebSocket (${this.activeWebSockets.size} active, was active: ${wasActive})`);
     
     // Start grace period if no more WebSockets
     if (this.activeWebSockets.size === 0) {
+      console.log(`[Session:${this.sessionId}] No active WebSockets remaining - starting grace period`);
       this.startGracePeriod();
     }
   }
@@ -123,16 +125,23 @@ export class BleSession extends EventEmitter {
   private startGracePeriod(): void {
     console.log(`[Session:${this.sessionId}] Starting ${this.gracePeriodSec}s grace period`);
     
-    // Clear idle timer during grace period to avoid competing timers
-    if (this.idleTimer) {
-      clearTimeout(this.idleTimer);
-      this.idleTimer = null;
-    }
+    // Don't clear idle timer - let it run in parallel with grace period
+    // This prevents the dead zone where neither timer is active
     
-    this.graceTimer = setTimeout(() => {
+    this.graceTimer = setTimeout(async () => {
       console.log(`[Session:${this.sessionId}] Grace period expired - cleaning up`);
-      this.cleanup('grace period expired');
+      try {
+        await this.cleanup('grace period expired');
+      } catch (e) {
+        console.error(`[Session:${this.sessionId}] Error during grace period cleanup:`, e);
+      }
     }, this.gracePeriodSec * 1000);
+    
+    // Also ensure idle timer is running during grace period
+    if (!this.idleTimer) {
+      console.log(`[Session:${this.sessionId}] Starting idle timer during grace period`);
+      this.resetIdleTimer();
+    }
   }
 
   /**
@@ -143,37 +152,43 @@ export class BleSession extends EventEmitter {
       clearTimeout(this.idleTimer);
     }
     
-    // Only set idle timer if we have active websockets or no grace period
-    // Avoid competing timers during grace period
-    if (this.activeWebSockets.size > 0 || !this.graceTimer) {
-      this.idleTimer = setTimeout(() => {
-        const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
-        console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
-        this.cleanup('idle timeout');
-      }, this.idleTimeoutSec * 1000);
-    }
+    // Always set idle timer - it should run even during grace period
+    // This prevents zombie connections when grace timer fails
+    this.idleTimer = setTimeout(async () => {
+      const idleTime = Math.round((Date.now() - this.lastTxTime) / 1000);
+      console.log(`[Session:${this.sessionId}] Idle timeout (${idleTime}s since last TX) - cleaning up`);
+      try {
+        await this.cleanup('idle timeout');
+      } catch (e) {
+        console.error(`[Session:${this.sessionId}] Error during idle timeout cleanup:`, e);
+      }
+    }, this.idleTimeoutSec * 1000);
   }
 
   /**
    * Clean up session and emit cleanup event
    */
   private async cleanup(reason: string, error?: any): Promise<void> {
-    console.log(`[Session:${this.sessionId}] Cleaning up (reason: ${reason})`);
+    console.log(`[Session:${this.sessionId}] Cleaning up (reason: ${reason}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
     
     // Clear timers
     if (this.graceTimer) {
       clearTimeout(this.graceTimer);
       this.graceTimer = null;
+      console.log(`[Session:${this.sessionId}] Cleared grace timer`);
     }
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;
+      console.log(`[Session:${this.sessionId}] Cleared idle timer`);
     }
 
     // Close transport
     if (this.transport) {
       try {
+        console.log(`[Session:${this.sessionId}] Disconnecting BLE transport`);
         await this.transport.disconnect();
+        console.log(`[Session:${this.sessionId}] BLE transport disconnected successfully`);
       } catch (e) {
         console.log(`[Session:${this.sessionId}] Transport cleanup error: ${e}`);
       }

@@ -118,6 +118,12 @@ export class SessionManager {
         connected: true, 
         deviceName: status.deviceName 
       });
+    } else {
+      // No connected sessions - update state to disconnected
+      this.sharedState.setConnectionState({ 
+        connected: false, 
+        deviceName: null 
+      });
     }
   }
 
