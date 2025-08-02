@@ -198,7 +198,8 @@ export class BleSession extends EventEmitter {
       }
     }
 
-    // Clean up transport
+    // Clean up transport - track success
+    let cleanupSucceeded = false;
     if (this.transport) {
       try {
         await this.transport.cleanup({ 
@@ -206,19 +207,28 @@ export class BleSession extends EventEmitter {
           verifyResources: true,
           deviceName: this.deviceName || undefined
         });
+        cleanupSucceeded = true;
       } catch (e) {
-        console.log(`[Session:${this.sessionId}] Transport cleanup error: ${e}`);
+        console.error(`[Session:${this.sessionId}] Transport cleanup error: ${e}`);
         // If graceful cleanup failed and we're not already forcing, try force cleanup
         if (!force) {
           try {
             console.log(`[Session:${this.sessionId}] Escalating to force cleanup`);
             await this.transport.cleanup({ force: true, resetStack: true });
+            cleanupSucceeded = true; // Force cleanup succeeded
           } catch (forceError) {
-            console.log(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);
+            console.error(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);
+            // Both cleanup attempts failed - transport is in unknown state
           }
         }
       }
-      this.transport = null;
+      
+      // Only null transport if cleanup actually succeeded
+      if (cleanupSucceeded) {
+        this.transport = null;
+      } else {
+        console.error(`[Session:${this.sessionId}] WARNING: Transport cleanup failed - potential zombie connection`);
+      }
     }
 
     // Close WebSockets
@@ -253,17 +263,24 @@ export class BleSession extends EventEmitter {
       });
     }
 
-    this.deviceName = null;
-    
-    // Emit cleanup event
-    this.emit('cleanup', { 
-      sessionId: this.sessionId, 
-      reason, 
-      error, 
-      deviceAvailable, 
-      resourceState: finalState,
-      resourcesFreed: { peripherals: resourcesDelta, listeners: listenersDelta }
-    });
+    // Only clear device name and emit cleanup if transport cleanup succeeded
+    if (cleanupSucceeded || !this.transport) {
+      this.deviceName = null;
+      
+      // Emit cleanup event
+      this.emit('cleanup', { 
+        sessionId: this.sessionId, 
+        reason, 
+        error, 
+        deviceAvailable, 
+        resourceState: finalState,
+        resourcesFreed: { peripherals: resourcesDelta, listeners: listenersDelta }
+      });
+    } else {
+      // Cleanup failed - session is in zombie state
+      console.error(`[Session:${this.sessionId}] CRITICAL: Cleanup failed - session remains in zombie state`);
+      // Don't emit cleanup event - session is NOT cleaned up
+    }
   }
 
   /**
