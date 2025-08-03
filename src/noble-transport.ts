@@ -264,21 +264,33 @@ export class NobleTransport extends EventEmitter {
       this.connectInProgress = false;
       return deviceName;
       
-    } catch (error) {
+    } catch (error: any) {
       this.connectInProgress = false;
       
-      // MINIMAL cleanup on connection error - just clear references
-      // Do NOT call full cleanup() as it can crash Noble
-      console.log(`[Noble] Connection failed, clearing references: ${error}`);
+      console.log(`[Noble] Connection failed: ${error}`);
       
-      // Just clear our references - let Noble handle its own cleanup
+      // For connection errors, we MUST do full cleanup
+      // Incomplete connections leave the BLE stack in a bad state
       if (this.peripheral) {
-        this.peripheral.removeAllListeners?.();
-      }
-      if (this.notifyChar) {
-        this.notifyChar.removeAllListeners?.();
+        console.log(`[Noble] Performing full cleanup after connection error`);
+        try {
+          // Try graceful disconnect first
+          if (this.peripheral.state === 'connected' || this.peripheral.state === 'connecting') {
+            console.log(`[Noble] Peripheral state: ${this.peripheral.state} - attempting disconnect`);
+            await Promise.race([
+              this.peripheral.disconnectAsync(),
+              new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout
+            ]);
+          }
+          
+          // Remove all listeners
+          this.peripheral.removeAllListeners?.();
+        } catch (cleanupError) {
+          console.log(`[Noble] Cleanup after connection error failed: ${cleanupError}`);
+        }
       }
       
+      // Clear our references
       this.peripheral = null;
       this.writeChar = null;
       this.notifyChar = null;
@@ -288,6 +300,10 @@ export class NobleTransport extends EventEmitter {
         this.findDeviceCleanup();
         this.findDeviceCleanup = null;
       }
+      
+      // Always add recovery delay after connection errors
+      console.log(`[Noble] Adding 3s recovery delay after connection error`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
       
       throw error;
     }
