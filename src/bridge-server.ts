@@ -16,28 +16,41 @@ function normalizeUuid(uuid: string): string {
   // Platform-specific UUID handling
   const platform = process.platform;
   
+  // Remove dashes and lowercase for processing
+  const cleanUuid = uuid.toLowerCase().replace(/-/g, '');
+  
   // Check if it's a short UUID (4 hex chars)
-  const isShortUuid = uuid.length === 4 && /^[0-9a-fA-F]{4}$/.test(uuid);
+  const isShortUuid = cleanUuid.length === 4 && /^[0-9a-fA-F]{4}$/.test(cleanUuid);
+  
+  // Check if it's a standard Bluetooth UUID that can be shortened
+  const isStandardLongUuid = cleanUuid.length === 32 && 
+    cleanUuid.startsWith('0000') && 
+    cleanUuid.endsWith('00001000800000805f9b34fb');
   
   if (platform === 'linux') {
-    // Linux Noble (BlueZ) can work with short UUIDs directly
+    // Linux Noble (BlueZ) prefers short UUIDs
     if (isShortUuid) {
-      return uuid.toLowerCase();
+      return cleanUuid;
     }
-    // For full UUIDs, remove dashes and lowercase
-    return uuid.toLowerCase().replace(/-/g, '');
+    // If it's a standard long UUID, extract the short form
+    if (isStandardLongUuid) {
+      // Extract characters 5-8 (the short UUID part)
+      return cleanUuid.substring(4, 8);
+    }
+    // Non-standard long UUID - return as-is
+    return cleanUuid;
   } else if (platform === 'darwin' || platform === 'win32') {
     // macOS and Windows typically need full UUIDs
     if (isShortUuid) {
       // Expand short UUID to full Bluetooth UUID
       // Standard base: 00000000-0000-1000-8000-00805F9B34FB
-      return `0000${uuid.toLowerCase()}00001000800000805f9b34fb`;
+      return `0000${cleanUuid}00001000800000805f9b34fb`;
     }
-    // For full UUIDs, remove dashes and lowercase
-    return uuid.toLowerCase().replace(/-/g, '');
+    // For full UUIDs, already cleaned
+    return cleanUuid;
   } else {
-    // Unknown platform - just clean up the UUID
-    return uuid.toLowerCase().replace(/-/g, '');
+    // Unknown platform - just return cleaned UUID
+    return cleanUuid;
   }
 }
 

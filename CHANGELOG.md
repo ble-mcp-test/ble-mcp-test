@@ -8,10 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.5.7] - 2025-08-02
 
 ### Added
-- **UUID Normalization**: Bridge now accepts both short and full UUID formats
-  - Short UUIDs (e.g., "9800") are expanded to full BLE UUIDs  
-  - Full UUIDs are normalized (lowercase, no dashes)
-  - Example: "9800" → "00009800-0000-1000-8000-00805f9b34fb"
+- **Platform-Aware UUID Normalization**: Bridge handles UUIDs correctly for each platform
+  - **Linux**: Prefers short UUIDs - converts long standard UUIDs to short form
+    - `"9800"` → `"9800"` (keeps short)
+    - `"00009800-0000-1000-8000-00805F9B34FB"` → `"9800"` (shortens)
+  - **macOS/Windows**: Requires full UUIDs - expands short to full format
+    - `"9800"` → `"0000980000001000800000805f9b34fb"` (expands)
+  - Handles both directions of conversion based on platform needs
 
 ### Fixed
 - **Critical Noble Crash Prevention**: Comprehensive fix for crashes during BLE operations
