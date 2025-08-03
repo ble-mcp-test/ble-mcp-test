@@ -5,84 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.11] - 2025-08-02
+## [0.5.7] - 2025-08-02
 
 ### Added
 - **UUID Normalization**: Bridge now accepts both short and full UUID formats
-  - Short UUIDs (e.g., "9800") are expanded to full BLE UUIDs
+  - Short UUIDs (e.g., "9800") are expanded to full BLE UUIDs  
   - Full UUIDs are normalized (lowercase, no dashes)
-  - Enables compatibility with different client implementations
   - Example: "9800" → "00009800-0000-1000-8000-00805f9b34fb"
 
-### Changed
-- Added logging for UUID normalization to aid debugging
-
-## [0.5.10] - 2025-08-02
-
 ### Fixed
-- **FUNDAMENTAL FIX**: Eliminated root cause of Noble crashes during connection errors
-  - Connection errors were calling full `cleanup()` which is unsafe during active Noble operations
-  - Replaced with minimal reference cleanup that doesn't touch Noble internals
+- **Critical Noble Crash Prevention**: Comprehensive fix for crashes during BLE operations
+  - Root cause: Connection errors were calling full `cleanup()` while Noble had active handles
+  - Solution: Replaced with minimal reference cleanup that doesn't touch Noble internals
   - Added `connectInProgress` flag to prevent cleanup during active connections
+  - Removed dangerous rfkill operations from automatic cleanup paths
   - Cleanup now safely returns early if called during connection attempt
-  
-### Root Cause Analysis
-The crash pattern was:
-1. Connection attempt encounters error (timeout, service not found, etc.)
-2. Error handler calls `cleanup()` while Noble has active handles
-3. Cleanup triggers graceful → force → resetStack → rfkill sequence
-4. rfkill resets Bluetooth while Noble has active operations
-5. Noble crashes with "terminate called without an active exception"
 
-The fix eliminates this by never calling dangerous cleanup operations during connection errors.
+- **Zombie Connection Detection**: Improved detection and handling
+  - Session cleanup now verifies success before clearing state
+  - Added 30-second grace period before marking connections as zombies
+  - Fixed race condition where transport exists but deviceName not yet set
+  - Failed cleanups no longer incorrectly mark sessions as disconnected
 
-## [0.5.9] - 2025-08-02
-
-### Fixed
-- **CRITICAL**: Fixed Noble crash during rfkill operations
-  - Removed rfkill from resetNobleStack to prevent "terminate called without an active exception"
-  - rfkill operations crash Noble when it has active BLE handles
-  - Now only performs safe Noble state checks without hardware reset
-  - Manual intervention required for stuck BLE: `sudo systemctl restart bluetooth`
-- **Zombie detection timing**: Give connections 30 seconds to complete before marking as zombie
-  - Prevents cleanup during active connection attempts
-  - Fixes race condition where transport exists but deviceName not yet set
-
-### Changed
-- Disabled resetStack in force cleanup to prevent crashes
-- Added warnings about rfkill safety with Noble
-
-## [0.5.8] - 2025-08-02
-
-### Fixed
-- **Enhanced BLE stack recovery**: Added OS-aware recovery mechanisms
-  - **Linux**: Added rfkill-based recovery when hcitool fails with I/O errors
-    - Detects "Input/output error" from hcitool which indicates BLE stack corruption
-    - Automatically attempts `rfkill block/unblock bluetooth` to reset BLE hardware
-    - Waits for Noble to detect the power cycle before continuing
-    - Provides clear error messages when manual intervention is required
-    - Prevents the "device not found" issue after failed OS-level disconnects
-  - **macOS/Windows**: Graceful fallback with platform-specific messages
-  - OS-level disconnect only attempted on Linux where hcitool is available
+- **Noble Disconnect Reliability**:
+  - Increased disconnect timeout from 2s to 10s for more reliable cleanup
+  - Added disconnect verification to check peripheral state after disconnect
+  - Added OS-level disconnect fallback using `hcitool ledc` when Noble fails (Linux only)
+  - Block new connections during cleanup with user-friendly "BLE stack recovering" message
 
 ### Changed
 - Made all OS-specific interventions conditional on `process.platform`
 - Updated README to clarify platform-specific requirements
-- Error messages now indicate which platform-specific recovery options are available
-
-## [0.5.7] - 2025-08-02
-
-### Fixed
-- **CRITICAL**: Fixed zombie connection bug where cleanup failures would null transport references but leave BLE hardware connections active
-- Session cleanup now properly verifies success before clearing state and emitting cleanup events
-- Failed cleanups no longer result in sessions being incorrectly marked as disconnected
-- Added explicit error logging for cleanup failures to aid debugging
-- **Noble disconnect improvements**:
-  - Increased disconnect timeout from 2s to 10s for more reliable cleanup
-  - Added disconnect verification to check peripheral state after disconnect
-  - Added OS-level disconnect fallback using `hcitool ledc` when Noble fails
-  - Block new connections during cleanup with user-friendly "BLE stack recovering" message
-  - Fixed Chrome interactive testing disconnects that were leaving zombie connections
+- Disabled resetStack in force cleanup to prevent crashes
+- Added warnings about rfkill safety with Noble
 
 ## [0.5.6] - 2025-08-02
 
