@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2025-08-02
+
+### Fixed
+- **FUNDAMENTAL FIX**: Eliminated root cause of Noble crashes during connection errors
+  - Connection errors were calling full `cleanup()` which is unsafe during active Noble operations
+  - Replaced with minimal reference cleanup that doesn't touch Noble internals
+  - Added `connectInProgress` flag to prevent cleanup during active connections
+  - Cleanup now safely returns early if called during connection attempt
+  
+### Root Cause Analysis
+The crash pattern was:
+1. Connection attempt encounters error (timeout, service not found, etc.)
+2. Error handler calls `cleanup()` while Noble has active handles
+3. Cleanup triggers graceful → force → resetStack → rfkill sequence
+4. rfkill resets Bluetooth while Noble has active operations
+5. Noble crashes with "terminate called without an active exception"
+
+The fix eliminates this by never calling dangerous cleanup operations during connection errors.
+
 ## [0.5.9] - 2025-08-02
 
 ### Fixed

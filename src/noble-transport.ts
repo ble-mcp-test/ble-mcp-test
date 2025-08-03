@@ -32,6 +32,7 @@ export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
+  private connectInProgress = false;
   
   // Static flags to prevent connections during cleanup
   private static cleanupInProgress = false;
@@ -183,6 +184,8 @@ export class NobleTransport extends EventEmitter {
       throw new Error(`BLE stack recovering, please try again in ${remainingTime} seconds`);
     }
     
+    this.connectInProgress = true;
+    
     try {
       // Wait for Noble to be ready with timeout
       if (noble.state !== 'poweredOn') {
@@ -258,11 +261,34 @@ export class NobleTransport extends EventEmitter {
       });
       
       console.log(`[Noble] Connected successfully to ${deviceName}`);
+      this.connectInProgress = false;
       return deviceName;
       
     } catch (error) {
-      // Clean up on error
-      await this.cleanup();
+      this.connectInProgress = false;
+      
+      // MINIMAL cleanup on connection error - just clear references
+      // Do NOT call full cleanup() as it can crash Noble
+      console.log(`[Noble] Connection failed, clearing references: ${error}`);
+      
+      // Just clear our references - let Noble handle its own cleanup
+      if (this.peripheral) {
+        this.peripheral.removeAllListeners?.();
+      }
+      if (this.notifyChar) {
+        this.notifyChar.removeAllListeners?.();
+      }
+      
+      this.peripheral = null;
+      this.writeChar = null;
+      this.notifyChar = null;
+      
+      // Clear device search cleanup if it exists
+      if (this.findDeviceCleanup) {
+        this.findDeviceCleanup();
+        this.findDeviceCleanup = null;
+      }
+      
       throw error;
     }
   }
@@ -407,6 +433,12 @@ export class NobleTransport extends EventEmitter {
       verifyResources = true,
       deviceName = options.deviceName
     } = options;
+
+    // SAFETY: Never run cleanup during active connection
+    if (this.connectInProgress) {
+      console.log(`[Noble] WARNING: Cleanup requested during active connection - skipping to prevent crash`);
+      return;
+    }
 
     console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
     
