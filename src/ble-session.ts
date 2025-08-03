@@ -214,7 +214,8 @@ export class BleSession extends EventEmitter {
         if (!force) {
           try {
             console.log(`[Session:${this.sessionId}] Escalating to force cleanup`);
-            await this.transport.cleanup({ force: true, resetStack: true });
+            // DO NOT use resetStack - it can crash Noble
+            await this.transport.cleanup({ force: true, resetStack: false });
             cleanupSucceeded = true; // Force cleanup succeeded
           } catch (forceError) {
             console.error(`[Session:${this.sessionId}] Force cleanup also failed: ${forceError}`);

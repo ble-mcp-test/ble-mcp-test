@@ -243,4 +243,210 @@ test.describe('Mock Bundle Export Tests', () => {
     expect(hasSimulateMethod.hasGatt).toBe(true);
   });
 
+  test('should reuse connection within same session across multiple operations', async ({ page }) => {
+    // This test validates that our session-based architecture properly reuses connections
+    // within the same Playwright test context (same session)
+    
+    // Use the existing bridge server on port 8081
+    const port = 8081;
+    
+    // Check if bridge server is running
+    const health = await fetch(`http://localhost:${port}/health`).catch(() => null);
+    if (!health || !health.ok) {
+      console.log('Bridge server not running on port 8081, skipping test');
+      return;
+    }
+    
+    try {
+      await page.goto('about:blank');
+      
+      // Capture console logs for debugging
+      page.on('console', msg => {
+        console.log(`[Browser] ${msg.text()}`);
+      });
+      
+      // Load and inject mock
+      const bundlePath = join(__dirname, '../../dist/web-ble-mock.bundle.js');
+      await page.addScriptTag({ path: bundlePath });
+      
+      // Run multiple connect/disconnect cycles
+      const results = await page.evaluate(async ({ wsPort, deviceId, service, write, notify }) => {
+        // Configure mock with required BLE parameters
+        window.WebBleMock.injectWebBluetoothMock(`ws://localhost:${wsPort}`, {
+          service,
+          write,
+          notify
+        });
+        
+        const results = [];
+        const cycles = 5;
+        
+        for (let i = 0; i < cycles; i++) {
+          const cycleStart = Date.now();
+          
+          try {
+            // Request device using configured device identifier
+            const device = await navigator.bluetooth.requestDevice({
+              filters: [{ namePrefix: deviceId }]
+            });
+            
+            // Connect
+            const connectStart = Date.now();
+            await device.gatt.connect();
+            const connectTime = Date.now() - connectStart;
+            
+            // Get primary service
+            const primaryService = await device.gatt.getPrimaryService(`0x${service}`);
+            const writeChar = await primaryService.getCharacteristic(`0x${write}`);
+            const notifyChar = await primaryService.getCharacteristic(`0x${notify}`);
+            
+            // Start notifications
+            await notifyChar.startNotifications();
+            
+            // Send GET_BATTERY_VOLTAGE command (0xA000)
+            const batteryCommand = new Uint8Array([
+              0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00
+            ]);
+            
+            // Listen for response
+            const responsePromise = new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Battery response timeout'));
+              }, 5000);
+              
+              const handler = (event) => {
+                const data = Array.from(new Uint8Array(event.target.value.buffer));
+                // Check for battery voltage response
+                if (data.length >= 12 && 
+                    data[5] === 0x9E &&  // Response direction byte
+                    data[8] === 0xA0 && 
+                    data[9] === 0x00) {
+                  clearTimeout(timeout);
+                  notifyChar.removeEventListener('characteristicvaluechanged', handler);
+                  const voltage = (data[10] << 8) | data[11];
+                  resolve(voltage);
+                }
+              };
+              
+              notifyChar.addEventListener('characteristicvaluechanged', handler);
+            });
+            
+            // Write command
+            await writeChar.writeValue(batteryCommand);
+            
+            // Wait for response
+            const batteryVoltage = await responsePromise;
+            
+            // Test simulateNotification with an obviously fake battery voltage
+            const simulatedVoltage = 9999; // Impossibly high voltage to prove it's simulated
+            const simulatedResponse = new Uint8Array([
+              0xA7, 0xB3, 0x04, 0xD9, 0x82, 0x9E, 0xF7, 0xDD, 
+              0xA0, 0x00, 
+              (simulatedVoltage >> 8) & 0xFF, // High byte
+              simulatedVoltage & 0xFF,        // Low byte
+            ]);
+            
+            // Listen for simulated notification
+            const simulatedResponsePromise = new Promise((resolve, reject) => {
+              const timeout = setTimeout(() => {
+                reject(new Error('Simulated battery response timeout'));
+              }, 2000);
+              
+              const handler = (event) => {
+                const data = Array.from(new Uint8Array(event.target.value.buffer));
+                // Check for battery voltage response
+                if (data.length >= 12 && 
+                    data[5] === 0x9E &&  // Response direction byte
+                    data[8] === 0xA0 && 
+                    data[9] === 0x00) {
+                  clearTimeout(timeout);
+                  notifyChar.removeEventListener('characteristicvaluechanged', handler);
+                  const voltage = (data[10] << 8) | data[11];
+                  resolve(voltage);
+                }
+              };
+              
+              notifyChar.addEventListener('characteristicvaluechanged', handler);
+            });
+            
+            // Simulate the notification
+            notifyChar.simulateNotification(simulatedResponse);
+            
+            // Wait for simulated response
+            const simulatedBatteryVoltage = await simulatedResponsePromise;
+            
+            // Stop notifications
+            await notifyChar.stopNotifications();
+            
+            // Disconnect
+            await device.gatt.disconnect();
+            
+            const cycleTime = Date.now() - cycleStart;
+            
+            results.push({
+              cycle: i + 1,
+              success: true,
+              connectTime,
+              cycleTime,
+              batteryVoltage,
+              simulatedBatteryVoltage
+            });
+            
+          } catch (error) {
+            results.push({
+              cycle: i + 1,
+              success: false,
+              error: error.message,
+              cycleTime: Date.now() - cycleStart
+            });
+          }
+          
+          // Wait for bridge recovery + mock post-disconnect delay
+          // This simulates real test behavior with proper cleanup between tests
+          if (i < cycles - 1) { // Don't wait after last cycle
+            await new Promise(resolve => setTimeout(resolve, 1500)); // 1.5s to ensure clean state
+          }
+        }
+        
+        return results;
+      }, {
+        wsPort: port,
+        deviceId: getBleConfig().device,
+        service: getBleConfig().service,
+        write: getBleConfig().write,
+        notify: getBleConfig().notify
+      });
+      
+      console.log('Connect/disconnect cycle results:', results);
+      
+      // All cycles should succeed
+      const successful = results.filter(r => r.success).length;
+      expect(successful).toBe(5);
+      
+      // Connection times should be reasonable (accounting for retries)
+      results.forEach(result => {
+        if (result.success) {
+          expect(result.connectTime).toBeLessThan(10000); // 10s max with retries
+          expect(result.cycleTime).toBeLessThan(12000); // 12s max total
+          
+          // Validate real battery voltage
+          expect(result.batteryVoltage).toBeGreaterThan(3000);
+          expect(result.batteryVoltage).toBeLessThan(4500);
+          
+          // Validate simulated battery voltage matches what we sent (impossible value proves it's fake)
+          expect(result.simulatedBatteryVoltage).toBe(9999);
+          
+          console.log(`Cycle ${result.cycle}: Real battery ${result.batteryVoltage}mV (${(result.batteryVoltage/1000).toFixed(2)}V), Simulated ${result.simulatedBatteryVoltage}mV (${(result.simulatedBatteryVoltage/1000).toFixed(2)}V)`);
+        }
+      });
+      
+      // Later cycles might be faster if we reduce recovery time for clean disconnects
+      const avgFirstTwo = (results[0].cycleTime + results[1].cycleTime) / 2;
+      const avgLastTwo = (results[3].cycleTime + results[4].cycleTime) / 2;
+      console.log(`Average first 2 cycles: ${avgFirstTwo}ms, last 2: ${avgLastTwo}ms`);
+      
+    } finally {
+      // We're using the existing bridge server, so don't stop it
+    }
+  });
 });

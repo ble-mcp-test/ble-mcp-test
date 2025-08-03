@@ -5,19 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.7] - 2025-08-02
+## [0.5.7] - 2025-08-03
 
 ### Fixed
-- **CRITICAL**: Fixed zombie connection bug where cleanup failures would null transport references but leave BLE hardware connections active
-- Session cleanup now properly verifies success before clearing state and emitting cleanup events
-- Failed cleanups no longer result in sessions being incorrectly marked as disconnected
-- Added explicit error logging for cleanup failures to aid debugging
-- **Noble disconnect improvements**:
+- **Session ID Propagation**: Fixed critical bug where explicit sessionId was not being passed to WebSocket URL
+  - Bug was in `mock-bluetooth.ts` line 185: checking wrong object after Object.assign
+  - Changed from `this.device.bleConfig.sessionId` to `connectOptions.sessionId`
+  - Ensures downstream E2E tests can use deterministic session IDs for Playwright testing
+  - Added comprehensive E2E tests to verify session parameter in WebSocket URL
+
+### Added
+- **Platform-Aware UUID Normalization**: Bridge handles UUIDs correctly for each platform
+  - **Linux**: Prefers short UUIDs - converts long standard UUIDs to short form
+    - `"9800"` → `"9800"` (keeps short)
+    - `"00009800-0000-1000-8000-00805F9B34FB"` → `"9800"` (shortens)
+  - **macOS/Windows**: Requires full UUIDs - expands short to full format
+    - `"9800"` → `"0000980000001000800000805f9b34fb"` (expands)
+  - Handles both directions of conversion based on platform needs
+
+### Fixed
+- **Critical Noble Crash Prevention**: Comprehensive fix for crashes during BLE operations
+  - Root cause: Connection errors were calling full `cleanup()` while Noble had active handles
+  - Solution: Replaced with minimal reference cleanup that doesn't touch Noble internals
+  - Added `connectInProgress` flag to prevent cleanup during active connections
+  - Removed dangerous rfkill operations from automatic cleanup paths
+  - Cleanup now safely returns early if called during connection attempt
+
+- **Zombie Connection Detection**: Improved detection and handling
+  - Session cleanup now verifies success before clearing state
+  - Added 30-second grace period before marking connections as zombies
+  - Fixed race condition where transport exists but deviceName not yet set
+  - Failed cleanups no longer incorrectly mark sessions as disconnected
+
+- **Noble Disconnect Reliability**:
   - Increased disconnect timeout from 2s to 10s for more reliable cleanup
   - Added disconnect verification to check peripheral state after disconnect
-  - Added OS-level disconnect fallback using `hcitool ledc` when Noble fails
+  - Added OS-level disconnect fallback using `hcitool ledc` when Noble fails (Linux only)
   - Block new connections during cleanup with user-friendly "BLE stack recovering" message
-  - Fixed Chrome interactive testing disconnects that were leaving zombie connections
+
+### Changed
+- Made all OS-specific interventions conditional on `process.platform`
+- Updated README to clarify platform-specific requirements
+- Disabled resetStack in force cleanup to prevent crashes
+- Added warnings about rfkill safety with Noble
 
 ## [0.5.6] - 2025-08-02
 

@@ -5,6 +5,56 @@ import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
 
 /**
+ * Normalize UUID based on platform requirements
+ * Noble expects different formats on different platforms
+ * @param uuid - UUID in short or full format
+ * @returns Platform-appropriate UUID format
+ */
+function normalizeUuid(uuid: string): string {
+  if (!uuid) return '';
+  
+  // Platform-specific UUID handling
+  const platform = process.platform;
+  
+  // Remove dashes and lowercase for processing
+  const cleanUuid = uuid.toLowerCase().replace(/-/g, '');
+  
+  // Check if it's a short UUID (4 hex chars)
+  const isShortUuid = cleanUuid.length === 4 && /^[0-9a-fA-F]{4}$/.test(cleanUuid);
+  
+  // Check if it's a standard Bluetooth UUID that can be shortened
+  const isStandardLongUuid = cleanUuid.length === 32 && 
+    cleanUuid.startsWith('0000') && 
+    cleanUuid.endsWith('00001000800000805f9b34fb');
+  
+  if (platform === 'linux') {
+    // Linux Noble (BlueZ) prefers short UUIDs
+    if (isShortUuid) {
+      return cleanUuid;
+    }
+    // If it's a standard long UUID, extract the short form
+    if (isStandardLongUuid) {
+      // Extract characters 5-8 (the short UUID part)
+      return cleanUuid.substring(4, 8);
+    }
+    // Non-standard long UUID - return as-is
+    return cleanUuid;
+  } else if (platform === 'darwin' || platform === 'win32') {
+    // macOS and Windows typically need full UUIDs
+    if (isShortUuid) {
+      // Expand short UUID to full Bluetooth UUID
+      // Standard base: 00000000-0000-1000-8000-00805F9B34FB
+      return `0000${cleanUuid}00001000800000805f9b34fb`;
+    }
+    // For full UUIDs, already cleaned
+    return cleanUuid;
+  } else {
+    // Unknown platform - just return cleaned UUID
+    return cleanUuid;
+  }
+}
+
+/**
  * BridgeServer - HTTP server and WebSocket routing
  * 
  * Simplified server that only handles:
@@ -44,13 +94,25 @@ export class BridgeServer {
       console.log(`[Bridge] Request URL: ${req.url}`);
       console.log(`[Bridge] All URL params:`, Object.fromEntries(url.searchParams));
       
-      // Parse BLE config
+      // Parse BLE config with UUID normalization
+      const rawService = url.searchParams.get('service') || '';
+      const rawWrite = url.searchParams.get('write') || '';
+      const rawNotify = url.searchParams.get('notify') || '';
+      
       const config: BleConfig = {
         devicePrefix: url.searchParams.get('device') || '',
-        serviceUuid: url.searchParams.get('service') || '',
-        writeUuid: url.searchParams.get('write') || '',
-        notifyUuid: url.searchParams.get('notify') || ''
+        serviceUuid: normalizeUuid(rawService),
+        writeUuid: normalizeUuid(rawWrite),
+        notifyUuid: normalizeUuid(rawNotify)
       };
+      
+      // Log UUID normalization if any were normalized
+      if (rawService !== config.serviceUuid || rawWrite !== config.writeUuid || rawNotify !== config.notifyUuid) {
+        console.log(`[Bridge] UUID normalization on ${process.platform}:`);
+        if (rawService !== config.serviceUuid) {
+          console.log(`  service: ${rawService} → ${config.serviceUuid}`);
+        }
+      }
       
       // Validate required parameters
       if (!config.devicePrefix || !config.serviceUuid || !config.writeUuid || !config.notifyUuid) {

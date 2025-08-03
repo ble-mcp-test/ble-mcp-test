@@ -182,9 +182,9 @@ class MockBluetoothRemoteGATTServer {
         if (this.device.bleConfig) {
           Object.assign(connectOptions, this.device.bleConfig);
           // Map sessionId to session for WebSocketTransport
-          if (this.device.bleConfig.sessionId && !connectOptions.session) {
-            connectOptions.session = this.device.bleConfig.sessionId;
-            console.log(`[MockGATT] Using session ID for WebSocket: ${this.device.bleConfig.sessionId}`);
+          if (connectOptions.sessionId && !connectOptions.session) {
+            connectOptions.session = connectOptions.sessionId;
+            console.log(`[MockGATT] Using session ID for WebSocket: ${connectOptions.sessionId}`);
           }
         }
         
@@ -374,98 +374,33 @@ export class MockBluetooth {
   }
   
   private generateAutoSessionId(): string {
-    // Hierarchical session ID generation strategy:
-    // 1. window.BLE_TEST_SESSION_ID (explicit injection by test)
-    // 2. process.env.BLE_TEST_SESSION_ID (environment variable)
-    // 3. Playwright context detection (auto-generate from test file)
-    // 4. Current random generation (fallback for interactive use)
-    
-    // Priority 1: Explicit injection by test
-    if (typeof window !== 'undefined' && (window as any).BLE_TEST_SESSION_ID) {
-      const explicitId = (window as any).BLE_TEST_SESSION_ID;
-      console.log(`[MockBluetooth] Using explicit test session ID: ${explicitId}`);
-      return explicitId;
+    // Simple: Playwright gets a directory-based ID, browsers get random
+    if (this.isPlaywrightEnvironment()) {
+      // Use the current working directory name as the session ID base
+      // This allows all tests in the same project to share the connection pool
+      const projectName = this.getProjectName();
+      return `playwright-${projectName}`;
     }
     
-    // Priority 2: Environment variable
-    if (typeof process !== 'undefined' && process.env?.BLE_TEST_SESSION_ID) {
-      const envId = process.env.BLE_TEST_SESSION_ID;
-      console.log(`[MockBluetooth] Using environment session ID: ${envId}`);
-      return envId;
+    // For interactive use, just timestamp + random
+    return `session-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+  }
+  
+  private getProjectName(): string {
+    // Try to get a stable project identifier
+    if (typeof process !== 'undefined' && process.cwd) {
+      // Get the last part of the current working directory
+      const cwd = process.cwd();
+      const parts = cwd.split(/[\/\\]/);
+      return parts[parts.length - 1] || 'test';
     }
     
-    // Priority 3: Playwright context detection
-    const isPlaywright = this.isPlaywrightEnvironment();
-    if (isPlaywright) {
-      const testPath = this.getTestFilePath();
-      const hostname = this.getClientIP();
-      
-      // If we got a test path, use it
-      if (testPath) {
-        const deterministicId = `${hostname}-${testPath}`;
-        console.log(`[MockBluetooth] Generated deterministic session ID for Playwright: ${deterministicId}`);
-        return deterministicId;
-      }
-      
-      // Otherwise, use a stable suffix based on the page URL
-      // This ensures consistent session IDs across page reloads in the same test
-      const stableSuffix = this.getStableTestSuffix();
-      const deterministicId = `${hostname}-playwright-${stableSuffix}`;
-      console.log(`[MockBluetooth] Generated deterministic session ID for Playwright: ${deterministicId}`);
-      return deterministicId;
+    // Fallback for browser environment - use hostname
+    if (typeof window !== 'undefined') {
+      return window.location.hostname.replace(/[^a-z0-9]/gi, '-') || 'test';
     }
     
-    // Priority 4: Current random generation with localStorage persistence
-    // Try to reuse existing session from localStorage
-    try {
-      if (typeof localStorage !== 'undefined') {
-        const stored = localStorage.getItem('ble-mock-session-id');
-        if (stored) {
-          console.log(`[MockBluetooth] Reusing stored session: ${stored}`);
-          console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
-          
-          // Double-check that the stored session is still in localStorage after reading
-          // This helps detect race conditions
-          const doubleCheck = localStorage.getItem('ble-mock-session-id');
-          if (doubleCheck !== stored) {
-            console.log(`[MockBluetooth] WARNING: Session changed during read! Was ${stored}, now ${doubleCheck}`);
-          }
-          
-          return stored;
-        }
-      }
-    } catch (e) {
-      console.log(`[MockBluetooth] localStorage error during read: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    
-    const ip = this.getClientIP();
-    const browser = this.getBrowser();
-    const random = Math.random().toString(36).substr(2, 4).toUpperCase();
-    
-    const sessionId = `${ip}-${browser}-${random}`;
-    console.log(`[MockBluetooth] Generated new session: ${sessionId} (IP: ${ip}, Browser: ${browser})`);
-    
-    // Store for next time with race condition detection
-    try {
-      if (typeof localStorage !== 'undefined') {
-        // Check if another instance already stored a session while we were generating
-        const existingSession = localStorage.getItem('ble-mock-session-id');
-        if (existingSession && existingSession !== sessionId) {
-          console.log(`[MockBluetooth] Race condition detected! Another instance stored ${existingSession}, switching to that instead of ${sessionId}`);
-          return existingSession;
-        }
-        
-        localStorage.setItem('ble-mock-session-id', sessionId);
-        console.log(`[MockBluetooth] Stored new session: ${sessionId}`);
-        console.log(`[MockBluetooth] localStorage available: true, context: ${this.getStorageContext()}`);
-      } else {
-        console.log(`[MockBluetooth] localStorage not available - session won't persist`);
-      }
-    } catch (e) {
-      console.log(`[MockBluetooth] localStorage error during write: ${e instanceof Error ? e.message : String(e)}`);
-    }
-    
-    return sessionId;
+    return 'test';
   }
   
   private getClientIP(): string {
@@ -500,37 +435,25 @@ export class MockBluetooth {
   }
   
   private isPlaywrightEnvironment(): boolean {
-    // Detect if running in Playwright or other test environments
-    // Note: Playwright doesn't expose markers in the browser context, so we use heuristics
-    
-    // 1. Check for test-like URL patterns (file://, localhost with no real server)
+    // Simple check: Playwright tests typically use about:blank or have playwright in the user agent
     if (typeof window !== 'undefined') {
-      const url = window.location.href;
-      // Common test URL patterns
-      if (url.startsWith('file://') || 
-          url.includes('localhost/test') || 
-          url.includes('127.0.0.1/test') ||
-          url.includes('localhost:0/') ||
-          url.includes('about:blank')) {
-        // Likely a test environment
+      // Check if we're in about:blank (common for Playwright)
+      if (window.location.href === 'about:blank') {
+        return true;
+      }
+      
+      // Check for Playwright marker in window object (if injected by test)
+      if ((window as any).playwright) {
         return true;
       }
     }
     
-    // 2. Check for headless browser (common in CI/test environments)
+    // Check for headless Chrome (common in Playwright)
     if (typeof navigator !== 'undefined' && navigator.userAgent) {
-      const ua = navigator.userAgent.toLowerCase();
-      if (ua.includes('headless')) {
-        return true;
-      }
+      return navigator.userAgent.includes('HeadlessChrome');
     }
     
-    // 3. Original checks (kept for compatibility)
-    return !!(
-      (typeof process !== 'undefined' && process.env?.PLAYWRIGHT_TEST_BASE_URL) ||
-      (typeof window !== 'undefined' && (window as any).__playwright) ||
-      (typeof navigator !== 'undefined' && navigator.userAgent?.includes('Playwright'))
-    );
+    return false;
   }
   
   private getStableTestSuffix(): string {
@@ -658,94 +581,6 @@ export class MockBluetooth {
   }
 }
 
-// Utility function to clear stored session (for tests)
-export function clearStoredSession(): void {
-  try {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('ble-mock-session-id');
-      console.log('[MockBluetooth] Cleared stored session');
-    }
-  } catch {
-    // localStorage not available, nothing to clear
-  }
-}
-
-// Utility function to set test session ID (for Playwright tests)
-export function setTestSessionId(sessionId: string): void {
-  if (typeof window !== 'undefined') {
-    (window as any).BLE_TEST_SESSION_ID = sessionId;
-    console.log(`[MockBluetooth] Set test session ID: ${sessionId}`);
-  }
-}
-
-// Test function for localStorage session persistence
-export function testSessionPersistence(): {
-  localStorage: boolean;
-  currentSession: string | null;
-  canStore: boolean;
-  canRetrieve: boolean;
-  testResult: 'pass' | 'fail' | 'no-storage';
-  details: string[];
-} {
-  const details: string[] = [];
-  const testKey = 'ble-mock-test-session';
-  const testValue = `test-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`;
-  
-  // Check localStorage availability
-  const hasLocalStorage = typeof localStorage !== 'undefined';
-  details.push(`localStorage available: ${hasLocalStorage}`);
-  
-  if (!hasLocalStorage) {
-    return {
-      localStorage: false,
-      currentSession: null,
-      canStore: false,
-      canRetrieve: false,
-      testResult: 'no-storage',
-      details
-    };
-  }
-  
-  // Get current session
-  const currentSession = localStorage.getItem('ble-mock-session-id');
-  details.push(`Current session: ${currentSession || 'none'}`);
-  
-  // Test storage
-  let canStore = false;
-  try {
-    localStorage.setItem(testKey, testValue);
-    canStore = true;
-    details.push('✅ Can write to localStorage');
-  } catch (e) {
-    details.push(`❌ Cannot write to localStorage: ${e instanceof Error ? e.message : String(e)}`);
-  }
-  
-  // Test retrieval
-  let canRetrieve = false;
-  if (canStore) {
-    try {
-      const retrieved = localStorage.getItem(testKey);
-      canRetrieve = retrieved === testValue;
-      details.push(`✅ Can read from localStorage: ${canRetrieve}`);
-      
-      // Clean up test key
-      localStorage.removeItem(testKey);
-    } catch (e) {
-      details.push(`❌ Cannot read from localStorage: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }
-  
-  const testResult = canStore && canRetrieve ? 'pass' : 'fail';
-  
-  return {
-    localStorage: hasLocalStorage,
-    currentSession,
-    canStore,
-    canRetrieve,
-    testResult,
-    details
-  };
-}
 
 // Function to get bundle version
 export function getBundleVersion(): string {

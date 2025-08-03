@@ -32,6 +32,7 @@ export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
+  private connectInProgress = false;
   
   // Static flags to prevent connections during cleanup
   private static cleanupInProgress = false;
@@ -134,47 +135,36 @@ export class NobleTransport extends EventEmitter {
 
 
   async resetNobleStack(): Promise<void> {
-    console.log('[Noble] Resetting BLE stack for error recovery');
+    console.log('[Noble] WARNING: Skipping BLE stack reset to prevent crashes');
+    console.log('[Noble] rfkill operations can crash Noble if done during active operations');
+    console.log('[Noble] If BLE is truly stuck, manually run: sudo systemctl restart bluetooth');
     
-    // Force stop scanning first
+    // Force stop scanning first (safe operation)
     try {
       await noble.stopScanningAsync();
     } catch {
       // Ignore stop scanning errors during reset
     }
     
-    // Try software reset via rfkill (less aggressive than systemctl restart)
-    try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      
-      console.log('[Noble] Power cycling Bluetooth radio via rfkill');
-      await execAsync('sudo rfkill block bluetooth');
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      await execAsync('sudo rfkill unblock bluetooth');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-    } catch (e) {
-      console.log('[Noble] rfkill failed, trying Noble internal reset:', e);
-    }
+    // DO NOT use rfkill here - it crashes Noble if there are active handles
+    // Only wait for Noble state recovery
     
-    // Wait for Noble to detect the power cycle
-    console.log('[Noble] Waiting for Noble power state recovery...');
+    // Wait for Noble to stabilize (all platforms)
+    console.log('[Noble] Waiting for Noble state to stabilize...');
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
-        console.log('[Noble] Power state recovery timeout - continuing anyway');
+        console.log('[Noble] State stabilization timeout - continuing anyway');
         resolve();
-      }, 8000);
+      }, 3000);
       
       const checkState = () => {
         if (noble.state === 'poweredOn') {
           clearTimeout(timeout);
-          console.log('[Noble] Noble powered on successfully');
+          console.log('[Noble] Noble is powered on');
           resolve();
         } else {
           console.log(`[Noble] Current state: ${noble.state}, waiting...`);
-          setTimeout(checkState, 1000);
+          setTimeout(checkState, 500);
         }
       };
       
@@ -182,7 +172,7 @@ export class NobleTransport extends EventEmitter {
       checkState();
     });
     
-    console.log('[Noble] BLE stack reset complete');
+    console.log('[Noble] Noble state check complete');
   }
 
   async connect(config: BleConfig): Promise<string> {
@@ -193,6 +183,8 @@ export class NobleTransport extends EventEmitter {
       const remainingTime = Math.max(1, 15 - cleanupTime); // Assume max 15s cleanup
       throw new Error(`BLE stack recovering, please try again in ${remainingTime} seconds`);
     }
+    
+    this.connectInProgress = true;
     
     try {
       // Wait for Noble to be ready with timeout
@@ -269,11 +261,50 @@ export class NobleTransport extends EventEmitter {
       });
       
       console.log(`[Noble] Connected successfully to ${deviceName}`);
+      this.connectInProgress = false;
       return deviceName;
       
-    } catch (error) {
-      // Clean up on error
-      await this.cleanup();
+    } catch (error: any) {
+      this.connectInProgress = false;
+      
+      console.log(`[Noble] Connection failed: ${error}`);
+      
+      // For connection errors, we MUST do full cleanup
+      // Incomplete connections leave the BLE stack in a bad state
+      if (this.peripheral) {
+        console.log(`[Noble] Performing full cleanup after connection error`);
+        try {
+          // Try graceful disconnect first
+          if (this.peripheral.state === 'connected' || this.peripheral.state === 'connecting') {
+            console.log(`[Noble] Peripheral state: ${this.peripheral.state} - attempting disconnect`);
+            await Promise.race([
+              this.peripheral.disconnectAsync(),
+              new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout
+            ]);
+          }
+          
+          // Remove all listeners
+          this.peripheral.removeAllListeners?.();
+        } catch (cleanupError) {
+          console.log(`[Noble] Cleanup after connection error failed: ${cleanupError}`);
+        }
+      }
+      
+      // Clear our references
+      this.peripheral = null;
+      this.writeChar = null;
+      this.notifyChar = null;
+      
+      // Clear device search cleanup if it exists
+      if (this.findDeviceCleanup) {
+        this.findDeviceCleanup();
+        this.findDeviceCleanup = null;
+      }
+      
+      // Always add recovery delay after connection errors
+      console.log(`[Noble] Adding 3s recovery delay after connection error`);
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
       throw error;
     }
   }
@@ -419,6 +450,12 @@ export class NobleTransport extends EventEmitter {
       deviceName = options.deviceName
     } = options;
 
+    // SAFETY: Never run cleanup during active connection
+    if (this.connectInProgress) {
+      console.log(`[Noble] WARNING: Cleanup requested during active connection - skipping to prevent crash`);
+      return;
+    }
+
     console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
     
     // Set cleanup flag to block new connections
@@ -542,24 +579,73 @@ export class NobleTransport extends EventEmitter {
    * OS-level disconnect as last resort
    */
   private async osLevelDisconnect(address: string): Promise<void> {
-    console.log(`[Noble] Attempting OS-level disconnect for ${address}`);
+    // Only supported on Linux currently
+    if (process.platform !== 'linux') {
+      console.log(`[Noble] OS-level disconnect not available on ${process.platform}`);
+      return;
+    }
+    
+    console.log(`[Noble] Attempting OS-level disconnect for ${address} (Linux)`);
+    
+    const { exec } = await import('child_process');
+    const { promisify } = await import('util');
+    const execAsync = promisify(exec);
+    
     try {
-      const { exec } = await import('child_process');
-      const { promisify } = await import('util');
-      const execAsync = promisify(exec);
-      
       // Format address for hcitool (uppercase with colons)
       const formattedAddress = address.toUpperCase();
       
-      // Try hcitool disconnect
+      // Try hcitool disconnect (Linux only)
       await execAsync(`sudo hcitool ledc ${formattedAddress}`);
       console.log(`[Noble] OS-level disconnect successful`);
       
       // Give it a moment to take effect
       await new Promise(resolve => setTimeout(resolve, 1000));
-    } catch (e) {
+    } catch (e: any) {
       console.error(`[Noble] OS-level disconnect failed: ${e}`);
-      // Not fatal - we tried our best
+      
+      // Check if it's an I/O error which indicates BLE stack corruption
+      if (e.message?.includes('Input/output error')) {
+        console.error(`[Noble] CRITICAL: BLE stack appears corrupted (I/O error)`);
+        console.log(`[Noble] Attempting rfkill recovery to reset BLE hardware...`);
+        
+        try {
+          // Try rfkill block/unblock to reset the BLE hardware (Linux only)
+          await execAsync('sudo rfkill block bluetooth');
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          await execAsync('sudo rfkill unblock bluetooth');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          console.log(`[Noble] rfkill recovery completed - BLE hardware reset`);
+          
+          // Wait for Noble to detect the power cycle
+          console.log('[Noble] Waiting for Noble to detect BLE power cycle...');
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(() => {
+              console.log('[Noble] Power state recovery timeout - continuing anyway');
+              resolve();
+            }, 5000);
+            
+            const checkState = () => {
+              if (noble.state === 'poweredOn') {
+                clearTimeout(timeout);
+                console.log('[Noble] Noble detected BLE power on');
+                resolve();
+              } else {
+                setTimeout(checkState, 500);
+              }
+            };
+            
+            checkState();
+          });
+        } catch (rfkillError) {
+          console.error(`[Noble] rfkill recovery failed: ${rfkillError}`);
+          console.error(`[Noble] MANUAL INTERVENTION REQUIRED: The BLE stack is corrupted.`);
+          console.error(`[Noble] On Linux: Run 'sudo systemctl restart bluetooth' to recover.`);
+        }
+      }
+      // For other errors, we already logged them - not fatal
     }
   }
 

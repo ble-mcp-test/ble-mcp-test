@@ -162,9 +162,10 @@ export class SessionManager {
       let reason = '';
       
       // Detect zombie sessions: has transport but not properly connected
-      if (status.hasTransport && !status.connected && !status.hasGracePeriod) {
+      // Give new connections at least 30 seconds to complete before considering them zombies
+      if (status.hasTransport && !status.connected && !status.hasGracePeriod && status.idleTime > 30) {
         shouldCleanup = true;
-        reason = 'zombie session - has transport but not connected';
+        reason = `zombie session - has transport but not connected after ${status.idleTime}s`;
       }
       
       // Force cleanup sessions that are idle too long without grace period  

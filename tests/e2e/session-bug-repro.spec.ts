@@ -39,9 +39,9 @@ test.describe('Session Persistence Bug Reproduction', () => {
     await page.goto('http://localhost/test1');
     await page.addScriptTag({ url: '/bundle.js' });
 
-    const firstResult = await page.evaluate(async () => {
-      // Clear any existing session
-      window.WebBleMock.clearStoredSession();
+    const deviceIdentifier = process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108';
+    const firstResult = await page.evaluate(async (device) => {
+      // No need to clear session - localStorage is no longer used
       
       // Inject mock without explicit session
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
@@ -57,27 +57,27 @@ test.describe('Session Persistence Bug Reproduction', () => {
       
       // Request device and connect
       try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: 'CS108' }]
+        const bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: device }]
         });
         
-        await device.gatt.connect();
+        await bleDevice.gatt.connect();
         
         // Check what session was actually used
-        const transportSession = device.transport?.sessionId;
+        const transportSession = bleDevice.transport?.sessionId;
         console.log(`[Test] First connection transport session: ${transportSession}`);
         
-        await device.gatt.disconnect();
+        await bleDevice.gatt.disconnect();
         
         return {
           autoSessionId,
           transportSession,
-          sessionIdFromDevice: device.sessionId
+          sessionIdFromDevice: bleDevice.sessionId
         };
       } catch (error) {
         return { error: (error as Error).message };
       }
-    });
+    }, deviceIdentifier);
 
     console.log('First test result:', firstResult);
     console.log('Console logs from first test:', consoleLogs);
@@ -89,7 +89,7 @@ test.describe('Session Persistence Bug Reproduction', () => {
     await page.goto('http://localhost/test2');
     await page.addScriptTag({ url: '/bundle.js' });
 
-    const secondResult = await page.evaluate(async () => {
+    const secondResult = await page.evaluate(async (device) => {
       // Inject mock again (should reuse localStorage session)
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
         service: '9800',
@@ -108,25 +108,25 @@ test.describe('Session Persistence Bug Reproduction', () => {
       
       // Request device and try to connect
       try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: 'CS108' }]
+        const bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: device }]
         });
         
         // Log the device's config
-        console.log(`[Test] Device bleConfig:`, JSON.stringify(device.bleConfig));
+        console.log(`[Test] Device bleConfig:`, JSON.stringify(bleDevice.bleConfig));
         
-        await device.gatt.connect();
+        await bleDevice.gatt.connect();
         
         // Check what session was actually used
-        const transportSession = device.transport?.sessionId;
+        const transportSession = bleDevice.transport?.sessionId;
         console.log(`[Test] Second connection transport session: ${transportSession}`);
         
         return {
           autoSessionId,
           storedSession,
           transportSession,
-          sessionIdFromDevice: device.sessionId,
-          deviceBleConfig: device.bleConfig
+          sessionIdFromDevice: bleDevice.sessionId,
+          deviceBleConfig: bleDevice.bleConfig
         };
       } catch (error) {
         return { 
@@ -135,7 +135,7 @@ test.describe('Session Persistence Bug Reproduction', () => {
           storedSession
         };
       }
-    });
+    }, deviceIdentifier);
 
     console.log('Second test result:', secondResult);
     console.log('Console logs from second test:', consoleLogs);

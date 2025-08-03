@@ -193,9 +193,20 @@ See [CHANGELOG](CHANGELOG.md) for version history.
 - **Bridge Server**: Node.js 24+ (for Noble.js BLE support)
 - **Test Environment**: Any modern browser
 - **BLE Hardware**: Only on bridge server machine
-- **Linux OS Tools** (for bridge server):
-  - `bluez` - Bluetooth stack with `hcitool` (usually pre-installed)
-  - `rfkill` - Optional, suppresses Noble warnings about Bluetooth state
+
+### Platform-Specific Requirements
+
+#### Linux
+- `bluez` - Bluetooth stack with `hcitool` (usually pre-installed)
+- `rfkill` - Recommended for BLE stack recovery when connections fail
+
+#### macOS
+- Core Bluetooth framework (built-in)
+- No additional tools required
+
+#### Windows
+- WinRT Bluetooth APIs (Windows 10/11)
+- No additional tools required
 
 ### Installing Linux Dependencies
 

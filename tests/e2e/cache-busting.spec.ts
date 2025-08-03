@@ -90,10 +90,61 @@ test.describe('Cache Busting', () => {
     expect(mismatchResult.matches).toBe(false);
   });
 
-  test.skip('version check example page functions correctly - file:// path issues', async ({ page }) => {
-    // Use file:// URL to load the example
-    const examplePath = `file://${path.join(projectRoot, 'examples', 'version-check.html')}`;
-    await page.goto(examplePath);
+  test('version check example page functions correctly', async ({ page }) => {
+    // Read the HTML file content and update the expected version
+    const fs = await import('fs');
+    const htmlPath = path.join(projectRoot, 'examples', 'version-check.html');
+    let htmlContent = fs.readFileSync(htmlPath, 'utf-8');
+    
+    // Read the actual version from package.json
+    const packageJsonPath = path.join(projectRoot, 'package.json');
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+    const currentVersion = packageJson.version;
+    
+    // Update the expected version to match our current bundle version
+    htmlContent = htmlContent.replace(/const EXPECTED_VERSION = '[^']+';/, `const EXPECTED_VERSION = '${currentVersion}';`);
+    
+    // Set up routing to serve the HTML and bundle
+    await page.route('**/*', async route => {
+      const url = route.request().url();
+      
+      if (url.endsWith('/version-check.html') || url === 'http://localhost/') {
+        // Serve the HTML content
+        await route.fulfill({
+          body: htmlContent,
+          contentType: 'text/html',
+        });
+      } else if (url.includes('web-ble-mock.bundle')) {
+        // Extract the requested bundle file name
+        const urlPath = new URL(url).pathname;
+        const bundleMatch = urlPath.match(/web-ble-mock\.bundle(\.v[\d.]+)?\.js/);
+        
+        if (bundleMatch) {
+          const bundleFileName = bundleMatch[0];
+          const bundlePath = path.join(projectRoot, 'dist', bundleFileName);
+          
+          // Check if the specific version exists, otherwise use the default
+          if (fs.existsSync(bundlePath)) {
+            await route.fulfill({
+              path: bundlePath,
+              contentType: 'application/javascript',
+            });
+          } else {
+            // Fallback to non-versioned bundle
+            const defaultBundlePath = path.join(projectRoot, 'dist', 'web-ble-mock.bundle.js');
+            await route.fulfill({
+              path: defaultBundlePath,
+              contentType: 'application/javascript',
+            });
+          }
+        }
+      } else {
+        await route.continue();
+      }
+    });
+    
+    // Navigate to the test page
+    await page.goto('http://localhost/');
 
     // Wait for page to load
     await page.waitForSelector('h1');
