@@ -1,8 +1,22 @@
 import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import * as dotenv from 'dotenv';
+
+// Load environment variables for BLE configuration
+dotenv.config({ path: '.env.local' });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Helper to get BLE configuration from environment
+function getBleConfig() {
+  return {
+    device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
+    service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+    write: process.env.BLE_MCP_WRITE_UUID || '9900',
+    notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
+  };
+}
 
 test.describe('WebSocket URL Session Verification', () => {
   const bundlePath = path.join(__dirname, '../../dist/web-ble-mock.bundle.js');
@@ -44,19 +58,20 @@ test.describe('WebSocket URL Session Verification', () => {
     const testSessionId = 'test-ws-url-capture-xyz789';
     
     // Inject mock and attempt connection
-    const result = await page.evaluate(async (sessionId) => {
+    const bleConfig = getBleConfig();
+    const result = await page.evaluate(async ({ sessionId, config }) => {
       // Clear any captured URL
       delete (window as any).__lastWebSocketUrl;
       
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
         sessionId,
-        service: '9800',
-        write: '9900',
-        notify: '9901'
+        service: config.service,
+        write: config.write,
+        notify: config.notify
       });
 
       const device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: 'CS108' }]
+        filters: [{ namePrefix: config.device }]
       });
       
       try {
@@ -69,7 +84,7 @@ test.describe('WebSocket URL Session Verification', () => {
         deviceSessionId: (device as any).sessionId,
         capturedUrl: (window as any).__lastWebSocketUrl || null
       };
-    }, testSessionId);
+    }, { sessionId: testSessionId, config: bleConfig });
 
     console.log('Result:', result);
     
@@ -81,9 +96,9 @@ test.describe('WebSocket URL Session Verification', () => {
     // Parse the URL to verify all parameters
     const wsUrl = new URL(result.capturedUrl!);
     expect(wsUrl.searchParams.get('session')).toBe(testSessionId);
-    expect(wsUrl.searchParams.get('service')).toBe('9800');
-    expect(wsUrl.searchParams.get('write')).toBe('9900');
-    expect(wsUrl.searchParams.get('notify')).toBe('9901');
+    expect(wsUrl.searchParams.get('service')).toBe(getBleConfig().service);
+    expect(wsUrl.searchParams.get('write')).toBe(getBleConfig().write);
+    expect(wsUrl.searchParams.get('notify')).toBe(getBleConfig().notify);
     
     console.log('\n=== WebSocket URL Verification ===');
     console.log(`✅ Captured WebSocket URL: ${result.capturedUrl}`);
@@ -123,18 +138,19 @@ test.describe('WebSocket URL Session Verification', () => {
     });
 
     // Inject mock WITHOUT sessionId
-    const result = await page.evaluate(async () => {
+    const bleConfig = getBleConfig();
+    const result = await page.evaluate(async (config) => {
       delete (window as any).__lastWebSocketUrl;
       
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: '9800',
-        write: '9900',
-        notify: '9901'
+        service: config.service,
+        write: config.write,
+        notify: config.notify
         // Note: no sessionId provided
       });
 
       const device = await navigator.bluetooth.requestDevice({
-        filters: [{ namePrefix: 'CS108' }]
+        filters: [{ namePrefix: config.device }]
       });
       
       try {
@@ -147,7 +163,7 @@ test.describe('WebSocket URL Session Verification', () => {
         deviceSessionId: (device as any).sessionId,
         capturedUrl: (window as any).__lastWebSocketUrl || null
       };
-    });
+    }, bleConfig);
 
     console.log('Result without explicit sessionId:', result);
     

@@ -44,9 +44,10 @@ test.describe('Verify Session ID in WebSocket', () => {
     await page.addScriptTag({ url: '/bundle.js' });
 
     const testSessionId = 'verify-websocket-session-12345';
+    const deviceIdentifier = process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108';
     
     // Inject mock and attempt connection
-    const connectionResult = await page.evaluate(async (sessionId) => {
+    const connectionResult = await page.evaluate(async ({ sessionId, device }) => {
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
         sessionId,
         service: '9800',
@@ -55,16 +56,16 @@ test.describe('Verify Session ID in WebSocket', () => {
       });
 
       try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ namePrefix: 'CS108' }]
+        const bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: device }]
         });
         
         // Store session for verification
-        const deviceSessionId = (device as any).sessionId;
+        const deviceSessionId = (bleDevice as any).sessionId;
         
         // Try to connect (this will fail if no server, but that's OK)
         try {
-          await device.gatt!.connect();
+          await bleDevice.gatt!.connect();
           return { 
             connected: true, 
             deviceSessionId,
@@ -84,7 +85,7 @@ test.describe('Verify Session ID in WebSocket', () => {
           error: e.message 
         };
       }
-    }, testSessionId);
+    }, { sessionId: testSessionId, device: deviceIdentifier });
 
     console.log('Connection result:', connectionResult);
     
