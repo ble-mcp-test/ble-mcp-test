@@ -151,9 +151,9 @@ test.describe('WebSocket URL Session Verification', () => {
 
     console.log('Result without explicit sessionId:', result);
     
-    // Should have auto-generated session ID
+    // Should have auto-generated session ID in simplified format
     expect(result.deviceSessionId).toBeTruthy();
-    expect(result.deviceSessionId).toMatch(/^localhost-/);
+    expect(result.deviceSessionId).toMatch(/^playwright-/);
     
     // WebSocket URL should include the auto-generated session
     expect(result.capturedUrl).toBeTruthy();

@@ -72,18 +72,17 @@ test.describe('Deterministic Session ID E2E Tests', () => {
     console.log('Generated session ID:', result.sessionId);
     console.log('User agent:', result.userAgent);
     
-    // Session ID should include hostname
-    expect(result.sessionId).toMatch(/^localhost-/);
+    // Session ID should have simplified format: playwright-{project}
+    expect(result.sessionId).toMatch(/^playwright-/);
     
-    // Should have deterministic format: hostname-playwright-hash
-    // Since we can't extract test path from Playwright context, it uses a stable hash
-    expect(result.sessionId).toMatch(/^localhost-playwright-[a-z0-9]+$/);
+    // Should have deterministic format: playwright-projectname
+    // Since we simplified the session system for E2E testing
+    expect(result.sessionId).toMatch(/^playwright-[a-z0-9-]+$/);
     
-    // Verify Playwright was detected
-    const playwrightLogs = consoleLogs.filter(log => 
-      log.includes('Playwright') && log.includes('session ID')
-    );
-    expect(playwrightLogs.length).toBeGreaterThan(0);
+    // Verify Playwright was detected by checking the session format
+    // The simplified system uses 'playwright-' prefix for Playwright environments
+    expect(result.sessionId).toMatch(/^playwright-/);
+    expect(result.sessionId).toBe('playwright-localhost');
   });
 
   test('should use explicit session ID when provided', async ({ page }) => {
@@ -106,14 +105,12 @@ test.describe('Deterministic Session ID E2E Tests', () => {
     await page.addScriptTag({ url: '/bundle.js' });
 
     const result = await page.evaluate(async () => {
-      // Set explicit test session ID
-      window.WebBleMock.setTestSessionId('explicit-e2e-test-session');
-      
-      // Inject mock
+      // Use explicit session ID via config parameter
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
         service: '9800',
         write: '9900',
-        notify: '9901'
+        notify: '9901',
+        sessionId: 'explicit-e2e-test-session'
       });
       
       // Request device
@@ -195,19 +192,15 @@ test.describe('Deterministic Session ID E2E Tests', () => {
     await page.addScriptTag({ url: '/bundle.js' });
 
     const results = await page.evaluate(async () => {
-      // Simulate test file 1
-      window.BLE_TEST_SESSION_ID = 'localhost-tests/e2e/inventory-page';
+      // In the simplified system, all Playwright tests in the same project get the same session ID
+      // This is intentional for connection pool sharing
       window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
       const device1 = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: 'CS108' }]
       });
       const session1 = (device1 as any).sessionId;
       
-      // Clear for next test
-      delete window.BLE_TEST_SESSION_ID;
-      
-      // Simulate test file 2
-      window.BLE_TEST_SESSION_ID = 'localhost-tests/e2e/scanning-page';
+      // Second device request in same project
       const device2 = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: 'CS108' }]
       });
@@ -216,10 +209,10 @@ test.describe('Deterministic Session ID E2E Tests', () => {
       return { session1, session2 };
     });
 
-    // Both sessions should use the same test path since they're using explicit session IDs
-    expect(results.session1).toBe('localhost-tests/e2e/inventory-page');
-    expect(results.session2).toBe('localhost-tests/e2e/inventory-page');
-    // They should be the same because both are using the same explicit test path
+    // Both sessions should use the simplified format since the explicit IDs are ignored in favor of project-based IDs
+    expect(results.session1).toMatch(/^playwright-/);
+    expect(results.session2).toMatch(/^playwright-/);
+    // They should be the same because both are using the same project
     expect(results.session1).toBe(results.session2);
   });
 
