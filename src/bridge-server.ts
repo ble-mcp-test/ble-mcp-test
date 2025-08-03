@@ -5,25 +5,40 @@ import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
 
 /**
- * Normalize UUID to standard format
- * Accepts both short (4 hex) and full UUID formats
+ * Normalize UUID based on platform requirements
+ * Noble expects different formats on different platforms
  * @param uuid - UUID in short or full format
- * @returns Normalized UUID in lowercase without dashes
+ * @returns Platform-appropriate UUID format
  */
 function normalizeUuid(uuid: string): string {
   if (!uuid) return '';
   
-  // Remove any dashes and convert to lowercase
-  let normalized = uuid.toLowerCase().replace(/-/g, '');
+  // Platform-specific UUID handling
+  const platform = process.platform;
   
-  // If it's a short UUID (4 hex chars), expand to full BLE UUID
-  if (normalized.length === 4) {
-    // Standard Bluetooth base UUID: 00000000-0000-1000-8000-00805F9B34FB
-    // Short UUID goes in the first 4 positions
-    normalized = `0000${normalized}00001000800000805f9b34fb`;
+  // Check if it's a short UUID (4 hex chars)
+  const isShortUuid = uuid.length === 4 && /^[0-9a-fA-F]{4}$/.test(uuid);
+  
+  if (platform === 'linux') {
+    // Linux Noble (BlueZ) can work with short UUIDs directly
+    if (isShortUuid) {
+      return uuid.toLowerCase();
+    }
+    // For full UUIDs, remove dashes and lowercase
+    return uuid.toLowerCase().replace(/-/g, '');
+  } else if (platform === 'darwin' || platform === 'win32') {
+    // macOS and Windows typically need full UUIDs
+    if (isShortUuid) {
+      // Expand short UUID to full Bluetooth UUID
+      // Standard base: 00000000-0000-1000-8000-00805F9B34FB
+      return `0000${uuid.toLowerCase()}00001000800000805f9b34fb`;
+    }
+    // For full UUIDs, remove dashes and lowercase
+    return uuid.toLowerCase().replace(/-/g, '');
+  } else {
+    // Unknown platform - just clean up the UUID
+    return uuid.toLowerCase().replace(/-/g, '');
   }
-  
-  return normalized;
 }
 
 /**
@@ -78,9 +93,12 @@ export class BridgeServer {
         notifyUuid: normalizeUuid(rawNotify)
       };
       
-      // Log UUID normalization if any were short UUIDs
-      if (rawService.length === 4 || rawWrite.length === 4 || rawNotify.length === 4) {
-        console.log(`[Bridge] UUID normalization: service ${rawService} → ${config.serviceUuid.substring(0, 8)}...`);
+      // Log UUID normalization if any were normalized
+      if (rawService !== config.serviceUuid || rawWrite !== config.writeUuid || rawNotify !== config.notifyUuid) {
+        console.log(`[Bridge] UUID normalization on ${process.platform}:`);
+        if (rawService !== config.serviceUuid) {
+          console.log(`  service: ${rawService} → ${config.serviceUuid}`);
+        }
       }
       
       // Validate required parameters
