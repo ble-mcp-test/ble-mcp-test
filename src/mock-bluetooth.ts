@@ -182,9 +182,9 @@ class MockBluetoothRemoteGATTServer {
         if (this.device.bleConfig) {
           Object.assign(connectOptions, this.device.bleConfig);
           // Map sessionId to session for WebSocketTransport
-          if (this.device.bleConfig.sessionId && !connectOptions.session) {
-            connectOptions.session = this.device.bleConfig.sessionId;
-            console.log(`[MockGATT] Using session ID for WebSocket: ${this.device.bleConfig.sessionId}`);
+          if (connectOptions.sessionId && !connectOptions.session) {
+            connectOptions.session = connectOptions.sessionId;
+            console.log(`[MockGATT] Using session ID for WebSocket: ${connectOptions.sessionId}`);
           }
         }
         

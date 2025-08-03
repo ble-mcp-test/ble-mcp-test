@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.7] - 2025-08-02
+## [0.5.7] - 2025-08-03
+
+### Fixed
+- **Session ID Propagation**: Fixed critical bug where explicit sessionId was not being passed to WebSocket URL
+  - Bug was in `mock-bluetooth.ts` line 185: checking wrong object after Object.assign
+  - Changed from `this.device.bleConfig.sessionId` to `connectOptions.sessionId`
+  - Ensures downstream E2E tests can use deterministic session IDs for Playwright testing
+  - Added comprehensive E2E tests to verify session parameter in WebSocket URL
 
 ### Added
 - **Platform-Aware UUID Normalization**: Bridge handles UUIDs correctly for each platform
