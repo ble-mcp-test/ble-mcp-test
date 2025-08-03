@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2025-08-02
+
+### Added
+- **UUID Normalization**: Bridge now accepts both short and full UUID formats
+  - Short UUIDs (e.g., "9800") are expanded to full BLE UUIDs
+  - Full UUIDs are normalized (lowercase, no dashes)
+  - Enables compatibility with different client implementations
+  - Example: "9800" → "00009800-0000-1000-8000-00805f9b34fb"
+
+### Changed
+- Added logging for UUID normalization to aid debugging
+
 ## [0.5.10] - 2025-08-02
 
 ### Fixed

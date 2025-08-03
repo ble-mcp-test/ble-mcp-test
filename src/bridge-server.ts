@@ -5,6 +5,28 @@ import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
 
 /**
+ * Normalize UUID to standard format
+ * Accepts both short (4 hex) and full UUID formats
+ * @param uuid - UUID in short or full format
+ * @returns Normalized UUID in lowercase without dashes
+ */
+function normalizeUuid(uuid: string): string {
+  if (!uuid) return '';
+  
+  // Remove any dashes and convert to lowercase
+  let normalized = uuid.toLowerCase().replace(/-/g, '');
+  
+  // If it's a short UUID (4 hex chars), expand to full BLE UUID
+  if (normalized.length === 4) {
+    // Standard Bluetooth base UUID: 00000000-0000-1000-8000-00805F9B34FB
+    // Short UUID goes in the first 4 positions
+    normalized = `0000${normalized}00001000800000805f9b34fb`;
+  }
+  
+  return normalized;
+}
+
+/**
  * BridgeServer - HTTP server and WebSocket routing
  * 
  * Simplified server that only handles:
@@ -44,13 +66,22 @@ export class BridgeServer {
       console.log(`[Bridge] Request URL: ${req.url}`);
       console.log(`[Bridge] All URL params:`, Object.fromEntries(url.searchParams));
       
-      // Parse BLE config
+      // Parse BLE config with UUID normalization
+      const rawService = url.searchParams.get('service') || '';
+      const rawWrite = url.searchParams.get('write') || '';
+      const rawNotify = url.searchParams.get('notify') || '';
+      
       const config: BleConfig = {
         devicePrefix: url.searchParams.get('device') || '',
-        serviceUuid: url.searchParams.get('service') || '',
-        writeUuid: url.searchParams.get('write') || '',
-        notifyUuid: url.searchParams.get('notify') || ''
+        serviceUuid: normalizeUuid(rawService),
+        writeUuid: normalizeUuid(rawWrite),
+        notifyUuid: normalizeUuid(rawNotify)
       };
+      
+      // Log UUID normalization if any were short UUIDs
+      if (rawService.length === 4 || rawWrite.length === 4 || rawNotify.length === 4) {
+        console.log(`[Bridge] UUID normalization: service ${rawService} → ${config.serviceUuid.substring(0, 8)}...`);
+      }
       
       // Validate required parameters
       if (!config.devicePrefix || !config.serviceUuid || !config.writeUuid || !config.notifyUuid) {
