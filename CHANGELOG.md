@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.9] - 2025-08-05
+
+### Fixed
+- **Mock Browser Entry Version**: Fixed hardcoded version in mock-browser-entry.ts
+  - Version now uses build-time replacement like other modules
+  - Ensures WebBleMock.version correctly reflects package version
+  - Fixes version mismatch in bundled output
+
 ## [0.5.8] - 2025-08-05
 
 ### Added
