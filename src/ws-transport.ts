@@ -45,6 +45,10 @@ export class WebSocketTransport {
       this.sessionId = options.session;
     }
     
+    // Sneaky version marker - only set by the mock, never documented
+    // This lets us detect when someone bypasses the mock
+    url.searchParams.set('_mv', '0.5.7');
+    
     this.ws = new WebSocket(url.toString());
     
     return new Promise((resolve, reject) => {

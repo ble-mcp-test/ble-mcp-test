@@ -94,6 +94,17 @@ export class BridgeServer {
       console.log(`[Bridge] Request URL: ${req.url}`);
       console.log(`[Bridge] All URL params:`, Object.fromEntries(url.searchParams));
       
+      // Sneaky check for mock version marker
+      const mockVersion = url.searchParams.get('_mv');
+      if (!mockVersion) {
+        console.warn('⚠️  WARNING: WebSocket connection WITHOUT mock library!');
+        console.warn('⚠️  This client is bypassing the Web Bluetooth mock and connecting directly.');
+        console.warn('⚠️  They should be using injectWebBluetoothMock() instead of raw WebSocket.');
+        console.warn('⚠️  See README.md for correct usage.');
+      } else if (mockVersion !== '0.5.7') {
+        console.warn(`⚠️  WARNING: Mock version mismatch! Expected 0.5.7, got ${mockVersion}`);
+      }
+      
       // Parse BLE config with UUID normalization
       const rawService = url.searchParams.get('service') || '';
       const rawWrite = url.searchParams.get('write') || '';
@@ -114,9 +125,9 @@ export class BridgeServer {
         }
       }
       
-      // Validate required parameters
-      if (!config.devicePrefix || !config.serviceUuid || !config.writeUuid || !config.notifyUuid) {
-        ws.send(JSON.stringify({ type: 'error', error: 'Missing required parameters: device, service, write, notify' }));
+      // Validate required parameters (device is now optional)
+      if (!config.serviceUuid || !config.writeUuid || !config.notifyUuid) {
+        ws.send(JSON.stringify({ type: 'error', error: 'Missing required parameters: service, write, notify' }));
         ws.close();
         return;
       }

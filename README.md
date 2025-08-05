@@ -166,6 +166,35 @@ setTestSessionId('inventory-test-session');
 - **Page reloads**: Reuse session from localStorage ✅
 - **Clear error messages**: Server logs show exactly which session has the device
 
+## Service UUID Filtering (v0.5.8+)
+
+Connect to any device with a specific service UUID without knowing the device name:
+
+```javascript
+// Traditional: Filter by device name
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ namePrefix: 'CS108' }]
+});
+
+// New: Filter by service UUID only
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ services: ['9800'] }]  // Connects to ANY device with this service
+});
+
+// Combined: Filter by both (most specific)
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ 
+    namePrefix: 'CS108',
+    services: ['9800'] 
+  }]
+});
+```
+
+This is especially useful when:
+- Device names vary or are unknown
+- Testing with different hardware models
+- Following BLE best practices (service UUID is the proper identifier)
+
 ## Features
 
 ✅ **Complete Web Bluetooth API Mock** - Drop-in replacement for navigator.bluetooth  
@@ -175,6 +204,7 @@ setTestSessionId('inventory-test-session');
 ✅ **MCP Observability** - AI-friendly debugging with Claude, Cursor, etc  
 ✅ **TypeScript** - Full type safety and IntelliSense  
 ✅ **Session Persistence** - BLE connections survive WebSocket disconnects  
+✅ **Service UUID Filtering** - Connect by service without device name (v0.5.8+)  
 ✅ **Minimal** - Core bridge under 600 lines, one connection at a time  
 
 ## Documentation
@@ -183,6 +213,21 @@ setTestSessionId('inventory-test-session');
 - [API Reference](docs/API.md) - Detailed API docs and protocol info
 - [Examples](docs/examples.md) - More usage patterns and test scenarios
 - [Architecture Details](docs/architecture.md) - Deep dive into internals
+
+## Common Mistakes
+
+⚠️ **DO NOT bypass the mock by creating WebSocket connections directly!**
+
+```javascript
+// ❌ WRONG - Don't do this!
+const ws = new WebSocket('ws://localhost:8080/?device=...');
+
+// ✅ CORRECT - Use the mock
+injectWebBluetoothMock('ws://localhost:8080');
+const device = await navigator.bluetooth.requestDevice({...});
+```
+
+The mock handles all WebSocket communication internally. Direct WebSocket connections bypass important features like session management and proper protocol handling.
 
 ## Version Notes
 

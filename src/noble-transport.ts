@@ -14,7 +14,7 @@ import noble from '@stoprocent/noble';
  */
 
 export interface BleConfig {
-  devicePrefix: string;
+  devicePrefix?: string;  // Optional - for specific device targeting
   serviceUuid: string;
   writeUuid: string;
   notifyUuid: string;
@@ -198,7 +198,7 @@ export class NobleTransport extends EventEmitter {
       }
       
       // Find device (handles complete scanning lifecycle)
-      this.peripheral = await this.findDevice(config.devicePrefix);
+      this.peripheral = await this.findDevice(config.serviceUuid, config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
       // Connect to peripheral with timeout
@@ -276,11 +276,19 @@ export class NobleTransport extends EventEmitter {
         try {
           // Try graceful disconnect first
           if (this.peripheral.state === 'connected' || this.peripheral.state === 'connecting') {
-            console.log(`[Noble] Peripheral state: ${this.peripheral.state} - attempting disconnect`);
-            await Promise.race([
-              this.peripheral.disconnectAsync(),
-              new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout
+            console.log(`[Noble] ERROR RECOVERY: Peripheral state: ${this.peripheral.state} - attempting disconnect`);
+            const disconnectStart = Date.now();
+            const result = await Promise.race([
+              this.peripheral.disconnectAsync().then(() => 'completed'),
+              new Promise(resolve => setTimeout(() => resolve('timeout'), 5000)) // 5s timeout
             ]);
+            const disconnectTime = Date.now() - disconnectStart;
+            
+            if (result === 'timeout') {
+              console.warn(`[Noble] ⚠️ ERROR RECOVERY DISCONNECT TIMEOUT after ${disconnectTime}ms (5s limit) - possible zombie connection!`);
+            } else {
+              console.log(`[Noble] ERROR RECOVERY: Disconnect completed successfully in ${disconnectTime}ms`);
+            }
           }
           
           // Remove all listeners
@@ -311,7 +319,7 @@ export class NobleTransport extends EventEmitter {
 
   private findDeviceCleanup: (() => void) | null = null;
 
-  private async findDevice(devicePrefix: string): Promise<any> {
+  private async findDevice(serviceUuid: string, devicePrefix?: string): Promise<any> {
     // Ensure any previous scan is cleaned up
     if (this.findDeviceCleanup) {
       this.findDeviceCleanup();
@@ -343,9 +351,12 @@ export class NobleTransport extends EventEmitter {
       // Store cleanup function so it can be called externally if needed
       this.findDeviceCleanup = cleanupScan;
       
-      // Start scanning
-      console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
-      noble.startScanningAsync([], true).then(() => {
+      // Start scanning with service UUID filter
+      const scanMessage = devicePrefix 
+        ? `[Noble] Starting BLE scan for service ${serviceUuid} with device filter: ${devicePrefix}...`
+        : `[Noble] Starting BLE scan for any device with service ${serviceUuid}...`;
+      console.log(scanMessage);
+      noble.startScanningAsync([serviceUuid], true).then(() => {
         // Scanning started successfully
       }).catch((error) => {
         cleanupScan();
@@ -354,16 +365,27 @@ export class NobleTransport extends EventEmitter {
       
       timeout = setTimeout(() => {
         cleanupScan();
-        reject(new Error(`Device ${devicePrefix} not found`));
+        const errorMsg = devicePrefix 
+          ? `Device ${devicePrefix} with service ${serviceUuid} not found`
+          : `No devices found with service ${serviceUuid}`;
+        reject(new Error(errorMsg));
       }, 15000);
       
       onDiscover = async (device: any) => {
         const name = device.advertisement.localName || '';
         const id = device.id;
         
-        if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
+        // If device filter provided, check it
+        if (devicePrefix) {
+          if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
+            cleanupScan();
+            console.log(`[Noble] Found matching device: ${name || id} (service: ${serviceUuid})`);
+            resolve(device);
+          }
+        } else {
+          // No device filter - take first device with matching service
           cleanupScan();
-          console.log(`[Noble] Found device: ${name || id}`);
+          console.log(`[Noble] Found device with service ${serviceUuid}: ${name || id}`);
           resolve(device);
         }
       };
@@ -496,11 +518,20 @@ export class NobleTransport extends EventEmitter {
           }
           
           // Try graceful disconnect with longer timeout
-          console.log(`[Noble] Attempting graceful disconnect...`);
-          await Promise.race([
-            this.peripheral.disconnectAsync(),
-            new Promise(resolve => setTimeout(resolve, 10000)) // Increased from 2s to 10s
+          console.log(`[Noble] NORMAL DISCONNECT: Attempting graceful disconnect...`);
+          const disconnectStart = Date.now();
+          const result = await Promise.race([
+            this.peripheral.disconnectAsync().then(() => 'completed'),
+            new Promise(resolve => setTimeout(() => resolve('timeout'), 10000)) // Increased from 2s to 10s
           ]);
+          const disconnectTime = Date.now() - disconnectStart;
+          
+          if (result === 'timeout') {
+            console.warn(`[Noble] ⚠️ NORMAL DISCONNECT TIMEOUT after ${disconnectTime}ms (10s limit) - likely zombie!`);
+            throw new Error('Disconnect timeout - zombie connection likely');
+          } else {
+            console.log(`[Noble] NORMAL DISCONNECT: Completed successfully in ${disconnectTime}ms`);
+          }
         } catch (e) {
           console.log(`[Noble] Graceful disconnect failed: ${e}`);
           // Force disconnect as fallback
