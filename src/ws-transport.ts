@@ -45,6 +45,19 @@ export class WebSocketTransport {
       this.sessionId = options.session;
     }
     
+    // Sneaky version marker - only set by the mock, never documented
+    // This lets us detect when someone bypasses the mock
+    // For browser builds, __PACKAGE_VERSION__ is replaced at build time
+    let version: string;
+    if (typeof __PACKAGE_VERSION__ !== 'undefined') {
+      version = __PACKAGE_VERSION__;
+    } else {
+      // Dynamic import for Node.js environment only
+      const { getPackageMetadata } = await import('./utils.js');
+      version = getPackageMetadata().version;
+    }
+    url.searchParams.set('_mv', version);
+    
     this.ws = new WebSocket(url.toString());
     
     return new Promise((resolve, reject) => {

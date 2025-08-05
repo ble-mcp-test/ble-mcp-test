@@ -178,7 +178,11 @@ class MockBluetoothRemoteGATTServer {
     for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
       try {
         // Pass BLE configuration including session if available
-        const connectOptions: any = { device: this.device.name };
+        const connectOptions: any = {};
+        // Only add device if a specific device name was provided
+        if (this.device.name) {
+          connectOptions.device = this.device.name;
+        }
         if (this.device.bleConfig) {
           Object.assign(connectOptions, this.device.bleConfig);
           // Map sessionId to session for WebSocketTransport
@@ -545,8 +549,8 @@ export class MockBluetooth {
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
     // Bypass all dialogs - immediately return a mock device
-    // Use the namePrefix filter if provided, otherwise use generic name
-    let deviceName = 'MockDevice000000';
+    // Use the namePrefix filter if provided, otherwise don't specify device
+    let deviceName: string | undefined;
     
     if (options?.filters) {
       for (const filter of options.filters) {
@@ -567,7 +571,7 @@ export class MockBluetooth {
     
     const device = new MockBluetoothDevice(
       'mock-device-id',
-      deviceName,
+      deviceName || '',  // Empty string when no device specified
       this.serverUrl,
       effectiveConfig
     );

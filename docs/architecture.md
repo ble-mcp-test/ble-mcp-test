@@ -97,12 +97,14 @@ Simple request/response + event streaming:
 ### Connection URL Parameters
 
 Configuration via query string:
-- `device` - Device name prefix to scan for
-- `service` - BLE service UUID
-- `write` - Write characteristic UUID
-- `notify` - Notify characteristic UUID
+- `device` - Device name prefix to scan for (optional as of v0.5.8)
+- `service` - BLE service UUID (required)
+- `write` - Write characteristic UUID (required)
+- `notify` - Notify characteristic UUID (required)
 
-Example: `ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901`
+Examples:
+- With device filter: `ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901`
+- Without device filter: `ws://localhost:8080?service=9800&write=9900&notify=9901` (v0.5.8+)
 
 ## Design Decisions
 

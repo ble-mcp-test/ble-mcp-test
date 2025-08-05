@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.8] - 2025-08-05
+
+### Added
+- **Service UUID Filtering**: Device parameter is now optional - can connect by service UUID alone
+  - Bridge accepts connections without device filter: `?service=9800&write=9900&notify=9901`
+  - Noble scans with service UUID filter for efficiency
+  - First device with matching service is connected
+  - Enables more flexible device discovery following BLE best practices
+  - Mock updated to handle empty device filters properly
+
+- **Mock Version Detection**: Bridge warns when clients bypass the mock
+  - Mock adds hidden `_mv` parameter to detect proper usage
+  - Warning logged when direct WebSocket connections detected
+  - Helps identify integration issues and outdated client bundles
+
+- **Enhanced Disconnect Logging**: Track disconnect timeouts for zombie detection
+  - Logs whether disconnect completed or timed out
+  - Distinguishes between error recovery (5s timeout) and normal disconnect (10s timeout)
+  - Shows exact time taken for disconnect operations
+
+### Changed
+- Updated documentation to clarify device parameter is optional
+- Added "Common Mistakes" section warning against bypassing the mock
+- E2E tests added for service-only filtering scenarios
+
+### Fixed
+- Mock no longer defaults to "MockDevice000000" when no device filter provided
+- Empty device name handling throughout the stack
+
 ## [0.5.7] - 2025-08-03
 
 ### Fixed
