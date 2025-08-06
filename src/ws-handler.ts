@@ -44,7 +44,8 @@ export class WebSocketHandler extends EventEmitter {
         if (msg.type === 'data' && msg.data) {
           const data = new Uint8Array(msg.data);
           const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-          console.log(`[WSHandler] TX: ${hex}`);
+          const ms = new Date().getMilliseconds().toString().padStart(3, '0');
+          console.log(`[WSHandler] TX.${ms}: ${hex}`);
           this.sharedState?.logPacket('TX', data);
           
           await this.session.write(data);
@@ -84,7 +85,8 @@ export class WebSocketHandler extends EventEmitter {
     const dataHandler = (data: Uint8Array) => {
       if (this.ws.readyState === this.ws.OPEN) {
         const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-        console.log(`[WSHandler] RX: ${hex}`);
+        const ms = new Date().getMilliseconds().toString().padStart(3, '0');
+        console.log(`[WSHandler] RX.${ms}: ${hex}`);
         
         this.ws.send(JSON.stringify({ 
           type: 'data', 

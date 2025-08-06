@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2025-08-06
+
+### Added
+- **Millisecond Precision Logging**: TX/RX packets now show sub-second timing
+  - Format: `[WSHandler] TX.123: A7 B3 C2...` where `.123` is milliseconds
+  - Helps debug command timing and response latency
+  - Minimal overhead - just 4 extra characters per log line
+- **Roadmap Section**: Added development roadmap to README
+  - v0.6.0: Developer Experience (MCP + Golang CLI)
+  - v0.7.0: Universal Device Support (RPC + nRF52)
+  - v0.8.0: Security & Scale (TLS + OAuth2)
+  - v0.9.0: BLE Device Farm (Enterprise testing at scale)
+
+### Fixed
+- **Service UUID Extraction**: Mock now properly extracts service UUIDs from requestDevice filters
+  - `navigator.bluetooth.requestDevice({ filters: [{ services: ['9800'] }] })` now works correctly
+  - Service UUID from filter overrides any config passed to injectWebBluetoothMock
+  - Enables true Web Bluetooth API compliance for service-based filtering
+  - Step toward v0.7.0 RPC architecture
+- **Systemd Service Installation**: Service now installs to `/opt/ble-bridge`
+  - Self-contained installation independent of user home directory
+  - Handles both system-wide and fnm Node.js installations
+  - Fixed "Exec format error" from incorrect shebang escaping
+  - Service files no longer depend on checkout location
+- **Install Scripts**: Updated for robust systemd deployment
+  - `install-service.sh`: Copies everything to `/opt/ble-bridge`
+  - `uninstall-service.sh`: Properly cleans up installation
+  - Start script automatically finds Node.js via fnm or system paths
+
+### Changed
+- Systemd service now runs from `/opt/ble-bridge` instead of user directory
+- Service file includes proper environment for fnm-installed Node.js
+
 ## [0.5.10] - 2025-08-06
 
 ### Fixed
