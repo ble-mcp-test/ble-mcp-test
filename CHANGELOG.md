@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.10] - 2025-08-06
+
+### Fixed
+- **Bridge Server Version Check**: Fixed hardcoded version check in bridge-server.ts
+  - Version check now dynamically reads from package.json
+  - Eliminates false warnings about version mismatches
+  - Bridge correctly validates mock version against current package version
+
 ## [0.5.9] - 2025-08-05
 
 ### Fixed
