@@ -7,7 +7,8 @@ export const WebBleMock = {
   injectWebBluetoothMock,
   updateMockConfig,
   getBundleVersion,
-  version: '0.5.7' // Bundle version for cache-busting verification
+  // Version will be replaced at build time by build script
+  version: typeof __PACKAGE_VERSION__ !== 'undefined' ? __PACKAGE_VERSION__ : 'dev'
 };
 
 // Also export individually for ES modules
