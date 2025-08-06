@@ -10,7 +10,7 @@ Group=mike
 WorkingDirectory=/home/mike/ble-mcp-test
 Environment="NODE_ENV=production"
 Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-ExecStart=/home/mike/ble-mcp-test/start-service.sh
+ExecStart=/home/mike/ble-mcp-test/scripts/systemd/start-service.sh
 Restart=always
 RestartSec=10
 

@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
