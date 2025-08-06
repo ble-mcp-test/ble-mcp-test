@@ -72,21 +72,36 @@ The included systemd service configuration handles the Linux-specific requiremen
    cd /path/to/ble-mcp-test
    ./scripts/systemd/install-service.sh
    ```
+   
+   This creates a self-contained installation at `/opt/ble-bridge` that:
+   - Doesn't depend on your checkout location
+   - Automatically finds Node.js (system-wide or fnm)
+   - Survives user directory changes
 
-2. **Start the service:**
+2. **Manage the service:**
    ```bash
-   sudo systemctl start ble-bridge
+   sudo systemctl start ble-bridge    # Start
+   sudo systemctl stop ble-bridge     # Stop
+   sudo systemctl restart ble-bridge  # Restart
+   sudo systemctl status ble-bridge   # Check status
    ```
 
-3. **View logs:**
+3. **View logs with millisecond precision (v0.5.11+):**
    ```bash
    journalctl -u ble-bridge -f
+   # TX/RX logs show as: [WSHandler] TX.123: A7 B3 C2...
+   ```
+
+4. **Uninstall cleanly:**
+   ```bash
+   ./scripts/systemd/uninstall-service.sh
    ```
 
 The service configuration includes:
 - Bluetooth group permissions
 - Required capabilities (CAP_NET_RAW, CAP_NET_ADMIN)
 - Proper Node.js path handling for fnm
+- Automatic startup on boot
 
 ## Troubleshooting
 
