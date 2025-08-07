@@ -183,7 +183,11 @@ class MockBluetoothRemoteGATTServer {
         }
         
         const connectOptions: any = {
-          requestDeviceOptions: this.device.requestDeviceOptions
+          requestDeviceOptions: {
+            ...this.device.requestDeviceOptions,
+            // Add characteristic UUIDs to the RPC request
+            characteristicUuids: this.device.characteristicUuids
+          }
         };
         
         // Add session if available
@@ -303,6 +307,7 @@ class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
   public requestDeviceOptions?: any; // Store the original requestDevice options
+  public characteristicUuids?: { write: string; notify: string }; // Store characteristic UUIDs
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
   private isTransportSetup = false;
   public sessionId?: string;
@@ -311,11 +316,13 @@ class MockBluetoothDevice {
     public id: string,
     public name: string,
     serverUrl?: string,
-    sessionId?: string
+    sessionId?: string,
+    characteristicUuids?: { write: string; notify: string }
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
     this.sessionId = sessionId;
+    this.characteristicUuids = characteristicUuids;
   }
 
   // Register a characteristic for notifications
@@ -364,10 +371,16 @@ class MockBluetoothDevice {
 // Mock Bluetooth API
 export class MockBluetooth {
   private sessionId?: string;
+  private characteristicUuids?: { write: string; notify: string };
 
-  constructor(private serverUrl?: string, sessionId?: string) {
+  constructor(
+    private serverUrl?: string, 
+    sessionId?: string,
+    characteristicUuids?: { write: string; notify: string }
+  ) {
     // Auto-generate session ID if not provided
     this.sessionId = sessionId || this.generateAutoSessionId();
+    this.characteristicUuids = characteristicUuids;
   }
   
   private generateAutoSessionId(): string {
@@ -548,7 +561,8 @@ export class MockBluetooth {
       'mock-device-id',
       '', // Device name will be determined by bridge
       this.serverUrl,
-      this.sessionId
+      this.sessionId,
+      this.characteristicUuids
     );
     
     // Store the requestDevice options for later RPC use
@@ -575,7 +589,8 @@ export function getBundleVersion(): string {
 // Export function to inject mock into window
 export function injectWebBluetoothMock(
   serverUrl?: string, 
-  sessionId?: string
+  sessionId?: string,
+  characteristicUuids?: { write: string; notify: string }
 ): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');
@@ -583,7 +598,7 @@ export function injectWebBluetoothMock(
   }
   
   // Try to replace navigator.bluetooth with our mock
-  const mockBluetooth = new MockBluetooth(serverUrl, sessionId);
+  const mockBluetooth = new MockBluetooth(serverUrl, sessionId, characteristicUuids);
   
   try {
     // First attempt: direct assignment

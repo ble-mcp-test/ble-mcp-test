@@ -14,11 +14,17 @@ export interface WSMessage {
   auth?: string; // v0.5.1: Auth token for admin commands
   action?: string; // v0.5.1: Admin action type
   
-  // RPC fields (v0.5.11)
+  // RPC fields (v0.6.0)
   rpc_id?: string; // Unique ID to match request/response
   method?: string; // RPC method name (e.g., 'requestDevice')
   params?: any; // RPC parameters
   result?: any; // RPC result (for responses)
+  
+  // Extended RPC params for requestDevice (v0.6.0)
+  characteristicUuids?: {
+    write: string;
+    notify: string;
+  };
 }
 
 export class WebSocketTransport {

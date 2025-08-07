@@ -103,13 +103,24 @@ export class BridgeServer {
               return;
             }
             
-            // For now, we still need to handle write/notify UUIDs
-            // TODO: These should come from the client in future versions
+            // Extract characteristic UUIDs from RPC params
+            const characteristicUuids = options.characteristicUuids;
+            if (!characteristicUuids?.write || !characteristicUuids?.notify) {
+              ws.send(JSON.stringify({
+                type: 'rpc_response',
+                rpc_id: msg.rpc_id,
+                method: 'requestDevice',
+                error: 'Missing characteristic UUIDs. Must provide characteristicUuids: { write, notify }'
+              }));
+              ws.close();
+              return;
+            }
+            
             const config: BleConfig = {
               devicePrefix: devicePrefix,
               serviceUuid: normalizeUuid(serviceUuid),
-              writeUuid: normalizeUuid('9900'), // TODO: Should come from RPC
-              notifyUuid: normalizeUuid('9901') // TODO: Should come from RPC
+              writeUuid: normalizeUuid(characteristicUuids.write),
+              notifyUuid: normalizeUuid(characteristicUuids.notify)
             };
             
             console.log(`[Bridge] RPC extracted config:`, config);
