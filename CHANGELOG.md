@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.12] - 2025-08-07
+
+### Added
+- **RPC Architecture**: WebSocket now acts as "dumb pipe" for BLE RPC calls
+  - Mock stores entire `requestDevice(options)` and sends as RPC request
+  - Bridge receives full Web Bluetooth API options: `{ type: 'rpc_request', method: 'requestDevice', params: options }`
+  - Eliminates URL parameter extraction/reconstruction complexity
+  - Step toward v0.7.0 universal device support
+- **RPC Message Types**: Extended WSMessage interface with RPC fields
+  - `rpc_request` / `rpc_response` message types
+  - `rpc_id` for request/response matching
+  - `method` and `params` for RPC calls
+  - `result` field for successful responses
+  
+### Changed
+- **Mock Refactoring**: Simplified to transparent proxy
+  - Stores `requestDeviceOptions` on device object
+  - No longer extracts service UUIDs from filters
+  - Passes entire options object to bridge via RPC
+- **Bridge RPC Support**: Handles both legacy URL params and new RPC mode
+  - Detects `rpc=true` URL parameter
+  - Waits for initial `rpc_request` message
+  - Extracts device/service info from requestDevice options
+  - Responds with `rpc_response` containing device info
+
+### Fixed
+- Service UUID extraction now happens on bridge side in RPC mode
+- Complex filter combinations properly passed through
+- Mock becomes truly transparent - no filter interpretation
+
 ## [0.5.11] - 2025-08-06
 
 ### Added

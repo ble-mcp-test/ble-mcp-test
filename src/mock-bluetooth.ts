@@ -177,22 +177,28 @@ class MockBluetoothRemoteGATTServer {
     
     for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
       try {
-        // Pass BLE configuration including session if available
         const connectOptions: any = {};
-        // Only add device if a specific device name was provided
-        if (this.device.name) {
-          connectOptions.device = this.device.name;
-        }
-        if (this.device.bleConfig) {
-          Object.assign(connectOptions, this.device.bleConfig);
-          // Map sessionId to session for WebSocketTransport
-          if (connectOptions.sessionId && !connectOptions.session) {
-            connectOptions.session = connectOptions.sessionId;
-            console.log(`[MockGATT] Using session ID for WebSocket: ${connectOptions.sessionId}`);
+        
+        // RPC mode: pass requestDevice options if available
+        if (this.device.requestDeviceOptions) {
+          console.log(`[MockGATT] Using RPC mode with requestDevice options`);
+          connectOptions.requestDeviceOptions = this.device.requestDeviceOptions;
+          // Still need session for both modes
+          if (this.device.bleConfig?.sessionId) {
+            connectOptions.session = this.device.bleConfig.sessionId;
           }
-          // Log service UUID if present
-          if (connectOptions.service) {
-            console.log(`[MockGATT] Using service UUID: ${connectOptions.service}`);
+        } else {
+          // Legacy mode: use individual parameters
+          if (this.device.name) {
+            connectOptions.device = this.device.name;
+          }
+          if (this.device.bleConfig) {
+            Object.assign(connectOptions, this.device.bleConfig);
+            // Map sessionId to session for WebSocketTransport
+            if (connectOptions.sessionId && !connectOptions.session) {
+              connectOptions.session = connectOptions.sessionId;
+              console.log(`[MockGATT] Using session ID for WebSocket: ${connectOptions.sessionId}`);
+            }
           }
         }
         
@@ -308,6 +314,7 @@ class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
   public bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
+  public requestDeviceOptions?: any; // Store the original requestDevice options
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
   private isTransportSetup = false;
   public sessionId?: string;
@@ -552,49 +559,24 @@ export class MockBluetooth {
   }
 
   async requestDevice(options?: any): Promise<MockBluetoothDevice> {
-    // Bypass all dialogs - immediately return a mock device
-    let deviceName: string | undefined;
-    let serviceUuid: string | undefined;
+    // Store the entire requestDevice options for RPC
+    console.log('[MockBluetooth] requestDevice called with options:', JSON.stringify(options));
     
-    // Extract filters from requestDevice options
-    if (options?.filters) {
-      for (const filter of options.filters) {
-        // Extract device name if provided
-        if (filter.namePrefix) {
-          deviceName = filter.namePrefix;
-        }
-        
-        // Extract service UUID if provided
-        if (filter.services && filter.services.length > 0) {
-          // Take the first service UUID from the filter
-          serviceUuid = filter.services[0];
-          console.log(`[MockBluetooth] Extracted service UUID from filter: ${serviceUuid}`);
-        }
-        
-        // If we have both, we can break early
-        if (deviceName && serviceUuid) {
-          break;
-        }
-      }
-    }
-    
-    // Create effective config, preferring filter values over injected config
+    // Create device with minimal config - let bridge handle filtering
     const effectiveConfig = {
       ...this.bleConfig,
       sessionId: this.bleConfig?.sessionId || this.autoSessionId
     };
     
-    // Override with service UUID from filter if provided
-    if (serviceUuid) {
-      effectiveConfig.service = serviceUuid;
-    }
-    
     const device = new MockBluetoothDevice(
       'mock-device-id',
-      deviceName || '',  // Empty string when no device specified
+      '', // Device name will be determined by bridge
       this.serverUrl,
       effectiveConfig
     );
+    
+    // Store the requestDevice options for later RPC use
+    device.requestDeviceOptions = options;
 
     return device;
   }
