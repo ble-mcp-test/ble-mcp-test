@@ -46,9 +46,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - Legacy URL parameter mode completely removed
-- `bleConfig` object with individual UUID parameters
+- `bleConfig` object with individual UUID parameters in mock API
 - URL parameter parsing for device/service/write/notify
 - Backward compatibility with v0.5.x
+- Environment variables no longer needed:
+  - `BLE_MCP_DEVICE_IDENTIFIER` - device selection now via `requestDevice()` filters
+  - `BLE_MCP_RECOVERY_DELAY` - hardcoded to 3000ms
+  - `BLE_MCP_SCAN_TIMEOUT` - never implemented
+  - `BLE_MCP_CONNECTION_TIMEOUT` - never implemented
+
+### Environment Variables Still Needed
+- `BLE_MCP_SERVICE_UUID` - Default service UUID when not specified in filters
+- `BLE_MCP_WRITE_UUID` - Write characteristic UUID for the device
+- `BLE_MCP_NOTIFY_UUID` - Notify characteristic UUID for the device
+These are still needed because:
+1. Tests need to know what service UUID to request in `requestDevice()`
+2. Different BLE devices use different characteristic UUIDs
+3. The bridge needs to know which characteristics to use for write/notify
 
 ### Migration Guide
 ```javascript

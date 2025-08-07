@@ -23,19 +23,7 @@ console.log(`   Port: ${wsPort}`);
 console.log(`   Host: ${host}`);
 console.log(`   Purpose: BLE byte tunneling`);
 
-// Show any BLE timing overrides
-const bleOverrides = [
-  'BLE_MCP_RECOVERY_DELAY',
-  'BLE_MCP_SCAN_TIMEOUT',
-  'BLE_MCP_CONNECTION_TIMEOUT'
-].filter(key => process.env[key]);
-
-if (bleOverrides.length > 0) {
-  console.log('   BLE timing overrides:');
-  bleOverrides.forEach(key => {
-    console.log(`     ${key}: ${process.env[key]}ms`);
-  });
-}
+// No BLE timing overrides in v0.6.0+ (all timing is hardcoded)
 
 console.log('\n📊 Service 2: Observability Server');
 console.log(`   Port: ${httpPort}`);

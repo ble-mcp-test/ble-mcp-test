@@ -90,12 +90,16 @@ export class BridgeServer {
               }
             }
             
-            // Default UUIDs if not specified
+            // Get default UUIDs from environment or use CS108 defaults
+            const defaultService = process.env.BLE_MCP_SERVICE_UUID || '9800';
+            const defaultWrite = process.env.BLE_MCP_WRITE_UUID || '9900';
+            const defaultNotify = process.env.BLE_MCP_NOTIFY_UUID || '9901';
+            
             const config: BleConfig = {
               devicePrefix: devicePrefix,
-              serviceUuid: normalizeUuid(serviceUuid || '9800'),
-              writeUuid: normalizeUuid('9900'),
-              notifyUuid: normalizeUuid('9901')
+              serviceUuid: normalizeUuid(serviceUuid || defaultService),
+              writeUuid: normalizeUuid(defaultWrite),
+              notifyUuid: normalizeUuid(defaultNotify)
             };
             
             console.log(`[Bridge] RPC extracted config:`, config);
