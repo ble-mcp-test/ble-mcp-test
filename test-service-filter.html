@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Service UUID Filter</title>
+    <script src="dist/web-ble-mock.bundle.js"></script>
+</head>
+<body>
+    <h1>Service UUID Filter Test</h1>
+    <button onclick="testServiceFilter()">Test Service Filter (Legacy)</button>
+    <button onclick="testRpcMode()">Test RPC Mode</button>
+    <pre id="output"></pre>
+
+    <script>
+        // Inject the mock WITHOUT specifying service UUID
+        WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+        
+        async function testServiceFilter() {
+            const output = document.getElementById('output');
+            try {
+                output.textContent = 'LEGACY MODE: Requesting device with service filter...\n';
+                
+                // Request device using ONLY service UUID filter
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: ['9800'] }]
+                });
+                
+                output.textContent += 'Device obtained! Connecting...\n';
+                
+                await device.gatt.connect();
+                output.textContent += 'Connected! Service UUID was properly extracted.\n';
+                
+                // Try to get the service
+                const service = await device.gatt.getPrimaryService('9800');
+                output.textContent += 'Got service 9800!\n';
+                
+            } catch (error) {
+                output.textContent += `Error: ${error.message}\n`;
+                console.error(error);
+            }
+        }
+        
+        async function testRpcMode() {
+            const output = document.getElementById('output');
+            try {
+                output.textContent = 'RPC MODE: Requesting device with complex filters...\n';
+                
+                // Request device with more complex options to test RPC
+                const device = await navigator.bluetooth.requestDevice({
+                    filters: [
+                        { namePrefix: 'CS108', services: ['9800'] },
+                        { services: ['180f'] }  // Battery service
+                    ],
+                    optionalServices: ['180a']  // Device info service
+                });
+                
+                output.textContent += 'Device obtained via RPC! Connecting...\n';
+                
+                await device.gatt.connect();
+                output.textContent += 'Connected via RPC! Full requestDevice options were passed.\n';
+                
+                // Try to get the service
+                const service = await device.gatt.getPrimaryService('9800');
+                output.textContent += 'Got service 9800 via RPC!\n';
+                
+            } catch (error) {
+                output.textContent += `Error: ${error.message}\n`;
+                console.error(error);
+            }
+        }
+    </script>
+</body>
+</html>

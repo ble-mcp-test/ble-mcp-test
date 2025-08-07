@@ -5,6 +5,69 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.12] - 2025-08-07
+
+### Added
+- **RPC Architecture**: WebSocket now acts as "dumb pipe" for BLE RPC calls
+  - Mock stores entire `requestDevice(options)` and sends as RPC request
+  - Bridge receives full Web Bluetooth API options: `{ type: 'rpc_request', method: 'requestDevice', params: options }`
+  - Eliminates URL parameter extraction/reconstruction complexity
+  - Step toward v0.7.0 universal device support
+- **RPC Message Types**: Extended WSMessage interface with RPC fields
+  - `rpc_request` / `rpc_response` message types
+  - `rpc_id` for request/response matching
+  - `method` and `params` for RPC calls
+  - `result` field for successful responses
+  
+### Changed
+- **Mock Refactoring**: Simplified to transparent proxy
+  - Stores `requestDeviceOptions` on device object
+  - No longer extracts service UUIDs from filters
+  - Passes entire options object to bridge via RPC
+- **Bridge RPC Support**: Handles both legacy URL params and new RPC mode
+  - Detects `rpc=true` URL parameter
+  - Waits for initial `rpc_request` message
+  - Extracts device/service info from requestDevice options
+  - Responds with `rpc_response` containing device info
+
+### Fixed
+- Service UUID extraction now happens on bridge side in RPC mode
+- Complex filter combinations properly passed through
+- Mock becomes truly transparent - no filter interpretation
+
+## [0.5.11] - 2025-08-06
+
+### Added
+- **Millisecond Precision Logging**: TX/RX packets now show sub-second timing
+  - Format: `[WSHandler] TX.123: A7 B3 C2...` where `.123` is milliseconds
+  - Helps debug command timing and response latency
+  - Minimal overhead - just 4 extra characters per log line
+- **Roadmap Section**: Added development roadmap to README
+  - v0.6.0: Developer Experience (MCP + Golang CLI)
+  - v0.7.0: Universal Device Support (RPC + nRF52)
+  - v0.8.0: Security & Scale (TLS + OAuth2)
+  - v0.9.0: BLE Device Farm (Enterprise testing at scale)
+
+### Fixed
+- **Service UUID Extraction**: Mock now properly extracts service UUIDs from requestDevice filters
+  - `navigator.bluetooth.requestDevice({ filters: [{ services: ['9800'] }] })` now works correctly
+  - Service UUID from filter overrides any config passed to injectWebBluetoothMock
+  - Enables true Web Bluetooth API compliance for service-based filtering
+  - Step toward v0.7.0 RPC architecture
+- **Systemd Service Installation**: Service now installs to `/opt/ble-bridge`
+  - Self-contained installation independent of user home directory
+  - Handles both system-wide and fnm Node.js installations
+  - Fixed "Exec format error" from incorrect shebang escaping
+  - Service files no longer depend on checkout location
+- **Install Scripts**: Updated for robust systemd deployment
+  - `install-service.sh`: Copies everything to `/opt/ble-bridge`
+  - `uninstall-service.sh`: Properly cleans up installation
+  - Start script automatically finds Node.js via fnm or system paths
+
+### Changed
+- Systemd service now runs from `/opt/ble-bridge` instead of user directory
+- Service file includes proper environment for fnm-installed Node.js
+
 ## [0.5.10] - 2025-08-06
 
 ### Fixed

@@ -1,5 +1,5 @@
 export interface WSMessage {
-  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'admin_cleanup';
+  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'admin_cleanup' | 'rpc_request' | 'rpc_response';
   seq?: number;
   data?: number[];
   device?: string;
@@ -13,6 +13,12 @@ export interface WSMessage {
   blocking_session_id?: string; // v0.5.1: Session blocking the connection
   auth?: string; // v0.5.1: Auth token for admin commands
   action?: string; // v0.5.1: Admin action type
+  
+  // RPC fields (v0.5.11)
+  rpc_id?: string; // Unique ID to match request/response
+  method?: string; // RPC method name (e.g., 'requestDevice')
+  params?: any; // RPC parameters
+  result?: any; // RPC result (for responses)
 }
 
 export class WebSocketTransport {
@@ -32,17 +38,31 @@ export class WebSocketTransport {
     write?: string; 
     notify?: string;
     session?: string;
+    requestDeviceOptions?: any; // RPC mode: pass entire options
   }): Promise<void> {
     const url = new URL(this.serverUrl);
-    if (options?.device) url.searchParams.set('device', options.device);
-    if (options?.service) url.searchParams.set('service', options.service);
-    if (options?.write) url.searchParams.set('write', options.write);
-    if (options?.notify) url.searchParams.set('notify', options.notify);
     
-    // Session management
-    if (options?.session) {
-      url.searchParams.set('session', options.session);
-      this.sessionId = options.session;
+    // RPC mode: if requestDeviceOptions provided, use minimal URL params
+    if (options?.requestDeviceOptions) {
+      // Only pass session ID in URL for routing
+      if (options?.session) {
+        url.searchParams.set('session', options.session);
+        this.sessionId = options.session;
+      }
+      // Mark as RPC mode
+      url.searchParams.set('rpc', 'true');
+    } else {
+      // Legacy mode: pass individual parameters
+      if (options?.device) url.searchParams.set('device', options.device);
+      if (options?.service) url.searchParams.set('service', options.service);
+      if (options?.write) url.searchParams.set('write', options.write);
+      if (options?.notify) url.searchParams.set('notify', options.notify);
+      
+      // Session management
+      if (options?.session) {
+        url.searchParams.set('session', options.session);
+        this.sessionId = options.session;
+      }
     }
     
     // Sneaky version marker - only set by the mock, never documented
@@ -66,20 +86,35 @@ export class WebSocketTransport {
       }, 10000);
       
       this.ws!.onopen = () => {
-        // WebSocket opened, wait for connected message
+        // WebSocket opened
+        if (options?.requestDeviceOptions) {
+          // RPC mode: send requestDevice as first message
+          console.log('[WSTransport] Sending RPC requestDevice');
+          this.ws!.send(JSON.stringify({
+            type: 'rpc_request',
+            rpc_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            method: 'requestDevice',
+            params: options.requestDeviceOptions
+          }));
+        }
+        // Legacy mode: wait for connected message
       };
       
       this.ws!.onmessage = (event) => {
         try {
           const msg: WSMessage = JSON.parse(event.data);
-          if (msg.type === 'connected') {
+          if (msg.type === 'connected' || (msg.type === 'rpc_response' && msg.method === 'requestDevice' && !msg.error)) {
             clearTimeout(timeout);
             // v0.4.0: Store token for force cleanup
             if (msg.token) {
               this.connectionToken = msg.token;
             }
+            // For RPC response, extract device info
+            if (msg.type === 'rpc_response' && msg.result?.device) {
+              console.log('[WSTransport] RPC connected to device:', msg.result.device);
+            }
             resolve();
-          } else if (msg.type === 'error') {
+          } else if (msg.type === 'error' || (msg.type === 'rpc_response' && msg.error)) {
             clearTimeout(timeout);
             reject(new Error(msg.error || 'Connection failed'));
           }
