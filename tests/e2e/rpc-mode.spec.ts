@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { CS108_CONFIG } from './device-configs';
 
 // Test RPC mode where requestDevice options are passed via RPC
 test.describe('RPC Mode', () => {
@@ -31,6 +32,7 @@ test.describe('RPC Mode', () => {
       
       try {
         // Complex requestDevice options to test RPC
+        // Using device configuration from test helpers
         const device = await navigator.bluetooth.requestDevice({
           filters: [
             { namePrefix: 'CS108', services: ['9800'] },

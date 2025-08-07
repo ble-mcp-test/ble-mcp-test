@@ -90,16 +90,26 @@ export class BridgeServer {
               }
             }
             
-            // Get default UUIDs from environment or use CS108 defaults
-            const defaultService = process.env.BLE_MCP_SERVICE_UUID || '9800';
-            const defaultWrite = process.env.BLE_MCP_WRITE_UUID || '9900';
-            const defaultNotify = process.env.BLE_MCP_NOTIFY_UUID || '9901';
+            // In RPC mode, the client must provide all configuration
+            // The bridge should not have device-specific defaults
+            if (!serviceUuid) {
+              ws.send(JSON.stringify({
+                type: 'rpc_response',
+                rpc_id: msg.rpc_id,
+                method: 'requestDevice',
+                error: 'No service UUID found in requestDevice filters'
+              }));
+              ws.close();
+              return;
+            }
             
+            // For now, we still need to handle write/notify UUIDs
+            // TODO: These should come from the client in future versions
             const config: BleConfig = {
               devicePrefix: devicePrefix,
-              serviceUuid: normalizeUuid(serviceUuid || defaultService),
-              writeUuid: normalizeUuid(defaultWrite),
-              notifyUuid: normalizeUuid(defaultNotify)
+              serviceUuid: normalizeUuid(serviceUuid),
+              writeUuid: normalizeUuid('9900'), // TODO: Should come from RPC
+              notifyUuid: normalizeUuid('9901') // TODO: Should come from RPC
             };
             
             console.log(`[Bridge] RPC extracted config:`, config);
