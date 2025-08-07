@@ -33,36 +33,19 @@ export class WebSocketTransport {
   }
   
   async connect(options?: { 
-    device?: string; 
-    service?: string; 
-    write?: string; 
-    notify?: string;
     session?: string;
-    requestDeviceOptions?: any; // RPC mode: pass entire options
+    requestDeviceOptions?: any; // RPC mode only
   }): Promise<void> {
+    if (!options?.requestDeviceOptions) {
+      throw new Error('requestDeviceOptions required - WebSocket transport only supports RPC mode');
+    }
+    
     const url = new URL(this.serverUrl);
     
-    // RPC mode: if requestDeviceOptions provided, use minimal URL params
-    if (options?.requestDeviceOptions) {
-      // Only pass session ID in URL for routing
-      if (options?.session) {
-        url.searchParams.set('session', options.session);
-        this.sessionId = options.session;
-      }
-      // Mark as RPC mode
-      url.searchParams.set('rpc', 'true');
-    } else {
-      // Legacy mode: pass individual parameters
-      if (options?.device) url.searchParams.set('device', options.device);
-      if (options?.service) url.searchParams.set('service', options.service);
-      if (options?.write) url.searchParams.set('write', options.write);
-      if (options?.notify) url.searchParams.set('notify', options.notify);
-      
-      // Session management
-      if (options?.session) {
-        url.searchParams.set('session', options.session);
-        this.sessionId = options.session;
-      }
+    // Only pass session ID in URL for routing
+    if (options?.session) {
+      url.searchParams.set('session', options.session);
+      this.sessionId = options.session;
     }
     
     // Sneaky version marker - only set by the mock, never documented
@@ -86,35 +69,35 @@ export class WebSocketTransport {
       }, 10000);
       
       this.ws!.onopen = () => {
-        // WebSocket opened
-        if (options?.requestDeviceOptions) {
-          // RPC mode: send requestDevice as first message
-          console.log('[WSTransport] Sending RPC requestDevice');
-          this.ws!.send(JSON.stringify({
-            type: 'rpc_request',
-            rpc_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-            method: 'requestDevice',
-            params: options.requestDeviceOptions
-          }));
-        }
-        // Legacy mode: wait for connected message
+        // RPC mode: send requestDevice as first message
+        console.log('[WSTransport] Sending RPC requestDevice');
+        this.ws!.send(JSON.stringify({
+          type: 'rpc_request',
+          rpc_id: `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          method: 'requestDevice',
+          params: options!.requestDeviceOptions
+        }));
       };
       
       this.ws!.onmessage = (event) => {
         try {
           const msg: WSMessage = JSON.parse(event.data);
-          if (msg.type === 'connected' || (msg.type === 'rpc_response' && msg.method === 'requestDevice' && !msg.error)) {
+          if (msg.type === 'rpc_response' && msg.method === 'requestDevice') {
             clearTimeout(timeout);
-            // v0.4.0: Store token for force cleanup
-            if (msg.token) {
-              this.connectionToken = msg.token;
+            if (msg.error) {
+              reject(new Error(msg.error));
+            } else {
+              // Store token if provided
+              if (msg.token) {
+                this.connectionToken = msg.token;
+              }
+              // Log device info
+              if (msg.result?.device) {
+                console.log('[WSTransport] RPC connected to device:', msg.result.device);
+              }
+              resolve();
             }
-            // For RPC response, extract device info
-            if (msg.type === 'rpc_response' && msg.result?.device) {
-              console.log('[WSTransport] RPC connected to device:', msg.result.device);
-            }
-            resolve();
-          } else if (msg.type === 'error' || (msg.type === 'rpc_response' && msg.error)) {
+          } else if (msg.type === 'error') {
             clearTimeout(timeout);
             reject(new Error(msg.error || 'Connection failed'));
           }

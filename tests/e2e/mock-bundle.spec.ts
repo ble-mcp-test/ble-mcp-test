@@ -143,11 +143,7 @@ test.describe('Mock Bundle Export Tests', () => {
     await page.addScriptTag({ path: bundlePath });
     
     await page.evaluate(() => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: '180f',
-        write: '2a19',
-        notify: '2a19'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
     });
     
     // Test simulateNotification with fake battery voltage
@@ -204,11 +200,7 @@ test.describe('Mock Bundle Export Tests', () => {
     await page.addScriptTag({ path: bundlePath });
     
     await page.evaluate(() => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: '180f',
-        write: '2a19',
-        notify: '2a19'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
     });
     
     // Create device and check for simulateNotification

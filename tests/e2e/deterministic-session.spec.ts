@@ -64,11 +64,7 @@ test.describe('Deterministic Session ID E2E Tests', () => {
       console.log('Playwright environment debug:', debugInfo);
       
       // Inject mock without explicit session - should auto-detect Playwright
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
       
       // Request device
       const device = await navigator.bluetooth.requestDevice({
@@ -121,12 +117,7 @@ test.describe('Deterministic Session ID E2E Tests', () => {
     const bleConfig = getBleConfig();
     const result = await page.evaluate(async (config) => {
       // Use explicit session ID via config parameter
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: config.service,
-        write: config.write,
-        notify: config.notify,
-        sessionId: 'explicit-e2e-test-session'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'explicit-e2e-test-session');
       
       // Request device
       const device = await navigator.bluetooth.requestDevice({

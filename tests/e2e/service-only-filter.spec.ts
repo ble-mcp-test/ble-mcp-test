@@ -52,13 +52,8 @@ test.describe('Service-Only Filtering', () => {
       const output: any = {};
       
       try {
-        // Inject mock WITHOUT device config
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901',
-          sessionId: 'service-only-test'
-        });
+        // Inject mock with session ID only
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'service-only-test');
         
         output.mockInjected = true;
         
@@ -144,12 +139,7 @@ test.describe('Service-Only Filtering', () => {
       const output: any = {};
       
       try {
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901',
-          sessionId: 'empty-filters-test'
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'empty-filters-test');
         
         // Request with no filters at all
         const device = await navigator.bluetooth.requestDevice({

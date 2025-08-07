@@ -48,12 +48,7 @@ test.describe('Verify Session ID in WebSocket', () => {
     
     // Inject mock and attempt connection
     const connectionResult = await page.evaluate(async ({ sessionId, device }) => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId,
-        service: '9800',
-        write: '9900',
-        notify: '9901'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       try {
         const bleDevice = await navigator.bluetooth.requestDevice({

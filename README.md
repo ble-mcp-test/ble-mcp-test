@@ -4,6 +4,8 @@
 
 **Test Web Bluetooth apps on any machine** - Bridge real BLE devices to your browser tests through WebSocket tunneling.
 
+> ⚠️ **Breaking Changes in v0.6.0**: The API has been simplified to use RPC-only mode. The `injectWebBluetoothMock()` function now only takes `serverUrl` and optional `sessionId`. All BLE configuration is now passed through `requestDevice()` options. See [Migration Guide](#migration-from-v05x) below.
+
 ## Quick Start
 
 ```bash
@@ -99,19 +101,18 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
-## Session Management (v0.5.2+)
+## Session Management
 
 Sessions allow BLE connections to persist across WebSocket disconnects and prevent conflicts:
 
 ```javascript
+// v0.6.0+ API - Simplified!
 // Zero config - automatically creates unique session per browser/tool
 injectWebBluetoothMock('ws://localhost:8080');
 // Auto-generates: "192.168.1.100-chrome-A4B2" or "127.0.0.1-playwright-X9Z1"
 
-// Advanced: Use explicit session ID
-injectWebBluetoothMock('ws://localhost:8080', {
-  sessionId: 'my-custom-session'
-});
+// Advanced: Use explicit session ID (optional second parameter)
+injectWebBluetoothMock('ws://localhost:8080', 'my-custom-session');
 
 // Session persists for 60 seconds after disconnect
 // Different browsers/tools get different sessions automatically
@@ -313,3 +314,52 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 ## License
 
 MIT © 2025 TrakRF / Mike Stankavich
+
+## Migration from v0.5.x
+
+Version 0.6.0 introduces breaking changes that simplify the API:
+
+### What Changed
+
+1. **Simplified `injectWebBluetoothMock()` API**
+   - Old: `injectWebBluetoothMock(serverUrl, bleConfig)`
+   - New: `injectWebBluetoothMock(serverUrl, sessionId?)`
+   - The complex `bleConfig` object is gone
+
+2. **All BLE configuration via `requestDevice()`**
+   - Service UUIDs, device names, and filters are now only specified in `requestDevice()`
+   - The bridge extracts this information from the Web Bluetooth API call
+
+### Migration Example
+
+```javascript
+// Old (v0.5.x)
+injectWebBluetoothMock('ws://localhost:8080', {
+  device: 'CS108',
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  sessionId: 'my-session'
+});
+
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ namePrefix: 'CS108' }]
+});
+
+// New (v0.6.0)
+injectWebBluetoothMock('ws://localhost:8080', 'my-session');
+
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ 
+    namePrefix: 'CS108',
+    services: ['9800']  // Service UUID now specified here
+  }]
+});
+```
+
+### Why This Change?
+
+- **Simpler API**: No need to duplicate configuration between mock and requestDevice
+- **True Mock**: The mock is now a transparent proxy, not interpreting filters
+- **Future-proof**: Supports complex filter combinations and future Web Bluetooth features
+- **RPC Architecture**: WebSocket is now a dumb pipe, all logic is on the bridge side

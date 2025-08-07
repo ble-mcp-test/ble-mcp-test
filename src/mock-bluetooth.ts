@@ -177,32 +177,21 @@ class MockBluetoothRemoteGATTServer {
     
     for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
       try {
-        const connectOptions: any = {};
-        
-        // RPC mode: pass requestDevice options if available
-        if (this.device.requestDeviceOptions) {
-          console.log(`[MockGATT] Using RPC mode with requestDevice options`);
-          connectOptions.requestDeviceOptions = this.device.requestDeviceOptions;
-          // Still need session for both modes
-          if (this.device.bleConfig?.sessionId) {
-            connectOptions.session = this.device.bleConfig.sessionId;
-          }
-        } else {
-          // Legacy mode: use individual parameters
-          if (this.device.name) {
-            connectOptions.device = this.device.name;
-          }
-          if (this.device.bleConfig) {
-            Object.assign(connectOptions, this.device.bleConfig);
-            // Map sessionId to session for WebSocketTransport
-            if (connectOptions.sessionId && !connectOptions.session) {
-              connectOptions.session = connectOptions.sessionId;
-              console.log(`[MockGATT] Using session ID for WebSocket: ${connectOptions.sessionId}`);
-            }
-          }
+        // Always use RPC mode
+        if (!this.device.requestDeviceOptions) {
+          throw new Error('requestDeviceOptions not set - mock requires RPC mode');
         }
         
-        console.log(`[MockGATT] WebSocket connect options:`, JSON.stringify(connectOptions));
+        const connectOptions: any = {
+          requestDeviceOptions: this.device.requestDeviceOptions
+        };
+        
+        // Add session if available
+        if (this.device.sessionId) {
+          connectOptions.session = this.device.sessionId;
+        }
+        
+        console.log(`[MockGATT] RPC connect with options:`, JSON.stringify(connectOptions));
         
         await this.device.transport.connect(connectOptions);
         
@@ -313,7 +302,6 @@ class MockBluetoothRemoteGATTServer {
 class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
-  public bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
   public requestDeviceOptions?: any; // Store the original requestDevice options
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
   private isTransportSetup = false;
@@ -323,12 +311,11 @@ class MockBluetoothDevice {
     public id: string,
     public name: string,
     serverUrl?: string,
-    bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
+    sessionId?: string
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
-    this.bleConfig = bleConfig;
-    this.sessionId = bleConfig?.sessionId;
+    this.sessionId = sessionId;
   }
 
   // Register a characteristic for notifications
@@ -376,16 +363,11 @@ class MockBluetoothDevice {
 
 // Mock Bluetooth API
 export class MockBluetooth {
-  private bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
-  private autoSessionId?: string;
+  private sessionId?: string;
 
-  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }) {
-    this.bleConfig = bleConfig;
-    
+  constructor(private serverUrl?: string, sessionId?: string) {
     // Auto-generate session ID if not provided
-    if (!bleConfig?.sessionId) {
-      this.autoSessionId = this.generateAutoSessionId();
-    }
+    this.sessionId = sessionId || this.generateAutoSessionId();
   }
   
   private generateAutoSessionId(): string {
@@ -562,17 +544,11 @@ export class MockBluetooth {
     // Store the entire requestDevice options for RPC
     console.log('[MockBluetooth] requestDevice called with options:', JSON.stringify(options));
     
-    // Create device with minimal config - let bridge handle filtering
-    const effectiveConfig = {
-      ...this.bleConfig,
-      sessionId: this.bleConfig?.sessionId || this.autoSessionId
-    };
-    
     const device = new MockBluetoothDevice(
       'mock-device-id',
       '', // Device name will be determined by bridge
       this.serverUrl,
-      effectiveConfig
+      this.sessionId
     );
     
     // Store the requestDevice options for later RPC use
@@ -599,7 +575,7 @@ export function getBundleVersion(): string {
 // Export function to inject mock into window
 export function injectWebBluetoothMock(
   serverUrl?: string, 
-  bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
+  sessionId?: string
 ): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');
@@ -607,7 +583,7 @@ export function injectWebBluetoothMock(
   }
   
   // Try to replace navigator.bluetooth with our mock
-  const mockBluetooth = new MockBluetooth(serverUrl, bleConfig);
+  const mockBluetooth = new MockBluetooth(serverUrl, sessionId);
   
   try {
     // First attempt: direct assignment

@@ -44,11 +44,7 @@ test.describe('Session Persistence Bug Reproduction', () => {
       // No need to clear session - localStorage is no longer used
       
       // Inject mock without explicit session
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: '9800',
-        write: '9900',
-        notify: '9901'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
       
       // Get auto-generated session from the mock
       const bluetooth = (navigator as any).bluetooth;
@@ -91,11 +87,7 @@ test.describe('Session Persistence Bug Reproduction', () => {
 
     const secondResult = await page.evaluate(async (device) => {
       // Inject mock again (should reuse localStorage session)
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: '9800',
-        write: '9900',
-        notify: '9901'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
       
       // Get session from the mock
       const bluetooth = (navigator as any).bluetooth;

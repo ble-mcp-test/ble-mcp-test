@@ -53,12 +53,7 @@ test.describe('Core Session Reuse - THE ACTUAL USE CASE', () => {
     
     const result1 = await page.evaluate(async ({ sessionId, config }) => {
       // This is EXACTLY what a real client does
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId: sessionId,  // Client passes sessionId
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       try {
         const device = await navigator.bluetooth.requestDevice({
@@ -105,12 +100,7 @@ test.describe('Core Session Reuse - THE ACTUAL USE CASE', () => {
     console.log(`\n=== TEST 2: Reconnecting with same sessionId: ${testSessionId} ===`);
     
     const result2 = await page.evaluate(async ({ sessionId, config }) => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId: sessionId,  // SAME session
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       try {
         const device = await navigator.bluetooth.requestDevice({

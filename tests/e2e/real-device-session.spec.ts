@@ -61,12 +61,7 @@ test.describe('Real Device Session Test', () => {
     
     // Pass device config to browser context
     const result = await page.evaluate(async ({ sessionId, config }) => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId,
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       try {
         // Use the device identifier from environment

@@ -63,12 +63,7 @@ test.describe('WebSocket URL Session Verification', () => {
       // Clear any captured URL
       delete (window as any).__lastWebSocketUrl;
       
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId,
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: config.device }]
@@ -142,12 +137,7 @@ test.describe('WebSocket URL Session Verification', () => {
     const result = await page.evaluate(async (config) => {
       delete (window as any).__lastWebSocketUrl;
       
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-        // Note: no sessionId provided
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
 
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: config.device }]

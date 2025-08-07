@@ -5,14 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.12] - 2025-08-07
+## [0.6.0] - 2025-08-07
+
+### Breaking Changes
+- **RPC-Only Architecture**: Complete removal of legacy URL parameter mode
+  - WebSocket now exclusively uses RPC for all communication
+  - `injectWebBluetoothMock()` API simplified: only takes `serverUrl` and optional `sessionId`
+  - All BLE configuration now passed via `requestDevice()` options
+  - Bridge no longer accepts URL parameters for device/service/write/notify UUIDs
 
 ### Added
-- **RPC Architecture**: WebSocket now acts as "dumb pipe" for BLE RPC calls
+- **RPC Architecture**: WebSocket acts as "dumb pipe" for BLE RPC calls
   - Mock stores entire `requestDevice(options)` and sends as RPC request
   - Bridge receives full Web Bluetooth API options: `{ type: 'rpc_request', method: 'requestDevice', params: options }`
   - Eliminates URL parameter extraction/reconstruction complexity
-  - Step toward v0.7.0 universal device support
+  - Foundation for v0.7.0 universal device support
 - **RPC Message Types**: Extended WSMessage interface with RPC fields
   - `rpc_request` / `rpc_response` message types
   - `rpc_id` for request/response matching
@@ -20,20 +27,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `result` field for successful responses
   
 ### Changed
+- **Simplified API**: `injectWebBluetoothMock(serverUrl, sessionId)`
+  - Removed complex `bleConfig` object with service/write/notify UUIDs
+  - Session ID is now optional second parameter
+  - All BLE configuration comes from `requestDevice()` filters
 - **Mock Refactoring**: Simplified to transparent proxy
   - Stores `requestDeviceOptions` on device object
-  - No longer extracts service UUIDs from filters
+  - No longer extracts or interprets filters
   - Passes entire options object to bridge via RPC
-- **Bridge RPC Support**: Handles both legacy URL params and new RPC mode
-  - Detects `rpc=true` URL parameter
-  - Waits for initial `rpc_request` message
+- **Bridge Refactoring**: RPC-only message handling
+  - Waits for initial `rpc_request` message on every connection
   - Extracts device/service info from requestDevice options
   - Responds with `rpc_response` containing device info
+- **WebSocket Transport**: Simplified to RPC-only mode
+  - Requires `requestDeviceOptions` in connect options
+  - No longer supports individual device/service parameters
+  - Always sends RPC request on connection
 
-### Fixed
-- Service UUID extraction now happens on bridge side in RPC mode
-- Complex filter combinations properly passed through
-- Mock becomes truly transparent - no filter interpretation
+### Removed
+- Legacy URL parameter mode completely removed
+- `bleConfig` object with individual UUID parameters
+- URL parameter parsing for device/service/write/notify
+- Backward compatibility with v0.5.x
+
+### Migration Guide
+```javascript
+// Old (v0.5.x)
+injectWebBluetoothMock('ws://localhost:8080', {
+  device: 'CS108',
+  service: '9800',
+  write: '9900', 
+  notify: '9901',
+  sessionId: 'my-session'
+});
+
+// New (v0.6.0)
+injectWebBluetoothMock('ws://localhost:8080', 'my-session');
+// All configuration now comes from requestDevice:
+const device = await navigator.bluetooth.requestDevice({
+  filters: [{ namePrefix: 'CS108', services: ['9800'] }]
+});
+```
 
 ## [0.5.11] - 2025-08-06
 

@@ -71,9 +71,7 @@ test.describe('Error Handling E2E Tests', () => {
 
     const result = await page.evaluate(async () => {
       try {
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          sessionId: 'error-test-2'
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'error-test-2');
 
         // Request a device with a filter that won't match anything
         const device = await navigator.bluetooth.requestDevice({
@@ -109,9 +107,7 @@ test.describe('Error Handling E2E Tests', () => {
     await setupPage(page);
 
     const result = await page.evaluate(async () => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId: 'error-test-3'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'error-test-3');
 
       const results = [];
       
@@ -151,9 +147,7 @@ test.describe('Error Handling E2E Tests', () => {
 
     const result = await page.evaluate(async () => {
       try {
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          sessionId: 'error-test-4'
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'error-test-4');
 
         const device = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'TestDevice' }]
@@ -247,9 +241,7 @@ test.describe('Error Handling E2E Tests', () => {
     await setupPage(page);
 
     const result = await page.evaluate(async () => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-        sessionId: 'error-test-5'
-      });
+      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', 'error-test-5');
 
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ namePrefix: 'TestDevice' }]

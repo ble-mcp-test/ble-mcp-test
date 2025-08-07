@@ -34,12 +34,7 @@ test.describe('Session Management E2E Tests', () => {
       try {
         // Test new session parameter
         const sessionId = 'test-session-12345';
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901',
-          sessionId: sessionId
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
         
         return {
           success: true,
@@ -75,12 +70,7 @@ test.describe('Session Management E2E Tests', () => {
         const sessionId = 'device-test-session-' + Date.now();
         
         // Inject with session
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900', 
-          notify: '9901',
-          sessionId: sessionId
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
         
         // Request device
         return navigator.bluetooth.requestDevice({
@@ -124,12 +114,7 @@ test.describe('Session Management E2E Tests', () => {
     const autoSessionResult = await page.evaluate((config) => {
       try {
         // Inject with auto-generation
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901', 
-          generateSession: true
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
         
         // Request device
         return navigator.bluetooth.requestDevice({
@@ -173,11 +158,7 @@ test.describe('Session Management E2E Tests', () => {
     const legacyResult = await page.evaluate((config) => {
       try {
         // Inject without session parameters (old way)
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901'
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
         
         // Request device
         return navigator.bluetooth.requestDevice({
@@ -226,12 +207,7 @@ test.describe('Session Management E2E Tests', () => {
         const sessionId = 'web-session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
         
         // Inject with session
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900',
-          notify: '9901',
-          sessionId: sessionId
-        });
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
         
         // Request device
         return navigator.bluetooth.requestDevice({
