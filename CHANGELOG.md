@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.11] - 2025-08-25
+
+### Added
+- **Node.js Transport Client**: Complete Web Bluetooth API implementation for Node.js environments
+  - New `NodeBleClient` class provides Web Bluetooth API compatibility in Node.js
+  - Enables integration testing against real hardware without browser dependency
+  - Full support for requestDevice, GATT operations, and notifications
+  - Compatible with existing WebSocket bridge server
+  - Session management and reconnection support
+  - Import as: `import { NodeBleClient } from 'ble-mcp-test/node'`
+  - Works with Node.js 14+ (client only uses ws and EventEmitter)
+  - Bridge server still requires Node.js 24+ for Noble BLE access
+  
+### Changed
+- Package now exports separate entry points for browser and Node.js usage
+- Added dual ESM exports for Node.js transport
+- Added "nodejs" and "node" keywords to package.json
+- Added CHANGELOG.md to published files
+
 ## [0.5.10] - 2025-08-06
 
 ### Fixed

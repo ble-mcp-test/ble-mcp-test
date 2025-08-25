@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
@@ -22,7 +22,9 @@
     "web-bluetooth-mock",
     "claude",
     "ai",
-    "coding-assistant"
+    "coding-assistant",
+    "nodejs",
+    "node"
   ],
   "author": "Mike Stankavich <mike@trakrf.id> (https://trakrf.id)",
   "license": "MIT",
@@ -48,12 +50,17 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./browser": "./dist/web-ble-mock.bundle.js"
+    "./browser": "./dist/web-ble-mock.bundle.js",
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js"
+    }
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc && pnpm run build:browser",
