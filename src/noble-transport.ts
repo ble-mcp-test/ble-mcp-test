@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
+import { expandUuidVariants } from './utils.js';
 
 /**
  * Noble BLE Transport
@@ -15,7 +16,7 @@ import noble from '@stoprocent/noble';
 
 export interface BleConfig {
   devicePrefix?: string;  // Optional - for specific device targeting
-  serviceUuid: string;
+  serviceUuid: string;     // Single service UUID (will be expanded internally)
   writeUuid: string;
   notifyUuid: string;
 }
@@ -197,12 +198,8 @@ export class NobleTransport extends EventEmitter {
         );
       }
       
-      // Find device (handles complete scanning lifecycle)
-      // Use short UUID for scanning on Linux - devices advertise short UUIDs
-      const scanUuid = process.platform === 'linux' && config.serviceUuid.length === 32 
-        ? config.serviceUuid.substring(4, 8)  // Extract short UUID from long UUID
-        : config.serviceUuid;
-      this.peripheral = await this.findDevice(scanUuid, config.devicePrefix);
+      // Find device using UUID variants for scanning
+      this.peripheral = await this.findDevice(config.serviceUuid, config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
       // Connect to peripheral with timeout
@@ -220,23 +217,20 @@ export class NobleTransport extends EventEmitter {
         'Service discovery timeout'
       );
       
-      const targetService = services.find((s: any) => {
-        const sUuid = s.uuid.toLowerCase().replace(/-/g, '');
-        const configUuid = config.serviceUuid.toLowerCase().replace(/-/g, '');
-        
-        // Check for exact match
-        if (sUuid === configUuid) return true;
-        
-        // Check if one is short and other is long UUID (extract short from long)
-        if (sUuid.length === 4 && configUuid.length === 32) {
-          return configUuid.substring(4, 8) === sUuid;
+      // Find the service and discover what UUID format the device actually uses
+      let targetService: any = null;
+      let actualServiceUuid: string = '';
+      
+      for (const service of services) {
+        const sUuid = service.uuid.toLowerCase().replace(/-/g, '');
+        const configUuidVariants = expandUuidVariants(config.serviceUuid);
+        if (configUuidVariants.some(variant => sUuid === variant)) {
+          targetService = service;
+          actualServiceUuid = sUuid; // Remember the format the device actually uses
+          console.log(`[Noble] Found service using UUID format: ${actualServiceUuid}`);
+          break;
         }
-        if (configUuid.length === 4 && sUuid.length === 32) {
-          return sUuid.substring(4, 8) === configUuid;
-        }
-        
-        return false;
-      });
+      }
       
       if (!targetService) {
         throw new Error(`Service ${config.serviceUuid} not found`);
@@ -249,38 +243,22 @@ export class NobleTransport extends EventEmitter {
         'Characteristic discovery timeout'
       );
       
+      // Find characteristics using all possible UUID variants
+      // Each characteristic might use different format (standard vs custom)
+      console.log(`[Noble] Looking for characteristics (any format):`);
+      console.log(`[Noble]   Write variants: [${expandUuidVariants(config.writeUuid).join(', ')}]`);
+      console.log(`[Noble]   Notify variants: [${expandUuidVariants(config.notifyUuid).join(', ')}]`);
+      
       this.writeChar = characteristics.find((c: any) => {
         const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const wUuid = config.writeUuid.toLowerCase().replace(/-/g, '');
-        
-        if (cUuid === wUuid) return true;
-        
-        // Handle short/long UUID mismatch
-        if (cUuid.length === 4 && wUuid.length === 32) {
-          return wUuid.substring(4, 8) === cUuid;
-        }
-        if (wUuid.length === 4 && cUuid.length === 32) {
-          return cUuid.substring(4, 8) === wUuid;
-        }
-        
-        return false;
+        const writeVariants = expandUuidVariants(config.writeUuid);
+        return writeVariants.some(variant => cUuid === variant);
       });
       
       this.notifyChar = characteristics.find((c: any) => {
         const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const nUuid = config.notifyUuid.toLowerCase().replace(/-/g, '');
-        
-        if (cUuid === nUuid) return true;
-        
-        // Handle short/long UUID mismatch
-        if (cUuid.length === 4 && nUuid.length === 32) {
-          return nUuid.substring(4, 8) === cUuid;
-        }
-        if (nUuid.length === 4 && cUuid.length === 32) {
-          return cUuid.substring(4, 8) === nUuid;
-        }
-        
-        return false;
+        const notifyVariants = expandUuidVariants(config.notifyUuid);
+        return notifyVariants.some(variant => cUuid === variant);
       });
       
       if (!this.writeChar || !this.notifyChar) {
@@ -392,12 +370,16 @@ export class NobleTransport extends EventEmitter {
       // Store cleanup function so it can be called externally if needed
       this.findDeviceCleanup = cleanupScan;
       
-      // Start scanning with service UUID filter
+      // Expand UUID into all possible variants (short, long) for scanning
+      // This handles both client formats and platform differences
+      const serviceUuidVariants = expandUuidVariants(serviceUuid);
+      
+      // Start scanning with all UUID variants
       const scanMessage = devicePrefix 
-        ? `[Noble] Starting BLE scan for service ${serviceUuid} with device filter: ${devicePrefix}...`
-        : `[Noble] Starting BLE scan for any device with service ${serviceUuid}...`;
+        ? `[Noble] Starting BLE scan for service variants [${serviceUuidVariants.join(', ')}] with device filter: ${devicePrefix}...`
+        : `[Noble] Starting BLE scan for any device with service variants [${serviceUuidVariants.join(', ')}]...`;
       console.log(scanMessage);
-      noble.startScanningAsync([serviceUuid], true).then(() => {
+      noble.startScanningAsync(serviceUuidVariants, true).then(() => {
         // Scanning started successfully
       }).catch((error) => {
         cleanupScan();
@@ -407,8 +389,8 @@ export class NobleTransport extends EventEmitter {
       timeout = setTimeout(() => {
         cleanupScan();
         const errorMsg = devicePrefix 
-          ? `Device ${devicePrefix} with service ${serviceUuid} not found`
-          : `No devices found with service ${serviceUuid}`;
+          ? `Device ${devicePrefix} with service variants [${serviceUuidVariants.join(', ')}] not found`
+          : `No devices found with service variants [${serviceUuidVariants.join(', ')}]`;
         reject(new Error(errorMsg));
       }, 15000);
       
@@ -434,7 +416,7 @@ export class NobleTransport extends EventEmitter {
         } else {
           // No device filter - take first device with matching service
           cleanupScan();
-          console.log(`[Noble] Found device with service ${serviceUuid}: ${name || id}`);
+          console.log(`[Noble] Found device with service variants [${serviceUuidVariants.join(', ')}]: ${name || id}`);
           resolve(device);
         }
       };

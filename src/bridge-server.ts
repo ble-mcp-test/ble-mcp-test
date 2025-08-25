@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import type { SharedState } from './shared-state.js';
 import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
-import { getPackageMetadata, normalizeUuid } from './utils.js';
+import { getPackageMetadata } from './utils.js';
 
 /**
  * BridgeServer - HTTP server and WebSocket routing
@@ -66,18 +66,10 @@ export class BridgeServer {
       
       const config: BleConfig = {
         devicePrefix: url.searchParams.get('device') || '',
-        serviceUuid: normalizeUuid(rawService),
-        writeUuid: normalizeUuid(rawWrite),
-        notifyUuid: normalizeUuid(rawNotify)
+        serviceUuid: rawService,   // Pass through - noble transport will handle variants
+        writeUuid: rawWrite,       // Pass through - noble transport will normalize
+        notifyUuid: rawNotify      // Pass through - noble transport will normalize
       };
-      
-      // Log UUID normalization if any were normalized
-      if (rawService !== config.serviceUuid || rawWrite !== config.writeUuid || rawNotify !== config.notifyUuid) {
-        console.log(`[Bridge] UUID normalization on ${process.platform}:`);
-        if (rawService !== config.serviceUuid) {
-          console.log(`  service: ${rawService} → ${config.serviceUuid}`);
-        }
-      }
       
       // Validate required parameters (device is now optional)
       if (!config.serviceUuid || !config.writeUuid || !config.notifyUuid) {

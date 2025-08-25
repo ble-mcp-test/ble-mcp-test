@@ -15,15 +15,15 @@ describe('Device-agnostic configuration', () => {
     
     expect(() => getTestConfig()).toThrow('BLE device configuration missing');
     
-    // Test with valid config
-    process.env.BLE_MCP_DEVICE_IDENTIFIER = 'TestDevice';
+    // Test with valid config (device can be empty string on Linux)
+    process.env.BLE_MCP_DEVICE_IDENTIFIER = '';  // Empty string is valid on Linux
     process.env.BLE_MCP_SERVICE_UUID = '9800';
     process.env.BLE_MCP_WRITE_UUID = '9900';
     process.env.BLE_MCP_NOTIFY_UUID = '9901';
     
     const config = getTestConfig();
     expect(config.wsUrl).toMatch(/^ws:\/\//);  // Must be a valid WebSocket URL
-    expect(config.device).toBeTruthy();  // Must have a device identifier
+    expect(config.device).toBeDefined();  // Must be defined (can be empty)
     expect(config.service).toBeTruthy();  // Must have service UUID
     expect(config.write).toBeTruthy();  // Must have write UUID
     expect(config.notify).toBeTruthy();  // Must have notify UUID

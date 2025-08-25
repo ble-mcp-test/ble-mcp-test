@@ -4,7 +4,7 @@ import { WS_URL, getDeviceConfig, setupTestServer } from '../test-config.js';
 import { connectionFactory } from '../connection-factory.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
-
+const TEST_SESSION_ID = `device-interaction-${Date.now()}`;
 
 describe.sequential('Device Interaction Tests', () => {
   // Clean up after each test to prevent hanging connections
@@ -31,7 +31,7 @@ describe.sequential('Device Interaction Tests', () => {
       // This test now focuses on functional behavior only
       
       try {
-        const params = new URLSearchParams(DEVICE_CONFIG);
+        const params = new URLSearchParams({...DEVICE_CONFIG, session: TEST_SESSION_ID});
         const connectionResult = await connectionFactory.connect(WS_URL, params);
         
         if (!connectionResult.connected) {
