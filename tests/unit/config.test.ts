@@ -3,17 +3,33 @@ import { getTestConfig } from '../test-config.js';
 
 describe('Device-agnostic configuration', () => {
   it('requires device configuration from environment', () => {
-    // This test will only pass if proper env vars are set
-    if (!process.env.BLE_MCP_DEVICE_IDENTIFIER && !process.env.BLE_MCP_DEVICE_NAME && !process.env.BLE_MCP_DEVICE_MAC) {
-      expect(() => getTestConfig()).toThrow('BLE device configuration missing');
-    } else {
-      const config = getTestConfig();
-      expect(config.wsUrl).toMatch(/^ws:\/\//);  // Must be a valid WebSocket URL
-      expect(config.device).toBeTruthy();  // Must have a device identifier
-      expect(config.service).toBeTruthy();  // Must have service UUID
-      expect(config.write).toBeTruthy();  // Must have write UUID
-      expect(config.notify).toBeTruthy();  // Must have notify UUID
-    }
+    const originalEnv = { ...process.env };
+    
+    // Test missing config
+    delete process.env.BLE_MCP_DEVICE_IDENTIFIER;
+    delete process.env.BLE_MCP_DEVICE_NAME;
+    delete process.env.BLE_MCP_DEVICE_MAC;
+    delete process.env.BLE_MCP_SERVICE_UUID;
+    delete process.env.BLE_MCP_WRITE_UUID;
+    delete process.env.BLE_MCP_NOTIFY_UUID;
+    
+    expect(() => getTestConfig()).toThrow('BLE device configuration missing');
+    
+    // Test with valid config (device can be empty string on Linux)
+    process.env.BLE_MCP_DEVICE_IDENTIFIER = '';  // Empty string is valid on Linux
+    process.env.BLE_MCP_SERVICE_UUID = '9800';
+    process.env.BLE_MCP_WRITE_UUID = '9900';
+    process.env.BLE_MCP_NOTIFY_UUID = '9901';
+    
+    const config = getTestConfig();
+    expect(config.wsUrl).toMatch(/^ws:\/\//);  // Must be a valid WebSocket URL
+    expect(config.device).toBeDefined();  // Must be defined (can be empty)
+    expect(config.service).toBeTruthy();  // Must have service UUID
+    expect(config.write).toBeTruthy();  // Must have write UUID
+    expect(config.notify).toBeTruthy();  // Must have notify UUID
+    
+    // Restore original environment
+    process.env = originalEnv;
   });
 
   it('uses BLE_MCP_* environment variables', () => {

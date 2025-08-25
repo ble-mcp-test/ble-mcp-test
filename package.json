@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.5.10",
+  "version": "0.5.11",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
@@ -22,7 +22,9 @@
     "web-bluetooth-mock",
     "claude",
     "ai",
-    "coding-assistant"
+    "coding-assistant",
+    "nodejs",
+    "node"
   ],
   "author": "Mike Stankavich <mike@trakrf.id> (https://trakrf.id)",
   "license": "MIT",
@@ -48,12 +50,17 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./browser": "./dist/web-ble-mock.bundle.js"
+    "./browser": "./dist/web-ble-mock.bundle.js",
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "import": "./dist/node/index.js"
+    }
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "build": "tsc && pnpm run build:browser",
@@ -62,11 +69,15 @@
     "start": "node dist/start-server.js",
     "start:http": "node dist/start-server.js --mcp-http",
     "start:ci": "BLE_MCP_HTTP_TOKEN=test-token node dist/start-server.js --mcp-http",
-    "start:bg": "nohup node dist/start-server.js > tmp/bridge-server.log 2>&1 & echo $! > tmp/bridge-server.pid",
-    "stop": "[ -f tmp/bridge-server.pid ] && kill $(cat tmp/bridge-server.pid) && rm tmp/bridge-server.pid || echo 'No server running'",
-    "restart": "pnpm run stop && pnpm run start:bg",
-    "status": "[ -f tmp/bridge-server.pid ] && ps -p $(cat tmp/bridge-server.pid) > /dev/null && echo 'Bridge server running (PID: '$(cat tmp/bridge-server.pid)')' || echo 'Bridge server not running'",
-    "logs": "tail -f tmp/bridge-server.log",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop ble-mcp-test",
+    "pm2:restart": "pm2 restart ble-mcp-test",
+    "pm2:status": "pm2 show ble-mcp-test",
+    "pm2:logs": "pm2 logs ble-mcp-test",
+    "pm2:monitor": "pm2 monit",
+    "pm2:delete": "pm2 delete ble-mcp-test",
+    "pm2:save": "pm2 save",
+    "pm2:startup": "pm2 startup",
     "check:device": "node scripts/check-device-available.js",
     "check:health": "node scripts/check-device-available.js && echo '✅ Device is ready for use!'",
     "pretest": "node scripts/pre-test-cleanup.js",
@@ -88,6 +99,7 @@
     "@stoprocent/noble": "^2.3.4",
     "cors": "^2.8.5",
     "express": "^4.18.2",
+    "pm2": "^6.0.8",
     "ws": "^8.16.0",
     "zod": "^3.25.76"
   },

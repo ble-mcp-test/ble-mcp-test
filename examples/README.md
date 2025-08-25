@@ -2,6 +2,32 @@
 
 This directory contains examples and test utilities for the ble-mcp-test library.
 
+## Node.js Client Example (node-client-example.js)
+
+Demonstrates using the Node.js transport to communicate with BLE devices.
+
+**Requirements:**
+- Bridge server running on localhost:8080
+- BLE device powered on and in range
+- Node.js 14+ (client only needs ws and EventEmitter)
+
+**Usage:**
+```bash
+# With default settings (CS108 device)
+node examples/node-client-example.js
+
+# With custom device
+BLE_DEVICE=MyDevice BLE_SERVICE=180f node examples/node-client-example.js
+```
+
+**Features demonstrated:**
+- Connecting to bridge server
+- Requesting BLE device
+- GATT connection
+- Reading/writing characteristics
+- Handling notifications
+- Proper cleanup
+
 ## Cache Busting Test (version-check.html)
 
 Tests the cache-busting functionality of the web bundle:

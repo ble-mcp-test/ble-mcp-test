@@ -31,7 +31,8 @@ export function getTestConfig(): BridgeTestConfig {
   const wsUrl = process.env.BLE_MCP_WS_URL || `ws://localhost:${wsPort}`;
 
   // Validate required configuration
-  if (!device) {
+  // Note: device can be empty string on Linux (searches by service UUID only)
+  if (device === undefined) {
     throw new Error('BLE device configuration missing. Set BLE_MCP_DEVICE_IDENTIFIER in .env.local');
   }
   

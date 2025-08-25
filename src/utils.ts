@@ -82,6 +82,47 @@ export function normalizeUuid(uuid: string): string {
   }
 }
 
+export function expandUuidVariants(uuid: string): string[] {
+  const clean = uuid.toLowerCase().replace(/-/g, '');
+  const variants: string[] = [];
+  
+  if (clean.length === 4) {
+    // Short UUID - add both short and expanded forms (with and without dashes)
+    variants.push(clean);                                    // '9800'
+    const fullUuid = `0000${clean}00001000800000805f9b34fb`; 
+    variants.push(fullUuid);                                 // Full form without dashes
+    // Add dashed version for platforms that use them
+    variants.push(`${fullUuid.substring(0,8)}-${fullUuid.substring(8,12)}-${fullUuid.substring(12,16)}-${fullUuid.substring(16,20)}-${fullUuid.substring(20)}`);
+  } else if (clean.length === 32) {
+    // Check if it's a standard Bluetooth UUID (expandable to short)
+    if (clean.endsWith('00001000800000805f9b34fb') && clean.startsWith('0000')) {
+      const shortUuid = clean.substring(4, 8);
+      variants.push(shortUuid);                              // '9800'
+    }
+    variants.push(clean);                                    // Original full UUID without dashes
+    // Add dashed version for platforms that use them
+    variants.push(`${clean.substring(0,8)}-${clean.substring(8,12)}-${clean.substring(12,16)}-${clean.substring(16,20)}-${clean.substring(20)}`);
+  } else {
+    // Custom UUID or other length - use as-is (both with and without dashes if it looks like a UUID)
+    variants.push(clean);
+    // If it looks like it could be a UUID (reasonable length), add dashed version
+    if (clean.length === 16 || clean.length === 24 || clean.length === 28) {
+      // Add dashed version for other UUID formats
+      if (clean.length === 16) {
+        // 16-char format
+        variants.push(`${clean.substring(0,8)}-${clean.substring(8)}`);
+      } else if (clean.length >= 20) {
+        // Try standard UUID dash pattern
+        const padded = clean.padEnd(32, '0');
+        variants.push(`${padded.substring(0,8)}-${padded.substring(8,12)}-${padded.substring(12,16)}-${padded.substring(16,20)}-${padded.substring(20)}`);
+      }
+    }
+  }
+  
+  // Remove duplicates and return
+  return [...new Set(variants)];
+}
+
 
 /**
  * Clean timeout wrapper that handles both rejection and cleanup

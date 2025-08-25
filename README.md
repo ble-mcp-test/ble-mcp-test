@@ -99,6 +99,129 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
+## Node.js Usage (v0.5.11+)
+
+Use ble-mcp-test directly in Node.js applications for integration testing:
+
+**Requirements:**
+- Node.js 14+ for the client (uses only `ws` and built-in `events`)
+- Bridge server requires Node.js 24+ (for Noble BLE access)
+
+```javascript
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+// Create client instance
+const client = new NodeBleClient({
+  bridgeUrl: 'ws://localhost:8080',
+  device: 'CS108',        // Optional: specific device name
+  service: '9800',        // Required: service UUID
+  write: '9900',          // Required: write characteristic UUID
+  notify: '9901',         // Required: notify characteristic UUID
+  sessionId: 'test-123',  // Optional: explicit session ID
+  debug: true             // Optional: enable debug logging
+});
+
+// Connect to bridge
+await client.connect();
+
+// Request device (Web Bluetooth API compatible)
+const device = await client.requestDevice({
+  filters: [{ namePrefix: 'CS108' }]
+});
+
+// Connect GATT
+await device.gatt.connect();
+
+// Get service and characteristics
+const service = await device.gatt.getPrimaryService('9800');
+const writeChar = await service.getCharacteristic('9900');
+const notifyChar = await service.getCharacteristic('9901');
+
+// Start notifications
+await notifyChar.startNotifications();
+notifyChar.addEventListener('characteristicvaluechanged', (event) => {
+  const value = event.target.value;
+  console.log('Received:', new Uint8Array(value.buffer));
+});
+
+// Write command
+const command = new Uint8Array([0xA7, 0xB3, 0xC2, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x00]);
+await writeChar.writeValue(command);
+
+// Cleanup
+await device.gatt.disconnect();
+await client.disconnect();
+```
+
+### Node.js vs Browser API Differences
+
+| Feature | Browser Mock | Node.js Transport |
+|---------|-------------|-------------------|
+| Import | `import 'ble-mcp-test'` | `import { NodeBleClient } from 'ble-mcp-test/node'` |
+| Initialization | `injectWebBluetoothMock()` | `new NodeBleClient()` |
+| Global API | Replaces `navigator.bluetooth` | Standalone client instance |
+| Events | DOM EventTarget | Node.js EventEmitter |
+| Module Format | UMD bundle | ESM export |
+| Node.js Version | N/A (runs in browser) | 14+ (client only) |
+| Browser Support | Any browser (replaces Web Bluetooth) | N/A (Node.js only) |
+
+### Integration Testing Example
+
+```javascript
+// test/integration/ble-device.test.js
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+describe('BLE Device Integration', () => {
+  let client;
+  let device;
+
+  beforeAll(async () => {
+    client = new NodeBleClient({
+      bridgeUrl: 'ws://localhost:8080',
+      service: '9800',
+      write: '9900',
+      notify: '9901'
+    });
+    await client.connect();
+    device = await client.requestDevice();
+    await device.gatt.connect();
+  });
+
+  afterAll(async () => {
+    await device?.gatt.disconnect();
+    await client?.disconnect();
+  });
+
+  it('should read battery voltage', async () => {
+    const service = await device.gatt.getPrimaryService('9800');
+    const writeChar = await service.getCharacteristic('9900');
+    const notifyChar = await service.getCharacteristic('9901');
+
+    await notifyChar.startNotifications();
+    
+    const response = await new Promise((resolve) => {
+      notifyChar.once('characteristicvaluechanged', (event) => {
+        resolve(new Uint8Array(event.target.value.buffer));
+      });
+      
+      // Send battery voltage command
+      const cmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+      writeChar.writeValue(cmd);
+    });
+
+    // Verify response format
+    expect(response[8]).toBe(0xA0);  // Command echo
+    expect(response[9]).toBe(0x00);
+    
+    // Extract voltage (bytes 10-11, big-endian)
+    const voltage = (response[10] << 8) | response[11];
+    expect(voltage).toBeGreaterThan(3000); // > 3.0V
+    expect(voltage).toBeLessThan(4500);    // < 4.5V
+  });
+});
+```
+
 ## Session Management (v0.5.2+)
 
 Sessions allow BLE connections to persist across WebSocket disconnects and prevent conflicts:
@@ -198,6 +321,7 @@ This is especially useful when:
 ## Features
 
 ✅ **Complete Web Bluetooth API Mock** - Drop-in replacement for navigator.bluetooth  
+✅ **Node.js Transport** - Use Web Bluetooth API in Node.js applications  
 ✅ **Real Device Communication** - Tests use actual BLE hardware via bridge  
 ✅ **Any Browser/OS** - No Chrome-only or platform restrictions  
 ✅ **CI/CD Ready** - Run BLE tests in GitHub Actions, Docker, etc  

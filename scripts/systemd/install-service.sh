@@ -25,7 +25,8 @@ pnpm run build
 
 # Copy service file to systemd directory
 echo "Installing systemd service..."
-sudo cp ble-bridge.service /etc/systemd/system/
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+sudo cp "$SCRIPT_DIR/ble-bridge.service" /etc/systemd/system/
 
 # Reload systemd
 echo "Reloading systemd..."

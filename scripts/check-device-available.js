@@ -14,17 +14,14 @@ import { resolve } from 'path';
 // Load environment variables
 dotenv.config({ path: resolve(process.cwd(), '.env.local') });
 
-const deviceIdentifier = process.env['BLE_MCP_DEVICE_IDENTIFIER'];
-if (!deviceIdentifier) {
-  console.error('❌ BLE_MCP_DEVICE_IDENTIFIER not set');
-  console.error('Set it to either a MAC address (e.g., 6c79b82603a7) or device name (e.g., CS108-260572)');
-  process.exit(1);
-}
+// Check for CS108 devices by service UUID
+const CS108_SERVICE_UUID = '9800';
+const devicePrefix = process.env['BLE_MCP_DEVICE_PREFIX'] || 'CS108';
 
 // Use configured recovery delay as timeout, or 5s default
 const timeoutMs = parseInt(process.env.BLE_MCP_RECOVERY_DELAY || '5000', 10);
 
-console.log(`🔍 Checking for BLE device: ${deviceIdentifier} (timeout: ${timeoutMs/1000}s)`);
+console.log(`🔍 Checking for BLE devices with service UUID ${CS108_SERVICE_UUID} (prefix: ${devicePrefix}, timeout: ${timeoutMs/1000}s)`);
 
 async function checkDevice() {
   // Wait for Bluetooth adapter to be powered on
@@ -43,7 +40,7 @@ async function checkDevice() {
 
   // Set up timeout
   const timeoutHandle = setTimeout(() => {
-    console.error(`❌ Device ${deviceIdentifier} not found after ${timeoutMs/1000}s`);
+    console.error(`❌ No devices found with service UUID ${CS108_SERVICE_UUID} after ${timeoutMs/1000}s`);
     console.error('');
     console.error('⚠️  HARDWARE NOT VISIBLE TO SCAN');
     console.error('');
@@ -63,16 +60,28 @@ async function checkDevice() {
   noble.on('discover', (peripheral) => {
     const id = peripheral.id;
     const name = peripheral.advertisement.localName || '';
+    const serviceUuids = peripheral.advertisement.serviceUuids || [];
     
-    if (id.startsWith(deviceIdentifier) || name.startsWith(deviceIdentifier)) {
+    // Check if device advertises the CS108 service UUID
+    const hasService = serviceUuids.some(uuid => 
+      uuid.toLowerCase().includes(CS108_SERVICE_UUID.toLowerCase())
+    );
+    
+    // Also check if name matches the prefix (for CS108 devices)
+    const nameMatches = name.startsWith(devicePrefix);
+    
+    if (hasService || nameMatches) {
       clearTimeout(timeoutHandle);
       console.log(`✅ Found device: ${name || 'Unknown'} [${id}] RSSI: ${peripheral.rssi}`);
+      if (hasService) {
+        console.log(`   Service UUIDs: ${serviceUuids.join(', ')}`);
+      }
       stopAndExit(0);
     }
   });
 
-  // Start scanning with duplicates (critical for CS108 on Linux)
-  await noble.startScanningAsync([], true);
+  // Start scanning with service filter and duplicates (critical for CS108 on Linux)
+  await noble.startScanningAsync([CS108_SERVICE_UUID], true);
   console.log('📡 Scanning...');
 }
 
