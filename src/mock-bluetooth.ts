@@ -395,7 +395,7 @@ export class MockBluetooth {
     if (typeof process !== 'undefined' && process.cwd) {
       // Get the last part of the current working directory
       const cwd = process.cwd();
-      const parts = cwd.split(/[\/\\]/);
+      const parts = cwd.split(/[/\\]/);
       return parts[parts.length - 1] || 'test';
     }
     

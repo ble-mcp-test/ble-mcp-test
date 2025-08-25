@@ -517,8 +517,7 @@ export class NobleTransport extends EventEmitter {
     const { 
       force = false, 
       resetStack = force,
-      verifyResources = true,
-      deviceName = options.deviceName
+      verifyResources = true
     } = options;
 
     // SAFETY: Never run cleanup during active connection
