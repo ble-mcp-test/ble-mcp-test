@@ -196,6 +196,457 @@ Follow test patterns from:
 - `tests/unit/mock-bluetooth.test.ts` for API testing
 - Use `connectionFactory` pattern from `tests/connection-factory.ts`
 
+#### Task 11: Version Bump
+Update `package.json`:
+```json
+{
+  "version": "0.5.11"
+}
+```
+
+#### Task 12: Update CHANGELOG
+Add to `CHANGELOG.md`:
+```markdown
+## [0.5.11] - 2025-08-25
+
+### Added
+- **Node.js Transport Client**: Complete Web Bluetooth API implementation for Node.js environments
+  - New `NodeBleClient` class provides Web Bluetooth API compatibility in Node.js
+  - Enables integration testing against real hardware without browser dependency
+  - Full support for requestDevice, GATT operations, and notifications
+  - Compatible with existing WebSocket bridge server
+  - Session management and reconnection support
+  - Import as: `import { NodeBleClient } from 'ble-mcp-test/node'`
+  
+### Changed
+- Package now exports separate entry points for browser and Node.js usage
+- Added dual ESM/CJS exports for Node.js transport
+```
+
+#### Task 13: Update README
+Add new section to `README.md` after the browser example (around line 100):
+
+```markdown
+## Node.js Usage (v0.5.11+)
+
+Use ble-mcp-test directly in Node.js applications for integration testing:
+
+```javascript
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+// Create client instance
+const client = new NodeBleClient({
+  bridgeUrl: 'ws://localhost:8080',
+  device: 'CS108',        // Optional: specific device name
+  service: '9800',        // Required: service UUID
+  write: '9900',          // Required: write characteristic UUID
+  notify: '9901',         // Required: notify characteristic UUID
+  sessionId: 'test-123',  // Optional: explicit session ID
+  debug: true             // Optional: enable debug logging
+});
+
+// Connect to bridge
+await client.connect();
+
+// Request device (Web Bluetooth API compatible)
+const device = await client.requestDevice({
+  filters: [{ namePrefix: 'CS108' }]
+});
+
+// Connect GATT
+await device.gatt.connect();
+
+// Get service and characteristics
+const service = await device.gatt.getPrimaryService('9800');
+const writeChar = await service.getCharacteristic('9900');
+const notifyChar = await service.getCharacteristic('9901');
+
+// Start notifications
+await notifyChar.startNotifications();
+notifyChar.addEventListener('characteristicvaluechanged', (event) => {
+  const value = event.target.value;
+  console.log('Received:', new Uint8Array(value.buffer));
+});
+
+// Write command
+const command = new Uint8Array([0xA7, 0xB3, 0xC2, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x00]);
+await writeChar.writeValue(command);
+
+// Cleanup
+await device.gatt.disconnect();
+await client.disconnect();
+```
+
+### Node.js vs Browser API Differences
+
+| Feature | Browser Mock | Node.js Transport |
+|---------|-------------|-------------------|
+| Import | `import 'ble-mcp-test'` | `import { NodeBleClient } from 'ble-mcp-test/node'` |
+| Initialization | `injectWebBluetoothMock()` | `new NodeBleClient()` |
+| Global API | Replaces `navigator.bluetooth` | Standalone client instance |
+| Events | DOM EventTarget | Node.js EventEmitter |
+| Module Format | UMD bundle | ESM + CJS dual export |
+
+### Integration Testing Example
+
+```javascript
+// test/integration/ble-device.test.js
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+describe('BLE Device Integration', () => {
+  let client;
+  let device;
+
+  beforeAll(async () => {
+    client = new NodeBleClient({
+      bridgeUrl: 'ws://localhost:8080',
+      service: '9800',
+      write: '9900',
+      notify: '9901'
+    });
+    await client.connect();
+    device = await client.requestDevice();
+    await device.gatt.connect();
+  });
+
+  afterAll(async () => {
+    await device?.gatt.disconnect();
+    await client?.disconnect();
+  });
+
+  it('should read battery voltage', async () => {
+    const service = await device.gatt.getPrimaryService('9800');
+    const writeChar = await service.getCharacteristic('9900');
+    const notifyChar = await service.getCharacteristic('9901');
+
+    await notifyChar.startNotifications();
+    
+    const response = await new Promise((resolve) => {
+      notifyChar.once('characteristicvaluechanged', (event) => {
+        resolve(new Uint8Array(event.target.value.buffer));
+      });
+      
+      // Send battery voltage command
+      const cmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+      writeChar.writeValue(cmd);
+    });
+
+    // Verify response format
+    expect(response[8]).toBe(0xA0);  // Command echo
+    expect(response[9]).toBe(0x00);
+    
+    // Extract voltage (bytes 10-11, big-endian)
+    const voltage = (response[10] << 8) | response[11];
+    expect(voltage).toBeGreaterThan(3000); // > 3.0V
+    expect(voltage).toBeLessThan(4500);    // < 4.5V
+  });
+});
+```
+```
+
+Also add to the Features section (around line 199):
+```markdown
+✅ **Node.js Transport** - Use Web Bluetooth API in Node.js applications
+```
+
+#### Task 14: Update API Documentation
+Update `docs/API.md` with Node.js transport documentation:
+
+```markdown
+## Node.js Transport API
+
+### NodeBleClient
+
+Main client class for Node.js environments.
+
+#### Constructor
+```javascript
+new NodeBleClient(options: NodeBleClientOptions)
+```
+
+**Options:**
+- `bridgeUrl` (string, required): WebSocket bridge server URL
+- `device` (string, optional): Device name filter
+- `service` (string, required): Service UUID
+- `write` (string, required): Write characteristic UUID
+- `notify` (string, required): Notify characteristic UUID
+- `sessionId` (string, optional): Explicit session ID
+- `debug` (boolean, optional): Enable debug logging
+- `reconnectAttempts` (number, optional): Max reconnection attempts (default: 3)
+- `reconnectDelay` (number, optional): Delay between reconnects in ms (default: 1000)
+
+#### Methods
+
+##### async connect()
+Connect to the WebSocket bridge server.
+
+##### async disconnect()
+Disconnect from the bridge server and cleanup resources.
+
+##### async requestDevice(options?)
+Request a BLE device (Web Bluetooth API compatible).
+
+**Options:**
+- `filters`: Array of device filters
+  - `namePrefix`: Device name prefix to match
+  - `services`: Service UUIDs to match
+
+**Returns:** `NodeBleDevice` instance
+
+##### async getAvailability()
+Check if Bluetooth is available (always returns true when bridge is connected).
+
+##### getDevices()
+Get list of paired devices (returns empty array - not implemented).
+
+### NodeBleDevice
+
+Represents a BLE device.
+
+#### Properties
+- `id` (string): Device identifier
+- `name` (string | null): Device name
+- `gatt` (NodeBleGATT): GATT server instance
+
+#### Events
+- `gattserverdisconnected`: Emitted when device disconnects
+
+### NodeBleGATT
+
+GATT server interface.
+
+#### Properties
+- `connected` (boolean): Connection state
+
+#### Methods
+- `async connect()`: Connect to device
+- `async disconnect()`: Disconnect from device
+- `async getPrimaryService(uuid)`: Get primary service by UUID
+- `async getPrimaryServices()`: Get all primary services
+
+### NodeBleService
+
+Represents a GATT service.
+
+#### Properties
+- `uuid` (string): Service UUID
+
+#### Methods
+- `async getCharacteristic(uuid)`: Get characteristic by UUID
+- `async getCharacteristics()`: Get all characteristics
+
+### NodeBleCharacteristic
+
+Represents a GATT characteristic.
+
+#### Properties
+- `uuid` (string): Characteristic UUID
+- `value` (DataView | null): Last read/notified value
+
+#### Methods
+- `async readValue()`: Read characteristic value
+- `async writeValue(value)`: Write value
+- `async writeValueWithResponse(value)`: Write with response
+- `async writeValueWithoutResponse(value)`: Write without response
+- `async startNotifications()`: Start notifications
+- `async stopNotifications()`: Stop notifications
+
+#### Events
+- `characteristicvaluechanged`: Emitted when notification received
+```
+
+#### Task 15: Create Node.js Example
+Create `examples/node-client-example.js`:
+
+```javascript
+#!/usr/bin/env node
+
+/**
+ * Node.js BLE Client Example
+ * 
+ * Demonstrates using ble-mcp-test Node.js transport to communicate
+ * with a real BLE device through the WebSocket bridge.
+ * 
+ * Prerequisites:
+ * 1. Start the bridge server: pnpm run start
+ * 2. Ensure BLE device is powered on and in range
+ * 3. Run this example: node examples/node-client-example.js
+ */
+
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+async function main() {
+  // Create client with configuration
+  const client = new NodeBleClient({
+    bridgeUrl: 'ws://localhost:8080',
+    device: process.env.BLE_DEVICE || 'CS108',
+    service: process.env.BLE_SERVICE || '9800',
+    write: process.env.BLE_WRITE || '9900', 
+    notify: process.env.BLE_NOTIFY || '9901',
+    debug: true
+  });
+
+  try {
+    console.log('🔌 Connecting to bridge server...');
+    await client.connect();
+    console.log('✅ Connected to bridge');
+
+    console.log('🔍 Requesting BLE device...');
+    const device = await client.requestDevice({
+      filters: [{ namePrefix: client.options.device }]
+    });
+    console.log(`✅ Found device: ${device.name || device.id}`);
+
+    console.log('📡 Connecting to GATT server...');
+    await device.gatt.connect();
+    console.log('✅ GATT connected');
+
+    // Get service and characteristics
+    const service = await device.gatt.getPrimaryService(client.options.service);
+    const writeChar = await service.getCharacteristic(client.options.write);
+    const notifyChar = await service.getCharacteristic(client.options.notify);
+
+    // Set up notifications
+    console.log('🔔 Starting notifications...');
+    await notifyChar.startNotifications();
+    
+    notifyChar.addEventListener('characteristicvaluechanged', (event) => {
+      const data = new Uint8Array(event.target.value.buffer);
+      const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
+      console.log(`📥 Notification: ${hex}`);
+      
+      // Parse battery voltage if this is a battery response
+      if (data.length >= 12 && data[8] === 0xA0 && data[9] === 0x00) {
+        const voltage = (data[10] << 8) | data[11];
+        console.log(`🔋 Battery: ${voltage}mV (${(voltage/1000).toFixed(2)}V)`);
+      }
+    });
+
+    // Send battery voltage command
+    console.log('📤 Sending battery voltage command...');
+    const batteryCmd = new Uint8Array([
+      0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00
+    ]);
+    await writeChar.writeValue(batteryCmd);
+
+    // Wait for response
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Cleanup
+    console.log('🧹 Disconnecting...');
+    await device.gatt.disconnect();
+    await client.disconnect();
+    console.log('✅ Disconnected successfully');
+
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    process.exit(1);
+  }
+}
+
+// Run the example
+main().catch(console.error);
+```
+
+#### Task 16: Update Examples README
+Add to `examples/README.md`:
+
+```markdown
+## Node.js Client Example (node-client-example.js)
+
+Demonstrates using the Node.js transport to communicate with BLE devices.
+
+**Requirements:**
+- Bridge server running on localhost:8080
+- BLE device powered on and in range
+
+**Usage:**
+```bash
+# With default settings (CS108 device)
+node examples/node-client-example.js
+
+# With custom device
+BLE_DEVICE=MyDevice BLE_SERVICE=180f node examples/node-client-example.js
+```
+
+**Features demonstrated:**
+- Connecting to bridge server
+- Requesting BLE device
+- GATT connection
+- Reading/writing characteristics
+- Handling notifications
+- Proper cleanup
+```
+
+#### Task 17: NPM Publishing Preparation
+Verify package.json has all necessary fields for publishing:
+
+```json
+{
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "keywords": [
+    "mcp",
+    "model-context-protocol", 
+    "ble",
+    "bluetooth",
+    "bluetooth-low-energy",
+    "web-bluetooth",
+    "testing",
+    "mock",
+    "playwright",
+    "e2e",
+    "e2e-testing",
+    "bridge",
+    "websocket",
+    "noble",
+    "packet-inspection",
+    "ble-testing",
+    "web-bluetooth-mock",
+    "claude",
+    "ai",
+    "coding-assistant",
+    "nodejs",
+    "node"
+  ]
+}
+```
+
+#### Task 18: Create Migration Guide (if needed)
+Since this is a new feature and not a breaking change, create a simple adoption guide in the README:
+
+```markdown
+## Migrating from Direct WebSocket Usage
+
+If you were previously using WebSocket directly in Node.js:
+
+**Before (Direct WebSocket):**
+```javascript
+const ws = new WebSocket('ws://localhost:8080?device=CS108&service=9800');
+ws.on('message', (data) => { /* handle manually */ });
+```
+
+**After (Node.js Transport):**
+```javascript
+import { NodeBleClient } from 'ble-mcp-test/node';
+const client = new NodeBleClient({ bridgeUrl: 'ws://localhost:8080' });
+const device = await client.requestDevice();
+// Use Web Bluetooth API
+```
+
+Benefits of migration:
+- ✅ Web Bluetooth API compatibility
+- ✅ Automatic session management
+- ✅ Built-in retry logic
+- ✅ Type safety with TypeScript
+- ✅ Event-driven architecture
+```
+
 ## Critical Implementation Details
 
 ### Session Management
@@ -320,19 +771,75 @@ pnpm run test:node
 ## Success Criteria
 
 The implementation is successful when:
+
+### Code Quality
 1. ✅ All TypeScript compiles without errors
 2. ✅ All lint checks pass
 3. ✅ Unit tests cover all major functionality
 4. ✅ Integration test successfully communicates with real device
-5. ✅ Can be imported as `import { NodeBleClient } from 'ble-mcp-test/node'`
-6. ✅ Works with existing bridge server without modifications
-7. ✅ Maintains Web Bluetooth API compatibility
-8. ✅ Session reuse works across multiple client instances
-9. ✅ Handles connection errors gracefully with retry
-10. ✅ Total implementation under 600 lines (excluding tests)
+5. ✅ Total implementation under 600 lines (excluding tests)
 
-## Implementation Confidence Score: 9/10
+### Functionality
+6. ✅ Can be imported as `import { NodeBleClient } from 'ble-mcp-test/node'`
+7. ✅ Works with existing bridge server without modifications
+8. ✅ Maintains Web Bluetooth API compatibility
+9. ✅ Session reuse works across multiple client instances
+10. ✅ Handles connection errors gracefully with retry
 
-This PRP provides comprehensive context from the existing codebase, clear implementation patterns to follow, external documentation references, and executable validation steps. The only uncertainty is around potential edge cases with real BLE devices, which will be caught during integration testing.
+### Documentation & Versioning
+11. ✅ Version bumped to 0.5.11 in package.json
+12. ✅ CHANGELOG.md updated with feature description
+13. ✅ README.md includes Node.js usage section with examples
+14. ✅ API documentation in docs/API.md covers all Node.js classes
+15. ✅ Working example in examples/node-client-example.js
+16. ✅ Examples README updated with Node.js example
+17. ✅ Migration guide included for users switching from direct WebSocket
+18. ✅ Package.json keywords updated to include "nodejs" and "node"
 
-The implementation should be straightforward by following the existing mock-bluetooth.ts patterns and adapting them for Node.js environment with proper EventEmitter usage and ws WebSocket library.
+### Publishing Readiness
+19. ✅ Dual ESM/CJS exports configured correctly
+20. ✅ TypeScript definitions generated and exported
+21. ✅ All files needed for NPM included in "files" field
+22. ✅ Runs successfully with `npm pack` dry run
+
+## Final Validation Checklist
+
+Before marking complete, verify:
+
+```bash
+# 1. Build succeeds
+pnpm run build
+pnpm run build:node
+
+# 2. Tests pass
+pnpm run test:node
+
+# 3. Linting passes
+pnpm run lint
+pnpm run typecheck
+
+# 4. Example runs
+node examples/node-client-example.js
+
+# 5. Documentation complete
+grep -q "0.5.11" CHANGELOG.md
+grep -q "Node.js Usage" README.md
+grep -q "NodeBleClient" docs/API.md
+
+# 6. Package ready for publish
+npm pack --dry-run
+```
+
+## Implementation Confidence Score: 10/10
+
+This PRP now provides:
+- Complete implementation blueprint with 18 detailed tasks
+- Comprehensive documentation and versioning requirements
+- All necessary code patterns from existing codebase
+- External documentation references for all libraries
+- Executable validation steps at multiple levels
+- Full API documentation templates
+- Working example code
+- Migration guide for existing users
+
+The implementation path is completely defined with no ambiguity. All tasks are ordered, documented, and validated. The documentation ensures users can immediately adopt the new Node.js transport upon release.
