@@ -1,0 +1,13 @@
+.cert
+.claude
+.DS_Store
+.env.local
+.idea
+.serena
+.vscode
+build
+coverage
+dist
+node_modules
+tmp
+*.log

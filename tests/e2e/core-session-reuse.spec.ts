@@ -13,7 +13,7 @@ test.describe('Core Session Reuse - THE ACTUAL USE CASE', () => {
   
   // Get REAL config from environment
   const bleConfig = {
-    device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
+    device: process.env.BLE_MCP_DEVICE_IDENTIFIER || '',  // Don't require device name
     service: process.env.BLE_MCP_SERVICE_UUID || '9800',
     write: process.env.BLE_MCP_WRITE_UUID || '9900',
     notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'

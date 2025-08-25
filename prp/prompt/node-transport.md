@@ -5,12 +5,12 @@ Add a Node.js transport client to ble-mcp-test that provides Web Bluetooth API c
 
 ## Context
 This project (ble-mcp-test) is a WebSocket-to-BLE bridge that allows testing real BLE devices in Playwright/E2E tests without browser support. The current implementation provides:
-- A WebSocket bridge server (`src/bridge-server.ts`) 
-- A browser mock implementation (`src/mock-bluetooth.ts`)
+- A WebSocket bridge server (`src/bridge-server.ts`) - requires Node.js 24+ for Noble
+- A browser mock implementation (`src/mock-bluetooth.ts`) - works in any browser
 - WebSocket transport (`src/ws-transport.ts`)
-- Noble BLE transport (`src/noble-transport.ts`)
+- Noble BLE transport (`src/noble-transport.ts`) - requires Node.js 24+
 
-The Node.js transport will provide the same Web Bluetooth API interface for Node.js environments, routing through the existing WebSocket bridge.
+The Node.js transport will provide the same Web Bluetooth API interface for Node.js environments, routing through the existing WebSocket bridge. It will work with Node.js 14+ since it only uses WebSocket and EventEmitter.
 
 ## Key Implementation Files to Reference
 
@@ -231,6 +231,10 @@ Add new section to `README.md` after the browser example (around line 100):
 
 Use ble-mcp-test directly in Node.js applications for integration testing:
 
+**Requirements:**
+- Node.js 14+ for the client (uses only `ws` and built-in `events`)
+- Bridge server requires Node.js 24+ (for Noble BLE access)
+
 ```javascript
 import { NodeBleClient } from 'ble-mcp-test/node';
 
@@ -286,6 +290,8 @@ await client.disconnect();
 | Global API | Replaces `navigator.bluetooth` | Standalone client instance |
 | Events | DOM EventTarget | Node.js EventEmitter |
 | Module Format | UMD bundle | ESM + CJS dual export |
+| Node.js Version | N/A (runs in browser) | 14+ (client only) |
+| Browser Support | Any browser (replaces Web Bluetooth) | N/A (Node.js only) |
 
 ### Integration Testing Example
 
@@ -584,6 +590,17 @@ Verify package.json has all necessary fields for publishing:
 
 ```json
 {
+  "engines": {
+    "node": ">=14.0.0"  // Update from >=24.0.0 since client works with Node 14+
+  },
+  "peerDependencies": {
+    "@stoprocent/noble": "^2.3.4"  // Move Noble to peer dependency
+  },
+  "peerDependenciesMeta": {
+    "@stoprocent/noble": {
+      "optional": true  // Only needed for running bridge server
+    }
+  },
   "files": [
     "dist",
     "README.md",
@@ -744,6 +761,25 @@ pnpm run test:node
 
 # Expected: All tests pass with real BLE device
 ```
+
+## Architecture Decision: Node.js Version Requirements
+
+### Why Different Node.js Versions?
+- **Bridge Server (Node.js 24+)**: Uses `@stoprocent/noble` which requires Node.js 24+ for native BLE access
+- **Node.js Transport Client (Node.js 14+)**: Only uses `ws` and built-in `events`, no BLE dependencies
+- **Browser Mock (Any browser)**: Replaces `navigator.bluetooth` entirely, works even without Web Bluetooth support
+
+### Package.json Strategy
+To support both use cases, we should:
+1. Set `engines.node` to `>=14.0.0` (allows client usage on older Node.js)
+2. Move `@stoprocent/noble` to `peerDependencies` with `optional: true`
+3. Document clearly that Node.js 24+ is only needed for running the bridge server
+4. The `ble-mcp-test` CLI command will check Node.js version and warn if < 24
+
+This allows maximum flexibility:
+- Users can install and use the Node.js client on Node.js 14+
+- Bridge server operators need Node.js 24+
+- No unnecessary restrictions for client-only usage
 
 ## Known Gotchas and Solutions
 

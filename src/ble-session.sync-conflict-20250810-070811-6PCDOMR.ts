@@ -63,23 +63,13 @@ export class BleSession extends EventEmitter {
       this.cleanup('transport error', error);
     });
 
-    try {
-      // Connect and start idle timer
-      this.deviceName = await this.transport.connect(this.config);
-      this.resetIdleTimer();
-      
-      console.log(`[Session:${this.sessionId}] Connected to ${this.deviceName}`);
-      this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
-      return this.deviceName;
-    } catch (error) {
-      // Connection failed - clean up the transport
-      console.log(`[Session:${this.sessionId}] Connection failed: ${error}`);
-      if (this.transport) {
-        await this.transport.cleanup({ force: true });
-        this.transport = null;
-      }
-      throw error;
-    }
+    // Connect and start idle timer
+    this.deviceName = await this.transport.connect(this.config);
+    this.resetIdleTimer();
+    
+    console.log(`[Session:${this.sessionId}] Connected to ${this.deviceName}`);
+    this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
+    return this.deviceName;
   }
 
   /**

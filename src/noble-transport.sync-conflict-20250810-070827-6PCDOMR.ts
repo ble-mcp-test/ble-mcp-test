@@ -14,7 +14,7 @@ import noble from '@stoprocent/noble';
  */
 
 export interface BleConfig {
-  devicePrefix?: string;  // Optional - for specific device targeting
+  devicePrefix: string;
   serviceUuid: string;
   writeUuid: string;
   notifyUuid: string;
@@ -198,11 +198,7 @@ export class NobleTransport extends EventEmitter {
       }
       
       // Find device (handles complete scanning lifecycle)
-      // Use short UUID for scanning on Linux - devices advertise short UUIDs
-      const scanUuid = process.platform === 'linux' && config.serviceUuid.length === 32 
-        ? config.serviceUuid.substring(4, 8)  // Extract short UUID from long UUID
-        : config.serviceUuid;
-      this.peripheral = await this.findDevice(scanUuid, config.devicePrefix);
+      this.peripheral = await this.findDevice(config.devicePrefix);
       const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
       
       // Connect to peripheral with timeout
@@ -220,23 +216,10 @@ export class NobleTransport extends EventEmitter {
         'Service discovery timeout'
       );
       
-      const targetService = services.find((s: any) => {
-        const sUuid = s.uuid.toLowerCase().replace(/-/g, '');
-        const configUuid = config.serviceUuid.toLowerCase().replace(/-/g, '');
-        
-        // Check for exact match
-        if (sUuid === configUuid) return true;
-        
-        // Check if one is short and other is long UUID (extract short from long)
-        if (sUuid.length === 4 && configUuid.length === 32) {
-          return configUuid.substring(4, 8) === sUuid;
-        }
-        if (configUuid.length === 4 && sUuid.length === 32) {
-          return sUuid.substring(4, 8) === configUuid;
-        }
-        
-        return false;
-      });
+      const targetService = services.find((s: any) => 
+        s.uuid === config.serviceUuid || 
+        s.uuid === config.serviceUuid.toLowerCase().replace(/-/g, '')
+      );
       
       if (!targetService) {
         throw new Error(`Service ${config.serviceUuid} not found`);
@@ -249,39 +232,15 @@ export class NobleTransport extends EventEmitter {
         'Characteristic discovery timeout'
       );
       
-      this.writeChar = characteristics.find((c: any) => {
-        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const wUuid = config.writeUuid.toLowerCase().replace(/-/g, '');
-        
-        if (cUuid === wUuid) return true;
-        
-        // Handle short/long UUID mismatch
-        if (cUuid.length === 4 && wUuid.length === 32) {
-          return wUuid.substring(4, 8) === cUuid;
-        }
-        if (wUuid.length === 4 && cUuid.length === 32) {
-          return cUuid.substring(4, 8) === wUuid;
-        }
-        
-        return false;
-      });
+      this.writeChar = characteristics.find((c: any) => 
+        c.uuid === config.writeUuid || 
+        c.uuid === config.writeUuid.toLowerCase().replace(/-/g, '')
+      );
       
-      this.notifyChar = characteristics.find((c: any) => {
-        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const nUuid = config.notifyUuid.toLowerCase().replace(/-/g, '');
-        
-        if (cUuid === nUuid) return true;
-        
-        // Handle short/long UUID mismatch
-        if (cUuid.length === 4 && nUuid.length === 32) {
-          return nUuid.substring(4, 8) === cUuid;
-        }
-        if (nUuid.length === 4 && cUuid.length === 32) {
-          return cUuid.substring(4, 8) === nUuid;
-        }
-        
-        return false;
-      });
+      this.notifyChar = characteristics.find((c: any) => 
+        c.uuid === config.notifyUuid || 
+        c.uuid === config.notifyUuid.toLowerCase().replace(/-/g, '')
+      );
       
       if (!this.writeChar || !this.notifyChar) {
         throw new Error('Required characteristics not found');
@@ -317,19 +276,11 @@ export class NobleTransport extends EventEmitter {
         try {
           // Try graceful disconnect first
           if (this.peripheral.state === 'connected' || this.peripheral.state === 'connecting') {
-            console.log(`[Noble] ERROR RECOVERY: Peripheral state: ${this.peripheral.state} - attempting disconnect`);
-            const disconnectStart = Date.now();
-            const result = await Promise.race([
-              this.peripheral.disconnectAsync().then(() => 'completed'),
-              new Promise(resolve => setTimeout(() => resolve('timeout'), 5000)) // 5s timeout
+            console.log(`[Noble] Peripheral state: ${this.peripheral.state} - attempting disconnect`);
+            await Promise.race([
+              this.peripheral.disconnectAsync(),
+              new Promise(resolve => setTimeout(resolve, 5000)) // 5s timeout
             ]);
-            const disconnectTime = Date.now() - disconnectStart;
-            
-            if (result === 'timeout') {
-              console.warn(`[Noble] ⚠️ ERROR RECOVERY DISCONNECT TIMEOUT after ${disconnectTime}ms (5s limit) - possible zombie connection!`);
-            } else {
-              console.log(`[Noble] ERROR RECOVERY: Disconnect completed successfully in ${disconnectTime}ms`);
-            }
           }
           
           // Remove all listeners
@@ -360,7 +311,7 @@ export class NobleTransport extends EventEmitter {
 
   private findDeviceCleanup: (() => void) | null = null;
 
-  private async findDevice(serviceUuid: string, devicePrefix?: string): Promise<any> {
+  private async findDevice(devicePrefix: string): Promise<any> {
     // Ensure any previous scan is cleaned up
     if (this.findDeviceCleanup) {
       this.findDeviceCleanup();
@@ -392,12 +343,9 @@ export class NobleTransport extends EventEmitter {
       // Store cleanup function so it can be called externally if needed
       this.findDeviceCleanup = cleanupScan;
       
-      // Start scanning with service UUID filter
-      const scanMessage = devicePrefix 
-        ? `[Noble] Starting BLE scan for service ${serviceUuid} with device filter: ${devicePrefix}...`
-        : `[Noble] Starting BLE scan for any device with service ${serviceUuid}...`;
-      console.log(scanMessage);
-      noble.startScanningAsync([serviceUuid], true).then(() => {
+      // Start scanning
+      console.log(`[Noble] Starting BLE scan for ${devicePrefix}...`);
+      noble.startScanningAsync([], true).then(() => {
         // Scanning started successfully
       }).catch((error) => {
         cleanupScan();
@@ -406,35 +354,16 @@ export class NobleTransport extends EventEmitter {
       
       timeout = setTimeout(() => {
         cleanupScan();
-        const errorMsg = devicePrefix 
-          ? `Device ${devicePrefix} with service ${serviceUuid} not found`
-          : `No devices found with service ${serviceUuid}`;
-        reject(new Error(errorMsg));
+        reject(new Error(`Device ${devicePrefix} not found`));
       }, 15000);
       
       onDiscover = async (device: any) => {
         const name = device.advertisement.localName || '';
         const id = device.id;
-        console.log(`[Noble] Discovered device: ${name || 'Unknown'} [${id}], checking against filter: ${devicePrefix || 'none'}`);
         
-        // If device filter provided, check it
-        if (devicePrefix) {
-          // Try to match by name or ID
-          if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
-            cleanupScan();
-            console.log(`[Noble] Found matching device: ${name || id} (service: ${serviceUuid})`);
-            resolve(device);
-          } else if (devicePrefix === 'CS108') {
-            // Special case for CS108 - accept any device with the right service UUID
-            // since CS108 devices often don't advertise their name
-            cleanupScan();
-            console.log(`[Noble] Found CS108-compatible device: ${name || id} (service: ${serviceUuid})`);
-            resolve(device);
-          }
-        } else {
-          // No device filter - take first device with matching service
+        if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
           cleanupScan();
-          console.log(`[Noble] Found device with service ${serviceUuid}: ${name || id}`);
+          console.log(`[Noble] Found device: ${name || id}`);
           resolve(device);
         }
       };
@@ -567,20 +496,11 @@ export class NobleTransport extends EventEmitter {
           }
           
           // Try graceful disconnect with longer timeout
-          console.log(`[Noble] NORMAL DISCONNECT: Attempting graceful disconnect...`);
-          const disconnectStart = Date.now();
-          const result = await Promise.race([
-            this.peripheral.disconnectAsync().then(() => 'completed'),
-            new Promise(resolve => setTimeout(() => resolve('timeout'), 10000)) // Increased from 2s to 10s
+          console.log(`[Noble] Attempting graceful disconnect...`);
+          await Promise.race([
+            this.peripheral.disconnectAsync(),
+            new Promise(resolve => setTimeout(resolve, 10000)) // Increased from 2s to 10s
           ]);
-          const disconnectTime = Date.now() - disconnectStart;
-          
-          if (result === 'timeout') {
-            console.warn(`[Noble] ⚠️ NORMAL DISCONNECT TIMEOUT after ${disconnectTime}ms (10s limit) - likely zombie!`);
-            throw new Error('Disconnect timeout - zombie connection likely');
-          } else {
-            console.log(`[Noble] NORMAL DISCONNECT: Completed successfully in ${disconnectTime}ms`);
-          }
         } catch (e) {
           console.log(`[Noble] Graceful disconnect failed: ${e}`);
           // Force disconnect as fallback
