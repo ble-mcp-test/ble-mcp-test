@@ -116,14 +116,14 @@ test.describe('Zombie Session Repro', () => {
             const bytes = new Uint8Array(value.buffer);
             // Check for battery voltage response
             // Response format: A7 B3 04 D9 82 9E xx xx A0 00 VH VL
-            // Where VH VL = voltage in millivolts (big-endian)
+            // Where VH VL = voltage raw value (big-endian)
             if (bytes.length >= 12 && 
                 bytes[0] === 0xA7 && bytes[1] === 0xB3 && 
                 bytes[8] === 0xA0 && bytes[9] === 0x00) {
-              // Extract voltage from bytes 10-11 (big-endian)
-              const voltageMillivolts = (bytes[10] << 8) | bytes[11];
-              battery1 = Math.round(voltageMillivolts / 10) / 10; // Convert to volts with 1 decimal
-              log.push(`Battery voltage response received: ${battery1}V (${voltageMillivolts}mV)`);
+              // Extract raw voltage from bytes 10-11 (big-endian)
+              const voltageRaw = (bytes[10] << 8) | bytes[11];
+              battery1 = voltageRaw; // Report raw value without scaling
+              log.push(`Battery voltage response received: raw=${battery1}`);
             }
           }
         });
@@ -196,9 +196,9 @@ test.describe('Zombie Session Repro', () => {
             if (bytes.length >= 12 && 
                 bytes[0] === 0xA7 && bytes[1] === 0xB3 && 
                 bytes[8] === 0xA0 && bytes[9] === 0x00) {
-              const voltageMillivolts = (bytes[10] << 8) | bytes[11];
-              battery2 = Math.round(voltageMillivolts / 10) / 10;
-              log.push(`Battery voltage response received: ${battery2}V (${voltageMillivolts}mV)`);
+              const voltageRaw = (bytes[10] << 8) | bytes[11];
+              battery2 = voltageRaw;
+              log.push(`Battery voltage response received: raw=${battery2}`);
             }
           }
         });
@@ -270,9 +270,9 @@ test.describe('Zombie Session Repro', () => {
             if (bytes.length >= 12 && 
                 bytes[0] === 0xA7 && bytes[1] === 0xB3 && 
                 bytes[8] === 0xA0 && bytes[9] === 0x00) {
-              const voltageMillivolts = (bytes[10] << 8) | bytes[11];
-              battery3 = Math.round(voltageMillivolts / 10) / 10;
-              log.push(`Battery voltage response received: ${battery3}V (${voltageMillivolts}mV)`);
+              const voltageRaw = (bytes[10] << 8) | bytes[11];
+              battery3 = voltageRaw;
+              log.push(`Battery voltage response received: raw=${battery3}`);
             }
           }
         });
@@ -297,9 +297,9 @@ test.describe('Zombie Session Repro', () => {
         // === RESULTS ===
         log.push('');
         log.push('=== TEST RESULTS ===');
-        log.push(`First connection: ${battery1 ? `✅ Battery voltage ${battery1}V` : '❌ No battery voltage response'}`);
-        log.push(`Second connection: ${battery2 ? `✅ Battery voltage ${battery2}V` : '❌ No battery voltage response'}`);
-        log.push(`Third connection: ${battery3 ? `✅ Battery voltage ${battery3}V` : '❌ No battery voltage response'}`);
+        log.push(`First connection: ${battery1 ? `✅ Battery raw value ${battery1}` : '❌ No battery voltage response'}`);
+        log.push(`Second connection: ${battery2 ? `✅ Battery raw value ${battery2}` : '❌ No battery voltage response'}`);
+        log.push(`Third connection: ${battery3 ? `✅ Battery raw value ${battery3}` : '❌ No battery voltage response'}`);
         log.push(`Device IDs: 1st=${device1.id}, 2nd=${device2.id}, 3rd=${device3.id}`);
         log.push(`All same device ID: ${(device1.id === device2.id && device2.id === device3.id) ? 'Yes' : 'No'}`);
         
@@ -347,12 +347,12 @@ test.describe('Zombie Session Repro', () => {
       console.log('[Zombie Test] Pattern detected: Only third connection works');
     }
     
-    // If multiple connections worked, voltages should be similar
-    const voltages = [results.battery1, results.battery2, results.battery3].filter(v => v !== null && v !== undefined);
-    if (voltages.length >= 2) {
-      const minVoltage = Math.min(...voltages);
-      const maxVoltage = Math.max(...voltages);
-      expect(maxVoltage - minVoltage).toBeLessThanOrEqual(0.2); // Within 0.2V range
+    // If multiple connections worked, raw values should be similar
+    const rawValues = [results.battery1, results.battery2, results.battery3].filter(v => v !== null && v !== undefined);
+    if (rawValues.length >= 2) {
+      const minValue = Math.min(...rawValues);
+      const maxValue = Math.max(...rawValues);
+      expect(maxValue - minValue).toBeLessThanOrEqual(100); // Within 100 raw units
     }
   });
 });
