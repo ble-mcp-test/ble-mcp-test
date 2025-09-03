@@ -53,41 +53,15 @@ export class BleSession extends EventEmitter {
     });
     
     this.transport.on('disconnect', async () => {
-      console.warn(`[Session:${this.sessionId}] ⚠️ Noble disconnect event received - likely spurious, verifying actual state`);
+      console.log(`[Session:${this.sessionId}] Noble disconnect event - cleaning up session`);
+      this.sharedState?.setConnectionState({ connected: false, deviceName: null });
       
-      // Noble sometimes emits false disconnect events when the device is still connected
-      // Check if we can still communicate before trusting this event
-      let actuallyDisconnected = true;
-      
+      // CRITICAL: When Noble disconnects, we MUST cleanup immediately
+      // Keeping the transport alive creates zombie connections because Noble already freed the device
       try {
-        // Try to verify if the connection is really dead
-        // If the transport has a way to check connection state, use it
-        if (this.transport && typeof (this.transport as any).isConnected === 'function') {
-          actuallyDisconnected = !(await (this.transport as any).isConnected());
-        }
+        await this.cleanup('noble disconnect');
       } catch (e) {
-        // If we can't verify, assume Noble is correct
-        console.log(`[Session:${this.sessionId}] Could not verify connection state: ${e}`);
-      }
-      
-      if (actuallyDisconnected) {
-        console.log(`[Session:${this.sessionId}] Disconnect confirmed - device is really disconnected`);
-        this.sharedState?.setConnectionState({ connected: false, deviceName: null });
-        
-        // CRITICAL: When Noble disconnects for real, we MUST cleanup immediately
-        // Keeping the transport alive creates zombie connections because Noble already freed the device
-        console.log(`[Session:${this.sessionId}] Noble disconnect is real - cleaning up transport immediately to prevent zombie state`);
-        
-        try {
-          await this.cleanup('noble disconnect confirmed');
-        } catch (e) {
-          console.error(`[Session:${this.sessionId}] Error during Noble disconnect cleanup:`, e);
-        }
-        return;
-      } else {
-        console.warn(`[Session:${this.sessionId}] FALSE DISCONNECT - device is still connected, ignoring Noble's event`);
-        // Don't update state, connection is still alive
-        return;
+        console.error(`[Session:${this.sessionId}] Error during Noble disconnect cleanup:`, e);
       }
     });
     
