@@ -215,8 +215,14 @@ test.describe('Zombie Session Repro', () => {
           log.push('WARNING: No battery response received');
         }
         
-        // Disconnect second connection normally (force cleanup creates zombies)
-        log.push('Disconnecting second connection...');
+        // Test force cleanup on second connection
+        log.push('Disconnecting second connection with force cleanup...');
+        try {
+          await (device2.gatt as any).forceCleanup();
+          log.push('Force cleanup completed');
+        } catch (err) {
+          log.push(`Force cleanup error: ${(err as Error).message}`);
+        }
         device2.gatt!.disconnect();
         log.push('Second connection disconnected');
         

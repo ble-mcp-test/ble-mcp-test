@@ -591,9 +591,13 @@ export class NobleTransport extends EventEmitter {
           console.log(`[Noble] Could not verify disconnect state: ${e}`);
         }
       } else {
-        // Aggressive cleanup - skip graceful attempts
+        // Aggressive cleanup - but still wait briefly for disconnect
         try {
+          console.log(`[Noble] Force disconnect initiated`);
           (this.peripheral as any)._peripheral?.disconnect?.();
+          // Brief wait for disconnect to propagate (not 1 full second)
+          await new Promise(resolve => setTimeout(resolve, 100));
+          console.log(`[Noble] Force disconnect complete`);
         } catch (e) {
           console.log(`[Noble] Force disconnect failed: ${e}`);
         }
@@ -615,8 +619,8 @@ export class NobleTransport extends EventEmitter {
     
     // Verify and clean resources if requested
     if (verifyResources) {
-      // Small delay to allow async cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Brief delay to allow async cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       const state = await NobleTransport.getResourceState();
       

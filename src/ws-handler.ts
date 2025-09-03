@@ -113,17 +113,7 @@ export class WebSocketHandler extends EventEmitter {
     console.log('[WSHandler] Force cleanup requested', msg.all_sessions ? '(all sessions)' : '(current session)');
     
     try {
-      // Send acknowledgment BEFORE cleanup (since cleanup closes the WebSocket)
-      if (this.ws.readyState === this.ws.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: 'force_cleanup_complete', 
-          message: msg.all_sessions ? 'All sessions cleaned up' : 'Cleanup complete' 
-        }));
-      }
-      
-      // Give the message time to be sent before cleanup
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
+      // Do cleanup FIRST (without closing WebSocket)
       if (msg.all_sessions) {
         // Get session manager through session's config
         const sessionManager = (this.session as any).sessionManager;
@@ -134,8 +124,22 @@ export class WebSocketHandler extends EventEmitter {
           }
         }
       } else {
-        // Trigger session cleanup (this will close the WebSocket)
+        // Trigger session cleanup (without closing WebSocket)
         await this.session.forceCleanup('force cleanup command');
+      }
+      
+      // Send acknowledgment AFTER cleanup is complete
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'force_cleanup_complete', 
+          message: msg.all_sessions ? 'All sessions cleaned up' : 'Cleanup complete' 
+        }));
+        
+        // Give message time to send before closing
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Now close the WebSocket
+        this.ws.close();
       }
     } catch (error) {
       console.error('[WSHandler] Force cleanup error:', error);

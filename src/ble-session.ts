@@ -213,8 +213,9 @@ export class BleSession extends EventEmitter {
    * @param reason - Reason for cleanup
    * @param error - Optional error that triggered cleanup
    * @param force - Use force cleanup on transport (default: false)
+   * @param closeWebSockets - Close WebSockets during cleanup (default: true)
    */
-  async cleanup(reason: string, error?: any, force: boolean = false): Promise<void> {
+  async cleanup(reason: string, error?: any, force: boolean = false, closeWebSockets: boolean = true): Promise<void> {
     console.log(`[Session:${this.sessionId}] Cleanup (reason: ${reason}, force: ${force}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
     
     // Clear timers
@@ -275,15 +276,17 @@ export class BleSession extends EventEmitter {
       }
     }
 
-    // Close WebSockets
-    for (const ws of this.activeWebSockets) {
-      try {
-        ws.close();
-      } catch {
-        // Ignore WebSocket close errors
+    // Close WebSockets (unless told not to)
+    if (closeWebSockets) {
+      for (const ws of this.activeWebSockets) {
+        try {
+          ws.close();
+        } catch {
+          // Ignore WebSocket close errors
+        }
       }
+      this.activeWebSockets.clear();
     }
-    this.activeWebSockets.clear();
     
     // Get final resource state for monitoring
     const finalState = await NobleTransport.getResourceState();
@@ -331,7 +334,8 @@ export class BleSession extends EventEmitter {
    * Force cleanup (for external triggers)
    */
   async forceCleanup(reason: string = 'forced'): Promise<void> {
-    await this.cleanup(reason, undefined, true);
+    // Force cleanup but DON'T close WebSockets - let the handler do that after sending response
+    await this.cleanup(reason, undefined, true, false);
   }
 
   /**
