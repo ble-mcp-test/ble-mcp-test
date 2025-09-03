@@ -392,6 +392,48 @@ hcitool --version
 rfkill --version  # optional
 ```
 
+## Roadmap
+
+### v0.6.0 - Developer Experience
+**MCP Enhancements + Golang CLI** - Professional tooling that feels native
+- **Enhanced MCP Tools**: Device reset for test isolation, session state visibility, connection stability
+- **Native CLI**: Single-binary `ble-bridge` command wrapping all MCP tools
+- **Better Together**: `ble-bridge reset-device CS108-1234` instead of complex MCP calls
+- **Cross-platform**: macOS, Linux, Windows support with no dependencies
+
+### v0.7.0 - Universal Device Support
+**RPC Architecture + nRF52 Hardware** - Test any BLE device with $40 hardware
+- **Dynamic Discovery**: True Web Bluetooth API compliance, no hardcoded UUIDs
+- **RPC Protocol**: `getCharacteristic()` calls discover on-demand
+- **nRF52 Reference**: Affordable hardware that can emulate ANY BLE profile
+- **Device Agnostic**: Same nRF52 can be CS108, heart rate monitor, or custom device
+
+### v0.8.0 - Security & Scale
+**TLS + OAuth2** - Enterprise-ready when you need it
+- **WSS/HTTPS**: Encrypted connections for cloud deployment
+- **OAuth2 Flow**: Multi-tenant access control
+- **Token Management**: Secure credential handling
+- **Deferred Priority**: Current focus is private network use
+
+### v0.9.0 - BLE Device Farm
+**Enterprise Testing at Scale** - Share device pools across teams and CI/CD
+- **Device Pool Management**: Auto-discover and register multiple identical devices
+- **Smart Load Balancing**: Tests automatically routed to available devices
+- **CI/CD Integration**: Parallel test execution across device farm
+- **Health Monitoring**: Automatic device recovery and failover
+- **Queue Management**: Graceful handling when all devices busy
+- **Use Cases**:
+  - 10 developers sharing 5 devices - no more "device is busy" conflicts
+  - CI/CD running 20 parallel test suites on 20 devices
+  - 24/7 stress testing rotating through devices to prevent overheating
+  - Multi-tenant device pools with access control
+
+*Building on our service UUID filtering and session management, the device farm enables true enterprise-scale BLE testing infrastructure.*
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
 ## License
 
-MIT © 2025 Mike Stankavich
+MIT © 2025 TrakRF / Mike Stankavich

@@ -5,9 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.11] - 2025-08-25
+## [0.5.12] - 2025-09-03
 
 ### Added
+- **E2E Session Reuse**: Complete fix for Playwright test session management
+  - Fixed session persistence across test runs for E2E automation
+  - Session reuse now works properly with WebSocket connection pooling
+  - All 40 E2E tests passing (100% success rate)
 - **Node.js Transport Client**: Complete Web Bluetooth API implementation for Node.js environments
   - New `NodeBleClient` class provides Web Bluetooth API compatibility in Node.js
   - Enables integration testing against real hardware without browser dependency
@@ -15,14 +19,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Compatible with existing WebSocket bridge server
   - Session management and reconnection support
   - Import as: `import { NodeBleClient } from 'ble-mcp-test/node'`
-  - Works with Node.js 14+ (client only uses ws and EventEmitter)
-  - Bridge server still requires Node.js 24+ for Noble BLE access
-  
+- **Millisecond Precision Logging**: TX/RX packets now show sub-second timing
+  - Format: `[WSHandler] TX.123: A7 B3 C2...` where `.123` is milliseconds
+  - Helps debug command timing and response latency
+  - Minimal overhead - just 4 extra characters per log line
+- **Roadmap Section**: Added development roadmap to README
+
+### Fixed  
+- **Force Cleanup Tech Debt**: Documented broken force cleanup functionality
+  - Added honest warnings about force cleanup creating zombie connections
+  - Server now uses normal disconnect instead of broken force cleanup
+  - Provides actionable guidance for users experiencing issues
+- **Battery Voltage Parsing**: Corrected endianness in test assertions
+  - Fixed big-endian parsing: `(bytes[10] << 8) | bytes[11]`
+  - Updated zombie reproduction test to report raw values correctly
+- **Service UUID Extraction**: Mock now properly extracts service UUIDs from requestDevice filters
+- **Systemd Service Installation**: Service now installs to `/opt/ble-bridge`
+
 ### Changed
 - Package now exports separate entry points for browser and Node.js usage
-- Added dual ESM exports for Node.js transport
-- Added "nodejs" and "node" keywords to package.json
-- Added CHANGELOG.md to published files
+- Consolidated duplicate zombie tests to single working implementation
+- Simplified Noble disconnect handler (removed 25 lines of debug code)
+
+## [0.5.11] - 2025-08-25
+
+### Added
+- Cross-platform UUID handling and session management improvements
+  - Service files no longer depend on checkout location
+- **Install Scripts**: Updated for robust systemd deployment
+  - `install-service.sh`: Copies everything to `/opt/ble-bridge`
+  - `uninstall-service.sh`: Properly cleans up installation
+  - Start script automatically finds Node.js via fnm or system paths
+
+### Changed
+- Systemd service now runs from `/opt/ble-bridge` instead of user directory
+- Service file includes proper environment for fnm-installed Node.js
+>>>>>>> ffed5e3 (feat: improve systemd service installation and add millisecond logging)
 
 ## [0.5.10] - 2025-08-06
 
