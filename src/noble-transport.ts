@@ -591,9 +591,13 @@ export class NobleTransport extends EventEmitter {
           console.log(`[Noble] Could not verify disconnect state: ${e}`);
         }
       } else {
-        // Aggressive cleanup - skip graceful attempts
+        // Aggressive cleanup - but still wait briefly for disconnect
         try {
+          console.log(`[Noble] Force disconnect initiated`);
           (this.peripheral as any)._peripheral?.disconnect?.();
+          // Brief wait for disconnect to propagate (not 1 full second)
+          await new Promise(resolve => setTimeout(resolve, 100));
+          console.log(`[Noble] Force disconnect complete`);
         } catch (e) {
           console.log(`[Noble] Force disconnect failed: ${e}`);
         }
@@ -615,8 +619,8 @@ export class NobleTransport extends EventEmitter {
     
     // Verify and clean resources if requested
     if (verifyResources) {
-      // Small delay to allow async cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // Brief delay to allow async cleanup to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       const state = await NobleTransport.getResourceState();
       
@@ -714,7 +718,53 @@ export class NobleTransport extends EventEmitter {
     await this.cleanup({ force: false, verifyResources: true });
   }
   
+  /**
+   * Force cleanup - WARNING: This is broken and creates zombies
+   * @deprecated forceCleanup() is currently not working as expected. Do not use it.
+   * If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues
+   * TODO: Fix or remove this - it's worse than normal cleanup
+   */
   async forceCleanup(): Promise<void> {
+    console.warn('[Noble] WARNING: forceCleanup() is not working as expected - it creates zombie connections. Do not use it. Report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues');
     await this.cleanup({ force: true, resetStack: true, verifyResources: true });
+  }
+
+  /**
+   * Check if the peripheral is actually connected
+   * Used to verify Noble's disconnect events aren't spurious
+   */
+  async isConnected(): Promise<boolean> {
+    if (!this.peripheral) {
+      return false;
+    }
+    
+    try {
+      // Check Noble's reported state
+      const state = this.peripheral.state;
+      console.log(`[Noble] Connection state check: ${state}`);
+      
+      if (state !== 'connected') {
+        return false;
+      }
+      
+      // Double-check by trying to read a characteristic (if we have one)
+      if (this.notifyChar) {
+        try {
+          // Try to read the characteristic to verify connection is alive
+          await this.notifyChar.readAsync();
+          console.log(`[Noble] Connection verified - can still read from device`);
+          return true;
+        } catch (readError) {
+          console.log(`[Noble] Connection check failed - cannot read: ${readError}`);
+          return false;
+        }
+      }
+      
+      // If we can't verify with a read, trust Noble's state
+      return state === 'connected';
+    } catch (e) {
+      console.error(`[Noble] Error checking connection state: ${e}`);
+      return false;
+    }
   }
 }

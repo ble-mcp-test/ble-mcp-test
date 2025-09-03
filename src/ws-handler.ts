@@ -39,6 +39,7 @@ export class WebSocketHandler extends EventEmitter {
       
       try {
         const msg: WSMessage = JSON.parse(message.toString());
+        console.log(`[WSHandler] Received message type: ${msg.type}`);
         
         // Handle data messages
         if (msg.type === 'data' && msg.data) {
@@ -110,28 +111,34 @@ export class WebSocketHandler extends EventEmitter {
 
   private async handleForceCleanup(msg: WSMessage): Promise<void> {
     console.log('[WSHandler] Force cleanup requested', msg.all_sessions ? '(all sessions)' : '(current session)');
+    console.warn('[WSHandler] WARNING: Force cleanup is broken and creates zombies - avoid using');
     
     try {
-      if (msg.all_sessions) {
-        // Get session manager through session's config
-        const sessionManager = (this.session as any).sessionManager;
-        if (sessionManager) {
-          const deviceName = this.session.getStatus().deviceName;
-          if (deviceName) {
-            await sessionManager.forceCleanupDevice(deviceName, 'force cleanup all sessions');
-          }
-        }
-      } else {
-        // Trigger session cleanup FIRST
-        await this.session.forceCleanup('force cleanup command');
+      // Send warning about broken force cleanup
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'warning',
+          warning: 'forceCleanup() is currently not working as expected - it creates zombie connections. Do not use it. If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues',
+          message: 'Using normal disconnect instead'
+        }));
       }
       
-      // Only acknowledge AFTER cleanup is complete
+      // Use normal disconnect instead of force cleanup
+      console.log('[WSHandler] Using normal disconnect instead of broken force cleanup');
+      
+      // Just disconnect normally - don't use force cleanup
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'force_cleanup_complete', 
-          message: msg.all_sessions ? 'All sessions cleaned up' : 'Cleanup complete' 
+          message: 'Used normal disconnect instead',
+          warning: 'forceCleanup() is not working as expected. Please report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues' 
         }));
+        
+        // Give message time to send before closing
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Now close the WebSocket
+        this.ws.close();
       }
     } catch (error) {
       console.error('[WSHandler] Force cleanup error:', error);

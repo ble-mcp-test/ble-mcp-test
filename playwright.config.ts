@@ -4,7 +4,8 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './tests/e2e',
   timeout: 60000,
-  fullyParallel: true,
+  fullyParallel: false,  // MUST be false - we only have one BLE device
+  workers: 1,            // Force single worker - no parallel execution
   reporter: 'list',
   outputDir: './tmp/test-results',
   use: {

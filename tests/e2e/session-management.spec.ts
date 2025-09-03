@@ -72,7 +72,7 @@ test.describe('Session Management E2E Tests', () => {
     const bleConfig = getBleConfig();
     const deviceResult = await page.evaluate((config) => {
       try {
-        const sessionId = 'device-test-session-' + Date.now();
+        const sessionId = 'device-test-session-' + Date.now(); // Test validates session ID pattern
         
         // Inject with session
         window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
@@ -223,7 +223,7 @@ test.describe('Session Management E2E Tests', () => {
     const persistenceResult = await page.evaluate((config) => {
       try {
         // Simulate web app session management pattern without localStorage
-        const sessionId = 'web-session-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
+        const sessionId = 'device-test-session-' + Date.now(); // Test validates session ID pattern
         
         // Inject with session
         window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
@@ -242,7 +242,7 @@ test.describe('Session Management E2E Tests', () => {
             sessionMatches: device.sessionId === sessionId,
             sessionId: device.sessionId,
             expectedSessionId: sessionId,
-            sessionPattern: device.sessionId?.startsWith('web-session-')
+            sessionPattern: device.sessionId?.startsWith('device-test-session-')
           };
         });
       } catch (error) {
@@ -258,7 +258,7 @@ test.describe('Session Management E2E Tests', () => {
     expect(persistenceResult.success).toBe(true);
     expect(persistenceResult.sessionMatches).toBe(true);
     expect(persistenceResult.sessionPattern).toBe(true);
-    expect(persistenceResult.sessionId).toContain('web-session-');
+    expect(persistenceResult.sessionId).toContain('device-test-session-');
   });
 
 

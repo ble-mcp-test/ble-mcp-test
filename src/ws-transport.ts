@@ -129,6 +129,8 @@ export class WebSocketTransport {
   }
   
   async forceCleanup(): Promise<void> {
+    console.warn('[Transport] WARNING: Force cleanup is broken and creates zombies');
+    
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('Not connected');
     }
@@ -142,11 +144,18 @@ export class WebSocketTransport {
       const ws = this.ws!;
       const originalHandler = ws.onmessage;
       
-      // Listen for cleanup confirmation
+      // Listen for cleanup confirmation or warning
       ws.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'warning') {
+            console.warn(`[Transport] Server warning: ${msg.warning}`);
+            // Continue waiting for completion
+          }
           if (msg.type === 'cleanup_complete' || msg.type === 'force_cleanup_complete') {
+            if (msg.warning) {
+              console.warn(`[Transport] Cleanup warning: ${msg.warning}`);
+            }
             clearTimeout(timeout);
             ws.onmessage = originalHandler;
             resolve();
@@ -158,12 +167,12 @@ export class WebSocketTransport {
         }
       };
       
-      // Send force cleanup request
-      // v0.4.0: Include token for authentication
+      // Send force cleanup request (even though it's broken)
       const request: any = { type: 'force_cleanup' };
       if (this.connectionToken) {
         request.token = this.connectionToken;
       }
+      console.warn('[Transport] Sending force_cleanup request (this is broken - creates zombies)');
       ws.send(JSON.stringify(request));
     });
   }

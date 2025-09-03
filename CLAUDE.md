@@ -1,5 +1,19 @@
 # Instructions for Claude Code
 
+## Bridge Server Management with PM2
+The BLE bridge server runs under PM2 process manager. Use these commands:
+- `pnpm pm2:status` - Check server status
+- `timeout 1 pnpm pm2:logs` - View recent logs (timeout prevents auto-tailing)
+- `pnpm pm2:restart` - Restart the server (needed after code changes)
+- `pnpm pm2:stop` - Stop the server
+- `pnpm pm2:start` - Start the server
+- `pnpm pm2:monitor` - Interactive monitoring
+
+**IMPORTANT: After making changes to the bridge code, you MUST run:**
+```bash
+pnpm build && pnpm pm2:restart
+```
+
 ## 🎯 PRIMARY PURPOSE: E2E Testing with Playwright
 **This tool is built SPECIFICALLY for Playwright E2E testing of BLE devices.**
 - If it doesn't work with Playwright E2E tests, we have FAILED
