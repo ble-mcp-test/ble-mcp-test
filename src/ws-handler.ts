@@ -111,28 +111,27 @@ export class WebSocketHandler extends EventEmitter {
 
   private async handleForceCleanup(msg: WSMessage): Promise<void> {
     console.log('[WSHandler] Force cleanup requested', msg.all_sessions ? '(all sessions)' : '(current session)');
+    console.warn('[WSHandler] WARNING: Force cleanup is broken and creates zombies - avoid using');
     
     try {
-      // Do cleanup FIRST (without closing WebSocket)
-      if (msg.all_sessions) {
-        // Get session manager through session's config
-        const sessionManager = (this.session as any).sessionManager;
-        if (sessionManager) {
-          const deviceName = this.session.getStatus().deviceName;
-          if (deviceName) {
-            await sessionManager.forceCleanupDevice(deviceName, 'force cleanup all sessions');
-          }
-        }
-      } else {
-        // Trigger session cleanup (without closing WebSocket)
-        await this.session.forceCleanup('force cleanup command');
+      // Send warning about broken force cleanup
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'warning',
+          warning: 'Force cleanup is broken and creates zombie connections. Using normal disconnect instead.',
+          message: 'Force cleanup creates zombies - tech debt'
+        }));
       }
       
-      // Send acknowledgment AFTER cleanup is complete
+      // Use normal disconnect instead of force cleanup
+      console.log('[WSHandler] Using normal disconnect instead of broken force cleanup');
+      
+      // Just disconnect normally - don't use force cleanup
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'force_cleanup_complete', 
-          message: msg.all_sessions ? 'All sessions cleaned up' : 'Cleanup complete' 
+          message: 'Used normal disconnect (force cleanup is broken)',
+          warning: 'Force cleanup creates zombies - avoided' 
         }));
         
         // Give message time to send before closing

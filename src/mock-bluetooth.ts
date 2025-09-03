@@ -271,6 +271,7 @@ class MockBluetoothRemoteGATTServer {
   }
   
   async forceCleanup(): Promise<void> {
+    console.warn('[Mock] WARNING: Force cleanup is broken and creates zombies');
     await this.device.transport.forceCleanup();
   }
 
