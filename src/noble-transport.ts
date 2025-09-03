@@ -718,7 +718,13 @@ export class NobleTransport extends EventEmitter {
     await this.cleanup({ force: false, verifyResources: true });
   }
   
+  /**
+   * Force cleanup - WARNING: This is broken and creates zombies
+   * @deprecated Force cleanup corrupts Noble's internal state, preventing reconnection
+   * TODO: Fix or remove this - it's worse than normal cleanup
+   */
   async forceCleanup(): Promise<void> {
+    console.warn('[Noble] WARNING: Force cleanup creates zombies - avoid using');
     await this.cleanup({ force: true, resetStack: true, verifyResources: true });
   }
 
