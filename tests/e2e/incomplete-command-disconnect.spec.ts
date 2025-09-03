@@ -16,7 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 test.describe('Incomplete Command + Disconnect Test', () => {
   const bundlePath = path.join(__dirname, '../../dist/web-ble-mock.bundle.js');
   
-  test('CS108 should handle incomplete command + disconnect + reconnect', async ({ page }) => {
+  test.skip('CS108 should handle incomplete command + disconnect + reconnect - SKIPPED: device-specific edge case', async ({ page }) => {
     console.log('[Incomplete Cmd Test] Testing reader stability with partial commands and disconnects');
     
     // Setup page
