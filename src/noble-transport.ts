@@ -720,11 +720,12 @@ export class NobleTransport extends EventEmitter {
   
   /**
    * Force cleanup - WARNING: This is broken and creates zombies
-   * @deprecated Force cleanup corrupts Noble's internal state, preventing reconnection
+   * @deprecated forceCleanup() is currently not working as expected. Do not use it.
+   * If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues
    * TODO: Fix or remove this - it's worse than normal cleanup
    */
   async forceCleanup(): Promise<void> {
-    console.warn('[Noble] WARNING: Force cleanup creates zombies - avoid using');
+    console.warn('[Noble] WARNING: forceCleanup() is not working as expected - it creates zombie connections. Do not use it. Report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues');
     await this.cleanup({ force: true, resetStack: true, verifyResources: true });
   }
 

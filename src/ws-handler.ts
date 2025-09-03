@@ -118,8 +118,8 @@ export class WebSocketHandler extends EventEmitter {
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'warning',
-          warning: 'Force cleanup is broken and creates zombie connections. Using normal disconnect instead.',
-          message: 'Force cleanup creates zombies - tech debt'
+          warning: 'forceCleanup() is currently not working as expected - it creates zombie connections. Do not use it. If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues',
+          message: 'Using normal disconnect instead'
         }));
       }
       
@@ -130,8 +130,8 @@ export class WebSocketHandler extends EventEmitter {
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
           type: 'force_cleanup_complete', 
-          message: 'Used normal disconnect (force cleanup is broken)',
-          warning: 'Force cleanup creates zombies - avoided' 
+          message: 'Used normal disconnect instead',
+          warning: 'forceCleanup() is not working as expected. Please report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues' 
         }));
         
         // Give message time to send before closing
