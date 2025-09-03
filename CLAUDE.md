@@ -3,7 +3,7 @@
 ## Bridge Server Management with PM2
 The BLE bridge server runs under PM2 process manager. Use these commands:
 - `pnpm pm2:status` - Check server status
-- `pnpm pm2:logs` - View server logs
+- `tail -n 50 /home/mike/ble-mcp-test/logs/out.log` - View recent logs (pm2:logs hangs due to tailing)
 - `pnpm pm2:restart` - Restart the server (needed after code changes)
 - `pnpm pm2:stop` - Stop the server
 - `pnpm pm2:start` - Start the server
