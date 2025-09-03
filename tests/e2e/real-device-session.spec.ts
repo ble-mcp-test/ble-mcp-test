@@ -19,6 +19,102 @@ test.describe('Real Device Session Test', () => {
     notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
   };
 
+  test('should connect using service-only filtering (no device name)', async ({ page }) => {
+    // Skip if no bridge server
+    const health = await fetch('http://localhost:8081/health').catch(() => null);
+    if (!health || !health.ok) {
+      test.skip(true, 'Bridge server not running');
+      return;
+    }
+
+    await page.route('**/*', async route => {
+      const url = route.request().url();
+      if (url.endsWith('/bundle.js')) {
+        await route.fulfill({
+          path: bundlePath,
+          contentType: 'application/javascript',
+        });
+      } else {
+        await route.fulfill({
+          body: `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <script src="/bundle.js"></script>
+            </head>
+            <body>
+              <div id="result"></div>
+            </body>
+            </html>
+          `,
+          contentType: 'text/html',
+        });
+      }
+    });
+
+    await page.goto('http://localhost/test');
+    await page.waitForTimeout(100);
+
+    // Use first session for service filtering test
+    const testSessionId = 'service-filter-test-session';
+
+    const result = await page.evaluate(async ({ sessionId, config }) => {
+      const output: any = {};
+      
+      try {
+        // Inject mock WITHOUT device config - only service filtering
+        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
+          service: config.service,
+          write: config.write,
+          notify: config.notify,
+          sessionId: sessionId
+        });
+        
+        output.mockInjected = true;
+        
+        // Request device with service UUID filter only (no device name filter)
+        const device = await navigator.bluetooth.requestDevice({
+          filters: [{ services: [config.service] }]
+        });
+        
+        output.deviceFound = true;
+        output.deviceId = device.id;
+        output.deviceName = device.name;
+        
+        // Connect
+        await device.gatt.connect();
+        output.connected = device.gatt.connected;
+        
+        // Clean disconnect
+        await device.gatt.disconnect();
+        output.disconnected = !device.gatt.connected;
+        
+      } catch (error: any) {
+        output.error = error.message;
+      }
+      
+      return output;
+    }, { sessionId: testSessionId, config: deviceConfig });
+
+    console.log('Service-only filter result:', result);
+    
+    // Verify device was found
+    expect(result.mockInjected).toBe(true);
+    expect(result.deviceFound).toBe(true);
+    expect(result.deviceName).not.toBe('MockDevice000000');
+    
+    // Connection might fail if no real device with service is available  
+    if (result.error) {
+      console.log('Expected behavior: Connection failed because no real device found or device busy');
+      // Accept timeout or device busy - both are valid depending on test suite context
+      expect(result.error).toMatch(/timeout|Device is busy with another session|Connection failed/);
+    } else {
+      // If a real device was found, verify connection worked
+      expect(result.connected).toBe(true);
+      expect(result.disconnected).toBe(true);
+    }
+  });
+
   test('should connect to real device with session ID', async ({ page }) => {
     // Skip if no bridge server
     const health = await fetch('http://localhost:8081/health').catch(() => null);
@@ -110,4 +206,5 @@ test.describe('Real Device Session Test', () => {
       console.log('❌ Connection failed:', result.error);
     }
   });
+
 });

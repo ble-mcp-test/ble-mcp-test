@@ -717,4 +717,43 @@ export class NobleTransport extends EventEmitter {
   async forceCleanup(): Promise<void> {
     await this.cleanup({ force: true, resetStack: true, verifyResources: true });
   }
+
+  /**
+   * Check if the peripheral is actually connected
+   * Used to verify Noble's disconnect events aren't spurious
+   */
+  async isConnected(): Promise<boolean> {
+    if (!this.peripheral) {
+      return false;
+    }
+    
+    try {
+      // Check Noble's reported state
+      const state = this.peripheral.state;
+      console.log(`[Noble] Connection state check: ${state}`);
+      
+      if (state !== 'connected') {
+        return false;
+      }
+      
+      // Double-check by trying to read a characteristic (if we have one)
+      if (this.notifyChar) {
+        try {
+          // Try to read the characteristic to verify connection is alive
+          await this.notifyChar.readAsync();
+          console.log(`[Noble] Connection verified - can still read from device`);
+          return true;
+        } catch (readError) {
+          console.log(`[Noble] Connection check failed - cannot read: ${readError}`);
+          return false;
+        }
+      }
+      
+      // If we can't verify with a read, trust Noble's state
+      return state === 'connected';
+    } catch (e) {
+      console.error(`[Noble] Error checking connection state: ${e}`);
+      return false;
+    }
+  }
 }

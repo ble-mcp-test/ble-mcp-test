@@ -29,11 +29,14 @@ export class SessionManager {
     let session = this.sessions.get(sessionId);
     
     if (!session) {
-      // Check if any other session has a BLE transport (connected or in grace period)
+      // Check if any OTHER session has a BLE transport (connected or in grace period)
+      // Note: We only reject if a DIFFERENT session has the transport
       const activeSessions = Array.from(this.sessions.values());
-      const sessionWithTransport = activeSessions.find(s => s.getStatus().hasTransport);
+      const sessionWithTransport = activeSessions.find(s => 
+        s.sessionId !== sessionId && s.getStatus().hasTransport
+      );
       
-      if (sessionWithTransport && sessionWithTransport.sessionId !== sessionId) {
+      if (sessionWithTransport) {
         // Reject new session - device is busy with a different session
         const status = sessionWithTransport.getStatus();
         console.log(`[SessionManager] Rejecting new session ${sessionId} - device busy with session ${sessionWithTransport.sessionId} (grace period: ${status.hasGracePeriod})`);

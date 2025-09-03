@@ -48,7 +48,7 @@ test.describe('Core Session Reuse - THE ACTUAL USE CASE', () => {
     });
 
     // TEST 1: First connection with explicit sessionId
-    const testSessionId = 'trakrf-test-session-' + Date.now();
+    const testSessionId = 'e2e-test-session'; // Reuse same session for connection pooling
     console.log(`\n=== TEST 1: Connecting with sessionId: ${testSessionId} ===`);
     
     const result1 = await page.evaluate(async ({ sessionId, config }) => {

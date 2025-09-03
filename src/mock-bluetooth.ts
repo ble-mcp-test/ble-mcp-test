@@ -252,24 +252,7 @@ class MockBluetoothRemoteGATTServer {
       return; // Already disconnected
     }
     
-    try {
-      // Send force_cleanup before disconnecting
-      if (this.device.transport.isConnected()) {
-        if (MOCK_CONFIG.logRetries) {
-          console.log('[Mock] Sending force_cleanup before disconnect');
-        }
-        
-        await this.device.transport.forceCleanup();
-        
-        // Small delay to ensure cleanup message is processed
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    } catch (error) {
-      // Log but continue with disconnect even if cleanup fails
-      console.warn('[Mock] Force cleanup failed during disconnect:', error);
-    }
-    
-    // Now disconnect the WebSocket
+    // Just disconnect the WebSocket - leave BLE connection pooled
     try {
       await this.device.transport.disconnect();
     } catch (error) {

@@ -12,8 +12,8 @@ importers:
         specifier: ^1.0.4
         version: 1.17.0
       '@stoprocent/noble':
-        specifier: ^2.3.4
-        version: 2.3.4
+        specifier: ^2.3.5
+        version: 2.3.5
       cors:
         specifier: ^2.8.5
         version: 2.8.5
@@ -660,8 +660,8 @@ packages:
     resolution: {integrity: sha512-aQmCkEaybqH7B1K6k2oJoZTf03g3PzmZFfi9+NHDiNVPi2Mbet4Mf86gVNEnctaG5aS9743zEMxSunWOzpt3MQ==}
     os: [linux, android, freebsd, win32, darwin]
 
-  '@stoprocent/noble@2.3.4':
-    resolution: {integrity: sha512-Tq0DSSvkd3hRWROS/JqrvhgI9GcFaQlxWgn2SaZuvLXHM7OEtQ0jrOPuWtxf/vNF5CaS6JJeo5DzEy5vmGrJFQ==}
+  '@stoprocent/noble@2.3.5':
+    resolution: {integrity: sha512-zV2MPYskNwGKx8i62OtdkHKjThhaPHnPvynxHrUAzco4qX4p69nhW7fsGXaUPJN3x9MsGJFk96Vvzmn3EcwR5A==}
     engines: {node: '>=14'}
 
   '@tootallnate/quickjs-emscripten@0.23.0':
@@ -2997,7 +2997,7 @@ snapshots:
       - supports-color
     optional: true
 
-  '@stoprocent/noble@2.3.4':
+  '@stoprocent/noble@2.3.5':
     dependencies:
       debug: 4.4.1
       node-addon-api: 8.5.0
