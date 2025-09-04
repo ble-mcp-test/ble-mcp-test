@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.5.12",
+  "version": "0.5.13",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
@@ -75,6 +75,8 @@
     "pm2:status": "pm2 show ble-mcp-test",
     "pm2:logs": "pm2 logs ble-mcp-test",
     "pm2:monitor": "pm2 monit",
+    "metrics": "node scripts/view-metrics.js",
+    "restart-bluetooth": "node scripts/restart-bluetooth.js",
     "pm2:delete": "pm2 delete ble-mcp-test",
     "pm2:save": "pm2 save",
     "pm2:startup": "pm2 startup",

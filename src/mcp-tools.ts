@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { LogEntry, LogBuffer } from './log-buffer.js';
 import { getPackageMetadata } from './utils.js';
+import { MetricsTracker } from './connection-metrics.js';
+import { ZombieDetector } from './zombie-detector.js';
 
 // Interface for services that provide MCP tools
 interface McpToolProvider {
@@ -248,7 +250,44 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
     }
   });
 
-  // Tool 5: scan_devices
+  // Tool 5: get_metrics
+  registerToolWithRegistry(server, {
+    name: 'get_metrics',
+    title: 'Get Connection Metrics',
+    description: 'Retrieve detailed connection metrics and health report',
+    inputSchema: {},
+    handler: async () => {
+      const tracker = MetricsTracker.getInstance();
+      const metrics = tracker.getMetrics();
+      const health = tracker.getHealthReport();
+      
+      const response = {
+        metrics,
+        health,
+        summary: {
+          uptime: `${Math.floor(metrics.uptimeMs / 1000)}s`,
+          connections: `${metrics.successfulConnections}/${metrics.totalConnections} successful`,
+          failureRate: metrics.totalConnections > 0 
+            ? `${((metrics.failedConnections / metrics.totalConnections) * 100).toFixed(1)}%`
+            : '0%',
+          reconnections: metrics.totalReconnections,
+          zombies: metrics.zombieConnectionsDetected,
+          resourceLeaks: metrics.resourceLeakDetected
+        }
+      };
+      
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(response, 
+            (key, value) => value instanceof Map ? Object.fromEntries(value) : value, 
+            2)
+        }]
+      };
+    }
+  });
+
+  // Tool 6: scan_devices
   registerToolWithRegistry(server, {
     name: 'scan_devices',
     title: 'Scan for BLE Devices',
@@ -282,6 +321,41 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
         
         throw error;
       }
+    }
+  });
+
+  // Tool 7: check_zombie
+  registerToolWithRegistry(server, {
+    name: 'check_zombie',
+    title: 'Check for Zombie Connections',
+    description: 'Check for zombie BLE connection patterns and get recommendations',
+    inputSchema: {},
+    handler: async () => {
+      const detector = ZombieDetector.getInstance();
+      
+      // Get current WebSocket count - provider may not have getAllSessions
+      const totalWebSockets = 0; // Will be enhanced when provider interface is updated
+      
+      const result = detector.checkForZombie(totalWebSockets);
+      const recentErrors = detector.getRecentErrors();
+      
+      const response = {
+        zombie: result,
+        recentErrors: recentErrors.map(error => ({
+          timestamp: new Date(error.timestamp).toISOString(),
+          sessionId: error.sessionId,
+          error: error.errorMessage
+        })),
+        activeWebSockets: totalWebSockets,
+        checkTime: new Date().toISOString()
+      };
+      
+      return {
+        content: [{
+          type: 'text',
+          text: JSON.stringify(response, null, 2)
+        }]
+      };
     }
   });
 }

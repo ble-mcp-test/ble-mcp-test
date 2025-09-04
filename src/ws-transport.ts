@@ -1,3 +1,5 @@
+import { CLOSE_CODE_MESSAGES } from './constants.js';
+
 export interface WSMessage {
   type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'admin_cleanup';
   seq?: number;
@@ -93,10 +95,33 @@ export class WebSocketTransport {
         reject(new Error('WebSocket error'));
       };
       
-      this.ws!.onclose = () => {
+      this.ws!.onclose = (event: CloseEvent) => {
         this.ws = null;
+        
+        // Handle application-specific close codes (4000-4999) during connection
+        if (event.code >= 4000 && event.code <= 4999) {
+          clearTimeout(timeout);
+          
+          // Create detailed error message based on close code
+          const closeCodeMessage = CLOSE_CODE_MESSAGES[event.code as keyof typeof CLOSE_CODE_MESSAGES];
+          const reason = event.reason || closeCodeMessage || 'Hardware connection failed';
+          
+          console.error(`[WebSocketTransport] Connection failed with code ${event.code}: ${reason}`);
+          
+          // Create error with close code for upstream handling
+          const error = new Error(`Connection failed: ${reason}`) as Error & { code: number };
+          error.code = event.code;
+          
+          reject(error);
+          return;
+        }
+        
+        // Handle other close events (after successful connection)
         if (this.messageHandler) {
-          this.messageHandler({ type: 'disconnected' });
+          this.messageHandler({ 
+            type: 'disconnected',
+            error: event.code !== 1000 ? `Connection closed with code ${event.code}: ${event.reason}` : undefined
+          });
         }
       };
     });
