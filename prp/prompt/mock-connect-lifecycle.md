@@ -8,7 +8,7 @@ Fix phantom connections in ble-mcp-test bridge where WebSocket connects successf
 1. **Atomic Connection**: WebSocket acceptance ONLY after complete BLE validation
 2. **Clean Failures**: Failed connections must cleanup immediately with clear error codes
 3. **Zombie Prevention**: No orphaned WebSocket connections without BLE backing
-4. **Test Integration**: Support simulateNotification injection for E2E testing
+4. **Bridge Simplicity**: Focus only on reliable hardware tunneling, not test simulation
 
 ---
 
@@ -27,9 +27,10 @@ Transform the current connection flow from "WebSocket first, BLE later" to "BLE 
 ### Success Criteria
 - [ ] WebSocket connections are rejected immediately when BLE hardware unavailable
 - [ ] No WebSocket connections exist without corresponding working BLE connections
-- [ ] simulateNotification works on all "connected" sessions (real or mock)
+- [ ] Bridge provides stable, reliable hardware tunneling only
 - [ ] Clear error messages with appropriate close codes for different failure types
 - [ ] Tests fail cleanly with "Hardware not available" when no CS108 device present
+- [ ] simulateNotification remains client-side only (no bridge roundtrip)
 
 ## All Needed Context
 
@@ -63,7 +64,7 @@ Transform the current connection flow from "WebSocket first, BLE later" to "BLE 
   why: WebSocket connection logic on client side
   
 - file: src/mock-bluetooth.ts:104-116
-  why: simulateNotification implementation pattern
+  why: simulateNotification client-side pattern (should remain client-only)
 ```
 
 ### Current Codebase Tree (key files)
@@ -73,7 +74,7 @@ src/
 ├── session-manager.ts    # Session lifecycle - needs immediate cleanup on failure
 ├── ble-session.ts       # BLE connection - needs fail-fast validation
 ├── noble-transport.ts   # Noble BLE transport - connection validation logic
-├── ws-handler.ts        # WebSocket message handling - needs simulateNotification
+├── ws-handler.ts        # WebSocket message handling - clean data tunneling only
 ├── ws-transport.ts      # Client WebSocket - error handling
 └── mock-bluetooth.ts    # Mock characteristics - simulateNotification pattern
 ```
@@ -84,7 +85,7 @@ src/
 ├── bridge-server.ts      # MODIFY: Add atomic connection validation
 ├── session-manager.ts    # MODIFY: Add removeSession() for failures  
 ├── ble-session.ts       # MODIFY: Fail-fast on connection errors
-├── ws-handler.ts        # MODIFY: Add simulate_notification message type
+├── ws-handler.ts        # MODIFY: Ensure clean data tunneling (no simulation)
 └── constants.ts          # CREATE: WebSocket close codes (4001-4005)
 ```
 
@@ -102,8 +103,8 @@ src/
 // CRITICAL: Session cleanup timing - zombie sessions if not removed immediately
 // Sessions with hasTransport=false but no cleanup create resource leaks
 
-// CRITICAL: simulateNotification only exists in mock, not real characteristics
-// Need injection at WebSocket message handler level for real hardware testing
+// CRITICAL: simulateNotification should remain client-side only
+// Bridge should focus purely on reliable hardware tunneling
 ```
 
 ## Implementation Blueprint
@@ -119,10 +120,11 @@ const CLOSE_CODES = {
   BLE_DISCONNECTED: 4005
 } as const;
 
-// WebSocket message types for notification injection
+// Simplified WebSocket message types (no simulation injection needed)
 interface WSMessage {
-  type: 'simulate_notification' | 'notification' | /* existing types */;
+  type: 'data' | 'connected' | 'disconnected' | 'error';
   data?: number[];
+  error?: string;
 }
 ```
 
@@ -156,14 +158,7 @@ MODIFY src/bridge-server.ts WebSocket connection handler (lines 81-128):
   - REMOVE session from SessionManager on connection failure
   - PRESERVE existing URL parameter parsing
 
-Task 5 - Add simulateNotification Message Handler:
-MODIFY src/ws-handler.ts message handling:
-  - ADD 'simulate_notification' message type handler
-  - INJECT notification data into session notification flow
-  - SEND data to WebSocket as 'notification' type
-  - MIRROR existing data message handling pattern
-
-Task 6 - Update Client Error Handling:
+Task 5 - Update Client Error Handling:
 MODIFY src/ws-transport.ts connect() method:
   - HANDLE 4000-4999 close codes specifically
   - PROVIDE clear error messages for each close code
@@ -268,28 +263,25 @@ this.wss.on('connection', async (ws, req) => {
 });
 ```
 
-#### Task 5: simulateNotification Injection
+#### Task 5: Client Error Handling
 ```typescript
-// PATTERN: Handle simulation at WebSocket message level
-onMessage(data) {
-    const message = JSON.parse(data);
-    
-    if (message.type === 'simulate_notification') {
-        // Convert data array to Uint8Array
-        const packet = new Uint8Array(message.data);
-        
-        // Send to WebSocket as if from real BLE device
-        this.ws.send(JSON.stringify({
-            type: 'notification',
-            data: Array.from(packet)
-        }));
-        
-        // Also trigger session handlers for consistency
-        this.session.handleNotification(packet);
-        return;
-    }
-    
-    // Handle other message types...
+// PATTERN: Handle bridge close codes properly
+async connect(options): Promise<void> {
+    return new Promise((resolve, reject) => {
+        this.ws!.onclose = (event) => {
+            this.ws = null;
+            
+            // Handle application-specific close codes
+            if (event.code >= 4000 && event.code <= 4999) {
+                const error = new Error(`Hardware connection failed: ${event.reason}`);
+                error.code = event.code;
+                reject(error);
+                return;
+            }
+            
+            // Handle other close codes...
+        };
+    });
 }
 ```
 
@@ -307,8 +299,8 @@ ERROR_HANDLING:
   
 WEBSOCKET_HANDLER:
   - modify: src/ws-handler.ts message handling
-  - add: 'simulate_notification' message type
-  - pattern: Route simulation through existing notification channels
+  - remove: Any simulation-related code
+  - pattern: Focus on clean data tunneling between client and BLE device
 ```
 
 ## Validation Loop
@@ -347,8 +339,8 @@ describe('Atomic Connection Validation', () => {
         // Verify session is removed from SessionManager
     });
     
-    it('should handle simulateNotification injection for real hardware', async () => {
-        // Test that simulate_notification messages work with real BLE connections
+    it('should maintain clean data tunneling without simulation', async () => {
+        // Test that bridge only handles real BLE data, no simulation injection
     });
 });
 ```
@@ -366,26 +358,94 @@ curl "ws://localhost:8080?service=6e400001-b5a3-f393-e0a9-e50e24dcca9e&write=6e4
 # Expected: WebSocket close with code 4001 "Hardware not found"
 
 # Test with hardware available (should work)  
-# Hardware connection -> WebSocket acceptance -> simulateNotification works
+# Hardware connection -> WebSocket acceptance -> Real BLE data tunneling
 ```
 
-### Level 4: E2E Playwright Tests  
+### Level 4: E2E Playwright Tests (COMPREHENSIVE - NO VICTORY WITHOUT PASSING)
 ```bash
-# Run existing E2E tests - they should now fail cleanly instead of timeout
+# CRITICAL: All E2E tests must pass before declaring implementation complete
+
+# Test 1: Clean failure without hardware
+pnpm pm2:restart
+pnpm exec playwright test --grep "should fail cleanly when hardware unavailable"
+# Expected: Clear error message, no phantom connections, no null characteristic errors
+
+# Test 2: Full E2E with mock (no hardware needed)
+pnpm exec playwright test tests/e2e/mock-bundle.spec.ts
+# Expected: All mock tests pass, simulateNotification works client-side
+
+# Test 3: Connection lifecycle with bridge (requires hardware)
+pnpm exec playwright test tests/e2e/websocket-url-verification.spec.ts
+# Expected: Real hardware connection or clean rejection
+
+# Test 4: Session management E2E
+pnpm exec playwright test tests/e2e/verify-session-websocket.spec.ts
+# Expected: Sessions handle connection failures gracefully
+
+# Test 5: Full test suite
 pnpm exec playwright test
-# Expected: Clear "Hardware not available" failures instead of mysterious timeout/null errors
+# Expected: ALL tests pass or skip cleanly with clear messaging
+
+# MANDATORY: Zero tolerance for phantom connections in E2E tests
+# If ANY test shows connected UI with null characteristics -> IMPLEMENTATION INCOMPLETE
 ```
 
-## Final Validation Checklist
-- [ ] All tests pass: `pnpm run test`
+### Level 5: Manual Hardware Validation (REQUIRED BEFORE COMPLETION)
+```bash
+# CRITICAL: Manual validation required with real CS108 hardware
+
+# Test with NO hardware present:
+pnpm pm2:restart
+# Open browser to test page, attempt connection
+# Expected: Immediate connection failure, clear error message, no "disconnect" button
+
+# Test with hardware present:
+# Plug in CS108 device, repeat connection test  
+# Expected: Successful connection, working notifications, proper cleanup on disconnect
+
+# Test connection stress:
+# Rapidly connect/disconnect 10 times
+# Expected: No zombie sessions, clean Noble resource cleanup
+
+# HARD REQUIREMENT: Implementation not complete until manual hardware tests pass
+```
+
+## Final Validation Checklist (ALL MUST PASS - NO EXCEPTIONS)
+
+### Code Quality Gates (Prerequisites)
+- [ ] All unit tests pass: `pnpm run test`
 - [ ] No linting errors: `pnpm run lint` 
 - [ ] No type errors: `pnpm run typecheck`
 - [ ] Bridge builds and starts: `pnpm build && pnpm pm2:restart`
+
+### Integration Testing (Must Pass)
 - [ ] WebSocket rejects with code 4001 when no hardware: Test connection to bridge without CS108
-- [ ] simulateNotification works on real hardware connections: Test with bridge + real device
-- [ ] E2E tests fail cleanly when hardware unavailable: `pnpm exec playwright test` without hardware
+- [ ] Real BLE data tunneling works with hardware: Test with bridge + real device  
 - [ ] No zombie sessions in SessionManager after failed connections: Check session count
 - [ ] Resource cleanup verified: Check Noble peripheral count after failed connections
+
+### E2E Testing (BLOCKING - All Must Pass)
+- [ ] Mock E2E tests all pass: `pnpm exec playwright test tests/e2e/mock-bundle.spec.ts`
+- [ ] WebSocket URL verification E2E passes: `pnpm exec playwright test tests/e2e/websocket-url-verification.spec.ts`
+- [ ] Session management E2E passes: `pnpm exec playwright test tests/e2e/verify-session-websocket.spec.ts`
+- [ ] Full E2E suite passes or skips cleanly: `pnpm exec playwright test`
+- [ ] E2E tests show clear failures (not timeouts) when hardware unavailable
+- [ ] E2E tests never show phantom connections (connected UI + null characteristics)
+
+### Manual Hardware Validation (REQUIRED FOR COMPLETION)
+- [ ] Clean failure without hardware: No CS108 → immediate connection failure + clear error
+- [ ] Successful connection with hardware: CS108 present → working connection + notifications
+- [ ] Connection stress test: 10x rapid connect/disconnect → no resource leaks
+- [ ] UI state correctness: Connected UI state only when BLE actually connected
+- [ ] Zombie session detection: No sessions with hasTransport=true but connected=false
+
+### HARD STOP CONDITIONS (Implementation incomplete if any fail)
+❌ **STOP** if E2E tests timeout instead of failing cleanly  
+❌ **STOP** if connected UI appears with null characteristics
+❌ **STOP** if zombie sessions accumulate in SessionManager
+❌ **STOP** if manual hardware tests don't pass completely
+
+**DO NOT DECLARE SUCCESS UNTIL ALL CHECKBOXES ARE CHECKED**
 
 ---
 
