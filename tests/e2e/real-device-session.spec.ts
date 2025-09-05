@@ -5,22 +5,14 @@ test.describe('Real Device Session Test', () => {
   test('should connect using service-only filtering (no device name)', async ({ page }) => {
     // Test will fail if bridge server not available - that's intentional for troubleshooting
 
-    // Setup page with bundle using shared helper
+    // Setup page with bundle and inject mock using shared helper
     await setupMockPage(page);
 
     const result = await page.evaluate(async ({ config }) => {
       const output: any = {};
       
       try {
-        // Inject mock WITHOUT device config - only service filtering
-        window.WebBleMock.injectWebBluetoothMock({
-          sessionId: config.sessionId,
-          serverUrl: config.serverUrl,
-          service: config.service,
-          write: config.write,
-          notify: config.notify
-        });
-        
+        // Mock already injected by setupMockPage
         output.mockInjected = true;
         
         // Request device with service UUID filter only (no device name filter)
@@ -81,19 +73,12 @@ test.describe('Real Device Session Test', () => {
       consoleLogs.push(`[${msg.type()}] ${msg.text()}`);
     });
 
-    // Setup page with bundle using shared helper
+    // Setup page with bundle and inject mock using shared helper
     await setupMockPage(page);
     
     // Pass device config to browser context
     const result = await page.evaluate(async ({ config }) => {
-      window.WebBleMock.injectWebBluetoothMock({
-        sessionId: config.sessionId,
-        serverUrl: config.serverUrl,
-        service: config.service,
-        write: config.write,
-        notify: config.notify
-      });
-
+      // Mock already injected by setupMockPage
       try {
         // Use service-based filtering instead of device name
         const device = await navigator.bluetooth.requestDevice({
