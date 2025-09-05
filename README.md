@@ -16,7 +16,7 @@ ble-mcp-test
 # Use in your tests
 import { injectWebBluetoothMock } from 'ble-mcp-test';
 injectWebBluetoothMock({
-  sessionId: 'my-test-session',
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Include app name and hostname
   serverUrl: 'ws://localhost:8080',
   service: '9800'  // Your device's primary service UUID
 });
@@ -108,7 +108,7 @@ async function startDevServer() {
         <script>
           // Inject mock ONCE with stable session ID
           window.WebBleMock.injectWebBluetoothMock({
-            sessionId: 'dev-stable-session-${os.hostname()}',  // Include hostname to prevent conflicts
+            sessionId: `myapp-dev-${os.hostname()}`,  // Include app name and hostname
             serverUrl: '${bridgeUrl}',
             service: '9800',     // CS108 RFID Reader service
             write: '9900',       // Write characteristic
@@ -196,11 +196,11 @@ test.describe('RFID Reader Tests', () => {
 ### Session Management Best Practices
 
 ```javascript
-// BEST: Include hostname to prevent conflicts between developers/machines
-const sessionId = `dev-stable-session-${os.hostname()}`;
+// BEST: Include app name and hostname for clarity
+const sessionId = `myapp-dev-${os.hostname()}`;  // e.g., "myapp-dev-macbook-pro"
 
 // OK: Fixed session ID (works for single developer)
-const sessionId = 'dev-stable-session';
+const sessionId = 'myapp-dev-local';
 
 // BAD: Random session ID per test (causes connection churn)
 const sessionId = 'test-' + Date.now();  // ❌ Avoid this
@@ -232,7 +232,7 @@ test('BLE device communication', async ({ page }) => {
   // Inject mock with hostname-based sessionId
   await page.evaluate((hostname) => {
     window.WebBleMock.injectWebBluetoothMock({
-      sessionId: `test-session-${hostname}`,  // Include hostname
+      sessionId: `myapp-e2e-${hostname}`,  // Include app name and hostname
       serverUrl: 'ws://localhost:8080',
       service: '9800',
       write: '9900',
@@ -277,7 +277,7 @@ const client = new NodeBleClient({
   service: '9800',        // Required: service UUID
   write: '9900',          // Required: write characteristic UUID
   notify: '9901',         // Required: notify characteristic UUID
-  sessionId: 'test-123',  // Optional: explicit session ID
+  sessionId: `myapp-node-${os.hostname()}`,  // Include app name and hostname
   debug: true             // Optional: enable debug logging
 });
 
@@ -392,21 +392,21 @@ Sessions prevent BLE connection conflicts and ensure predictable behavior:
 import os from 'os';
 
 injectWebBluetoothMock({
-  sessionId: `e2e-test-session-${os.hostname()}`,  // e.g., "e2e-test-session-dev-laptop"
+  sessionId: `myapp-e2e-${os.hostname()}`,  // e.g., "myapp-e2e-dev-laptop"
   serverUrl: 'ws://localhost:8080',
   service: '9800'
 });
 
 // For browser environments without os module
 injectWebBluetoothMock({
-  sessionId: `${window.location.hostname}-test-${Date.now()}`,  // e.g., "localhost-test-1234567890"
+  sessionId: `myapp-browser-${window.location.hostname}`,  // e.g., "myapp-browser-localhost"
   serverUrl: 'ws://localhost:8080',
   service: '9800'
 });
 
 // In CI/CD environments
 injectWebBluetoothMock({
-  sessionId: `ci-${process.env.CI_JOB_ID || 'local'}-${os.hostname()}`,
+  sessionId: `myapp-ci-${process.env.CI_JOB_ID || os.hostname()}`,  // e.g., "myapp-ci-job-123"
   serverUrl: 'ws://localhost:8080',
   service: '9800'
 });
@@ -421,14 +421,14 @@ injectWebBluetoothMock({
 // Use same sessionId across test runs for session reuse
 // Test 1: First run
 injectWebBluetoothMock({
-  sessionId: 'e2e-test-session',
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern
   serverUrl: 'ws://localhost:8080',
   service: '9800'
 });
 
 // Test 2: Second run (different page, same sessionId)
 injectWebBluetoothMock({
-  sessionId: 'e2e-test-session',  // Same session - reuses connection!
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern  // Same session - reuses connection!
   serverUrl: 'ws://localhost:8080',
   service: '9800'
 });

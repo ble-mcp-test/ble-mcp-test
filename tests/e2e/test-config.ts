@@ -8,7 +8,7 @@ dotenv.config({ path: '.env.local' });
 export const E2E_TEST_CONFIG = {
   // Fixed session ID for all E2E tests - ensures session reuse works across test runs
   // Include hostname for better debugging
-  sessionId: `e2e-test-session-${os.hostname()}`,
+  sessionId: `ble-mcp-e2e-${os.hostname()}`,  // e.g., "ble-mcp-e2e-macbook-pro"
   
   // BLE device configuration from environment
   // Don't specify a device by default - let it connect to any device with the service
