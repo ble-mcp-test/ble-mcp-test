@@ -23,38 +23,93 @@ server.stop(); // Graceful shutdown
 
 ## Browser API
 
-### injectWebBluetoothMock(serverUrl: string, bleConfig?: object)
+### injectWebBluetoothMock(config: WebBleMockConfig)
 
 Replaces the browser's `navigator.bluetooth` with a mock that communicates with the bridge server.
+
+```typescript
+export interface WebBleMockConfig {
+  sessionId: string;      // REQUIRED - session management
+  serverUrl: string;      // REQUIRED - bridge server URL  
+  service: string;        // REQUIRED - primary service UUID
+  write?: string;         // OPTIONAL - write characteristic UUID
+  notify?: string;        // OPTIONAL - notify characteristic UUID
+  deviceId?: string;      // OPTIONAL - specific device ID
+  deviceName?: string;    // OPTIONAL - device name filter
+  timeout?: number;       // OPTIONAL - discovery timeout (default: 5000ms)
+  onMultipleDevices?: 'error' | 'first';  // OPTIONAL - multiple device behavior (default: 'error')
+}
+```
 
 ```javascript
 import { injectWebBluetoothMock } from 'ble-mcp-test';
 
-// Basic usage
-injectWebBluetoothMock('ws://localhost:8080');
+// Basic usage (all required parameters)
+injectWebBluetoothMock({
+  sessionId: 'my-test-session',
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
 
-// With BLE configuration
-injectWebBluetoothMock('ws://localhost:8080', {
+// With optional characteristics
+injectWebBluetoothMock({
+  sessionId: 'my-test-session',
+  serverUrl: 'ws://localhost:8080',
   service: '9800',
   write: '9900',
   notify: '9901'
 });
 
-// With session management (v0.5.0+)
-injectWebBluetoothMock('ws://localhost:8080', {
+// With device selection (for multi-device environments)
+injectWebBluetoothMock({
+  sessionId: 'device-farm-session',
+  serverUrl: 'ws://device-farm:8080',
   service: '9800',
-  write: '9900',
-  notify: '9901',
-  sessionId: 'my-app-session-123'  // Use specific session ID
+  deviceId: '6c79b82603a7'  // Connect to specific device
 });
 
-// Zero config - auto-generates session ID
-injectWebBluetoothMock('ws://localhost:8080', {
-  service: '9800',
-  write: '9900',
-  notify: '9901'
-  // Session ID auto-generated: "192.168.1.100-chrome-A4B2"
+```
+
+#### Parameters
+
+- **sessionId** (required): Unique identifier for session management. Prevents connection conflicts and enables connection reuse across test runs.
+  - **Best Practice**: Include hostname for debugging: `e2e-test-session-${os.hostname()}`
+  - Makes it easy to identify which machine has the connection in bridge logs
+  - Example: `"e2e-test-session-bt-sandbox"`, `"ci-job-123-github-runner-04"`
+- **serverUrl** (required): WebSocket URL of the bridge server (e.g., `ws://localhost:8080`).
+- **service** (required): Primary BLE service UUID for device discovery. Used to filter devices during scanning.
+- **write** (optional): Characteristic UUID for write operations. Defaults to device's primary write characteristic.
+- **notify** (optional): Characteristic UUID for notifications. Defaults to device's primary notify characteristic.
+- **deviceId** (optional): Specific device ID to connect to. Useful in device farm environments with multiple identical devices.
+- **deviceName** (optional): Device name filter for device selection.
+- **timeout** (optional): Device discovery timeout in milliseconds. Default: 5000ms.
+- **onMultipleDevices** (optional): Behavior when multiple devices match filters. `'error'` (default) throws error, `'first'` connects to first found.
+
+#### Error Handling
+
+The function throws clear errors for missing required parameters:
+
+```javascript
+// Missing sessionId
+injectWebBluetoothMock({
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
 });
+// Error: sessionId is required - this prevents session conflicts and ensures predictable BLE connection management
+
+// Missing serverUrl
+injectWebBluetoothMock({
+  sessionId: 'test',
+  service: '9800'
+});
+// Error: serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:8080")
+
+// Missing service
+injectWebBluetoothMock({
+  sessionId: 'test',
+  serverUrl: 'ws://localhost:8080'
+});
+// Error: service is required - specify the primary service UUID for device discovery
 ```
 
 #### Parameters

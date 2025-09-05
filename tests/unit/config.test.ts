@@ -13,7 +13,7 @@ describe('Device-agnostic configuration', () => {
     delete process.env.BLE_MCP_WRITE_UUID;
     delete process.env.BLE_MCP_NOTIFY_UUID;
     
-    expect(() => getTestConfig()).toThrow('BLE device configuration missing');
+    expect(() => getTestConfig()).toThrow('BLE service/characteristic UUIDs missing');
     
     // Test with valid config (device can be empty string on Linux)
     process.env.BLE_MCP_DEVICE_IDENTIFIER = '';  // Empty string is valid on Linux

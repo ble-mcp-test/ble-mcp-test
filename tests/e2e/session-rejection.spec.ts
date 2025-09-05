@@ -4,64 +4,18 @@
  */
 
 import { test, expect } from '@playwright/test';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { E2E_TEST_CONFIG, getBleConfig } from './test-config';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getBleConfig, setupMockPage, injectMockInPage } from './test-config';
 
 test.describe('Session ID Rejection', () => {
-  const bundlePath = path.join(__dirname, '../../dist/web-ble-mock.bundle.js');
-  
   test('should reject connection with different session ID when one is active', async ({ page }) => {
     console.log('[Session Test] Testing session ID rejection behavior');
     
-    // Skip if bridge server not available
-    try {
-      await page.goto('http://localhost:8080', { waitUntil: 'networkidle', timeout: 2000 });
-    } catch (e) {
-      console.log('[Session Test] Bridge server not available, skipping test');
-      test.skip();
-      return;
-    }
+    // ONE LINE replaces 27 lines of boilerplate AND injects mock!
+    await setupMockPage(page);
     
-    // Setup page to serve the mock bundle
-    await page.route('**/*', async (route) => {
-      if (route.request().url().includes('/bundle.js')) {
-        await route.fulfill({
-          body: await page.evaluate(() => {
-            return fetch(bundlePath).then(r => r.text());
-          }),
-          contentType: 'application/javascript',
-        });
-      } else {
-        await route.fulfill({
-          body: `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <script src="/bundle.js"></script>
-            </head>
-            <body>
-              <div id="result">Session Rejection Test</div>
-            </body>
-            </html>
-          `,
-          contentType: 'text/html',
-        });
-      }
-    });
-
-    await page.goto('http://localhost/test');
-    await page.waitForTimeout(100);
-    
-    // First, inject mock with the standard deterministic session ID
-    await page.evaluate((config) => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', config);
-    }, getBleConfig());
-    
-    const results = await page.evaluate(async () => {
+    const results = await page.evaluate(async (testConfig) => {
       const log: string[] = [];
+      const { service, write, notify } = testConfig;
       
       try {
         // === FIRST CONNECTION WITH STANDARD SESSION ID ===
@@ -70,7 +24,7 @@ test.describe('Session ID Rejection', () => {
         // Request device
         log.push('Requesting device with standard session...');
         const device1 = await navigator.bluetooth.requestDevice({
-          filters: [{ services: ['0x9800'] }]
+          filters: [{ services: [service] }]
         });
         log.push(`Device found: ${device1.name || 'unnamed'}, ID: ${device1.id}`);
         
@@ -84,11 +38,12 @@ test.describe('Session ID Rejection', () => {
         log.push('=== SECOND CONNECTION ATTEMPT (DIFFERENT SESSION) ===');
         
         // Re-inject mock with a DIFFERENT session ID
-        window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', {
-          service: '9800',
-          write: '9900', 
-          notify: '9901',
-          sessionId: 'different-session-id'  // DIFFERENT SESSION ID
+        window.WebBleMock.injectWebBluetoothMock({
+          sessionId: 'different-session-id',  // DIFFERENT SESSION ID
+          serverUrl: 'ws://localhost:8080',
+          service,
+          write, 
+          notify
         });
         
         // Try to request device again with different session
@@ -98,7 +53,7 @@ test.describe('Session ID Rejection', () => {
         
         try {
           const device2 = await navigator.bluetooth.requestDevice({
-            filters: [{ services: ['0x9800'] }]
+            filters: [{ services: [service] }]
           });
           log.push(`ERROR: Should not have found device: ${device2.id}`);
           
@@ -125,7 +80,7 @@ test.describe('Session ID Rejection', () => {
         
         try {
           const device3 = await navigator.bluetooth.requestDevice({
-            filters: [{ services: ['0x9800'] }]
+            filters: [{ services: [service] }]
           });
           log.push(`Device found with different session: ${device3.name || 'unnamed'}, ID: ${device3.id}`);
           
@@ -155,7 +110,7 @@ test.describe('Session ID Rejection', () => {
           log 
         };
       }
-    });
+    }, getBleConfig());
     
     // Log full results
     console.log('[Session Test] Results:');

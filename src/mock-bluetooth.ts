@@ -291,7 +291,16 @@ class MockBluetoothRemoteGATTServer {
 class MockBluetoothDevice {
   public gatt: MockBluetoothRemoteGATTServer;
   public transport: WebSocketTransport;
-  public bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
+  public bleConfig: { 
+    service: string; 
+    write?: string; 
+    notify?: string; 
+    sessionId: string; 
+    deviceId?: string;
+    deviceName?: string;
+    timeout: number;
+    onMultipleDevices: 'error' | 'first';
+  };
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
   private isTransportSetup = false;
   public sessionId?: string;
@@ -299,13 +308,22 @@ class MockBluetoothDevice {
   constructor(
     public id: string,
     public name: string,
-    serverUrl?: string,
-    bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
+    serverUrl: string,
+    bleConfig: { 
+      service: string; 
+      write?: string; 
+      notify?: string; 
+      sessionId: string; 
+      deviceId?: string;
+      deviceName?: string;
+      timeout: number;
+      onMultipleDevices: 'error' | 'first';
+    }
   ) {
     this.transport = new WebSocketTransport(serverUrl);
     this.gatt = new MockBluetoothRemoteGATTServer(this);
     this.bleConfig = bleConfig;
-    this.sessionId = bleConfig?.sessionId;
+    this.sessionId = bleConfig.sessionId;
   }
 
   // Register a characteristic for notifications
@@ -353,47 +371,30 @@ class MockBluetoothDevice {
 
 // Mock Bluetooth API
 export class MockBluetooth {
-  private bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean };
-  private autoSessionId?: string;
+  private bleConfig: { 
+    service: string; 
+    write?: string; 
+    notify?: string; 
+    sessionId: string; 
+    deviceId?: string;
+    deviceName?: string;
+    timeout: number;
+    onMultipleDevices: 'error' | 'first';
+  };
 
-  constructor(private serverUrl?: string, bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }) {
+  constructor(private serverUrl: string, bleConfig: { 
+    service: string; 
+    write?: string; 
+    notify?: string; 
+    sessionId: string; 
+    deviceId?: string;
+    deviceName?: string;
+    timeout: number;
+    onMultipleDevices: 'error' | 'first';
+  }) {
     this.bleConfig = bleConfig;
-    
-    // Auto-generate session ID if not provided
-    if (!bleConfig?.sessionId) {
-      this.autoSessionId = this.generateAutoSessionId();
-    }
   }
   
-  private generateAutoSessionId(): string {
-    // Simple: Playwright gets a directory-based ID, browsers get random
-    if (this.isPlaywrightEnvironment()) {
-      // Use the current working directory name as the session ID base
-      // This allows all tests in the same project to share the connection pool
-      const projectName = this.getProjectName();
-      return `playwright-${projectName}`;
-    }
-    
-    // For interactive use, just timestamp + random
-    return `session-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-  }
-  
-  private getProjectName(): string {
-    // Try to get a stable project identifier
-    if (typeof process !== 'undefined' && process.cwd) {
-      // Get the last part of the current working directory
-      const cwd = process.cwd();
-      const parts = cwd.split(/[/\\]/);
-      return parts[parts.length - 1] || 'test';
-    }
-    
-    // Fallback for browser environment - use hostname
-    if (typeof window !== 'undefined') {
-      return window.location.hostname.replace(/[^a-z0-9]/gi, '-') || 'test';
-    }
-    
-    return 'test';
-  }
   
   private getClientIP(): string {
     if (typeof window !== 'undefined') {
@@ -424,28 +425,6 @@ export class MockBluetooth {
       return `${window.location.origin || 'unknown-origin'}`;
     }
     return 'no-window';
-  }
-  
-  private isPlaywrightEnvironment(): boolean {
-    // Simple check: Playwright tests typically use about:blank or have playwright in the user agent
-    if (typeof window !== 'undefined') {
-      // Check if we're in about:blank (common for Playwright)
-      if (window.location.href === 'about:blank') {
-        return true;
-      }
-      
-      // Check for Playwright marker in window object (if injected by test)
-      if ((window as any).playwright) {
-        return true;
-      }
-    }
-    
-    // Check for headless Chrome (common in Playwright)
-    if (typeof navigator !== 'undefined' && navigator.userAgent) {
-      return navigator.userAgent.includes('HeadlessChrome');
-    }
-    
-    return false;
   }
   
   private getStableTestSuffix(): string {
@@ -565,7 +544,7 @@ export class MockBluetooth {
     // Create effective config, preferring filter values over injected config
     const effectiveConfig = {
       ...this.bleConfig,
-      sessionId: this.bleConfig?.sessionId || this.autoSessionId
+      sessionId: this.bleConfig.sessionId
     };
     
     // Override with service UUID from filter if provided
@@ -598,18 +577,88 @@ export function getBundleVersion(): string {
     : 'unknown';
 }
 
-// Export function to inject mock into window
-export function injectWebBluetoothMock(
-  serverUrl?: string, 
-  bleConfig?: { service?: string; write?: string; notify?: string; sessionId?: string; generateSession?: boolean }
-): void {
+/**
+ * Configuration interface for Web Bluetooth mock
+ * All parameters marked REQUIRED are mandatory (breaking change in v0.6.0)
+ * 
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test#readme} - Getting Started Guide
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test/tree/main/examples} - Code Examples
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test/tree/main/docs} - Documentation
+ */
+export interface WebBleMockConfig {
+  sessionId: string;      // REQUIRED - session management
+  serverUrl: string;      // REQUIRED - bridge server URL  
+  service: string;        // REQUIRED - primary service UUID
+  write?: string;         // OPTIONAL - write characteristic UUID
+  notify?: string;        // OPTIONAL - notify characteristic UUID
+  deviceId?: string;      // OPTIONAL - specific device ID
+  deviceName?: string;    // OPTIONAL - device name filter
+  timeout?: number;       // OPTIONAL - discovery timeout (default: 5000ms)
+  onMultipleDevices?: 'error' | 'first';  // OPTIONAL - multiple device behavior (default: 'error')
+}
+
+/**
+ * Inject the Web Bluetooth mock into the browser
+ * Replaces navigator.bluetooth with a mock implementation
+ * 
+ * @example Basic usage with required parameters (v0.6.0+)
+ * ```javascript
+ * import os from 'os';
+ * 
+ * window.WebBleMock.injectWebBluetoothMock({
+ *   sessionId: `test-session-${os.hostname()}`,  // Unique per developer machine
+ *   serverUrl: 'ws://localhost:8080',            // Bridge server URL
+ *   service: '9800'                              // Your BLE service UUID
+ * });
+ * ```
+ * 
+ * @example With optional parameters
+ * ```javascript
+ * window.WebBleMock.injectWebBluetoothMock({
+ *   sessionId: `test-session-${os.hostname()}`,
+ *   serverUrl: 'ws://localhost:8080',
+ *   service: '9800',
+ *   write: '9900',     // Optional: write characteristic UUID
+ *   notify: '9901',    // Optional: notify characteristic UUID
+ *   timeout: 10000     // Optional: connection timeout
+ * });
+ * ```
+ * 
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test/tree/main/examples/smart-mock-helper.ts} - Auto-detect dev vs CI context
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test/tree/main/docs/UNIFIED-TESTING.md} - Unified testing approach
+ * @see {@link https://github.com/ble-mcp-test/ble-mcp-test/tree/main/docs/TESTING-PATTERNS.md} - Testing patterns
+ */
+export function injectWebBluetoothMock(config: WebBleMockConfig): void {
   if (typeof window === 'undefined') {
     console.warn('injectWebBluetoothMock: Not in browser environment');
     return;
   }
   
+  // Validate required parameters
+  if (!config.sessionId) {
+    throw new Error('sessionId is required - this prevents session conflicts and ensures predictable BLE connection management');
+  }
+  if (!config.serverUrl) {
+    throw new Error('serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:8080")');
+  }
+  if (!config.service) {
+    throw new Error('service is required - specify the primary service UUID for device discovery');
+  }
+  
+  // Create backward-compatible bleConfig for internal use
+  const bleConfig = {
+    service: config.service,
+    write: config.write,
+    notify: config.notify,
+    sessionId: config.sessionId,
+    deviceId: config.deviceId,
+    deviceName: config.deviceName,
+    timeout: config.timeout || 5000,
+    onMultipleDevices: config.onMultipleDevices || 'error'
+  };
+  
   // Try to replace navigator.bluetooth with our mock
-  const mockBluetooth = new MockBluetooth(serverUrl, bleConfig);
+  const mockBluetooth = new MockBluetooth(config.serverUrl, bleConfig);
   
   try {
     // First attempt: direct assignment

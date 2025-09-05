@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.5.15",
+  "version": "0.6.0",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
@@ -87,6 +87,8 @@
     "test:run": "pnpm run pretest && vitest run",
     "test:watch": "vitest",
     "test:e2e": "pnpm run pretest && pnpm exec playwright test",
+    "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test",
+    "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
     "test:stress": "pnpm run pretest && vitest run tests/stress",
     "test:integration": "CHECK_BLE_DEVICE=true pnpm run pretest && vitest run tests/integration",
     "test:unit": "pnpm run pretest && vitest run tests/unit",
