@@ -527,11 +527,11 @@ This is especially useful when:
 // ❌ WRONG - Don't do this!
 const ws = new WebSocket('ws://localhost:8080/?device=...');
 
-// ✅ CORRECT - Use the mock
+// ✅ CORRECT - Use the mock with required parameters
 injectWebBluetoothMock({
-  sessionId: 'my-session',
-  serverUrl: 'ws://localhost:8080',
-  service: '9800'
+  sessionId: `myapp-dev-${os.hostname()}`,  // Required: unique session ID
+  serverUrl: 'ws://localhost:8080',         // Required: bridge server URL
+  service: '9800'                           // Required: primary service UUID
 });
 const device = await navigator.bluetooth.requestDevice({...});
 ```
