@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.14] - 2025-09-05
+
+### Changed
+- Updated changelog to include v0.5.13 entry that was missed during publish
+
+## [0.5.13] - 2025-09-05
+
+### Fixed
+- **Atomic BLE Connection Validation**: WebSocket connections now only accepted after complete BLE stack validation
+  - Eliminates phantom connections where WebSocket showed "connected" but BLE hardware was not connected
+  - Complete validation sequence: Noble state → Device discovery → GATT connection → Service discovery → Characteristic discovery
+  - WebSocket acceptance only occurs after all BLE operations successfully complete
+  - Immediate session cleanup on any connection failure prevents zombie sessions
+- **Application-Specific WebSocket Close Codes**: Proper error reporting with RFC 6455 compliant codes (4000-4999)
+  - 4001: Hardware not found during scan
+  - 4002: GATT connection failed  
+  - 4003: Service not found
+  - 4004: Characteristics not found
+  - 4005: BLE disconnected during operation
+- **Session Lifecycle Management**: Sessions immediately removed from manager on connection failure
+  - No lingering sessions after failed connection attempts
+  - Proper resource cleanup prevents accumulation of broken sessions
+
+### Added
+- BLE-specific error class `BLEConnectionError` for typed error handling
+- Error mapping utilities to convert BLE errors to appropriate WebSocket close codes
+- Connection state tracking to prevent cleanup during active connection attempts
+
+### Changed
+- Refactored BLE session connect() to validate entire stack atomically before creating transport
+- Bridge server now waits for complete BLE validation before sending "connected" message
+- WebSocket transport enhanced to handle and report application-specific close codes
+
 ## [0.5.12] - 2025-09-03
 
 ### Added
