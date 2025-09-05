@@ -5,66 +5,33 @@
  */
 
 import { test, expect } from '@playwright/test';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
-import { E2E_TEST_CONFIG, getBleConfig } from './test-config';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getBleConfig, setupMockPage, injectMockInPage } from './test-config';
+import { getBatteryVoltageCommand } from '../../src/cs108-commands';
 
 test.describe('Zombie Session Repro', () => {
-  const bundlePath = path.join(__dirname, '../../dist/web-ble-mock.bundle.js');
-  
   test('connect and get battery twice in a row', async ({ page }) => {
     console.log('[Zombie Test] Starting zombie session reproduction test');
     
-    // Skip if bridge server not available
-    try {
-      const health = await fetch('http://localhost:8081/health').catch(() => null);
-      if (!health || !health.ok) {
-        test.skip(true, 'Bridge server not running');
-        return;
-      }
-    } catch (e) {
-      test.skip(true, 'Bridge server not accessible');
-      return;
-    }
+    // Test will fail if bridge server not available - that's intentional for troubleshooting
     
-    // Setup page with bundle (like other E2E tests)
-    await page.route('**/*', async route => {
-      const url = route.request().url();
-      if (url.endsWith('/bundle.js')) {
-        await route.fulfill({
-          path: bundlePath,
-          contentType: 'application/javascript',
-        });
-      } else {
-        await route.fulfill({
-          body: `
-            <!DOCTYPE html>
-            <html>
-            <head>
-              <script src="/bundle.js"></script>
-            </head>
-            <body>
-              <div id="result">Zombie Reproduction Test</div>
-            </body>
-            </html>
-          `,
-          contentType: 'text/html',
-        });
-      }
-    });
-
-    await page.goto('http://localhost/test');
-    await page.waitForTimeout(100);
+    // Setup page with bundle and auto-inject mock
+    await setupMockPage(page, `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <script src="/bundle.js"></script>
+      </head>
+      <body>
+        <div id="result">Zombie Reproduction Test</div>
+      </body>
+      </html>
+    `);
     
-    // Inject Web Bluetooth mock with shared session ID
-    await page.evaluate((config) => {
-      window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080', config);
-    }, getBleConfig());
+    const batteryCommand = Array.from(getBatteryVoltageCommand());
     
-    const results = await page.evaluate(async () => {
+    const results = await page.evaluate(async ({ testConfig, batteryCmd }) => {
       const log: string[] = [];
+      const { service, write, notify } = testConfig;
       
       try {
         // === FIRST CONNECTION ===
@@ -79,7 +46,7 @@ test.describe('Zombie Session Repro', () => {
         // Request device (this goes through the mock)
         log.push('Requesting device...');
         const device1 = await navigator.bluetooth.requestDevice({
-          filters: [{ services: ['0x9800'] }]  // Use service filtering since device name may not be advertised
+          filters: [{ services: [service] }]  // Use service filtering from config
         });
         log.push(`Device found: ${device1.name || 'unnamed'}, ID: ${device1.id}`);
         
@@ -94,14 +61,14 @@ test.describe('Zombie Session Repro', () => {
         
         // Get service
         log.push('Getting service...');
-        const service1 = await server1.getPrimaryService('9800');
+        const service1 = await server1.getPrimaryService(service);
         log.push('Service obtained');
         
         // Get characteristics
         log.push('Getting write characteristic...');
-        const writeChar1 = await service1.getCharacteristic('9900');
+        const writeChar1 = await service1.getCharacteristic(write);
         log.push('Getting notify characteristic...');
-        const notifyChar1 = await service1.getCharacteristic('9901');
+        const notifyChar1 = await service1.getCharacteristic(notify);
         log.push('Characteristics obtained');
         
         // Set up notifications
@@ -130,8 +97,7 @@ test.describe('Zombie Session Repro', () => {
         
         // Send GET_BATTERY_VOLTAGE command (0xA000)
         log.push('Sending battery voltage command...');
-        const batteryCmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
-        await writeChar1.writeValue(batteryCmd);
+        await writeChar1.writeValue(new Uint8Array(batteryCmd));
         
         // Wait for response
         log.push('Waiting 1 second for battery response...');
@@ -157,7 +123,7 @@ test.describe('Zombie Session Repro', () => {
         // Request device again
         log.push('Requesting device again...');
         const device2 = await navigator.bluetooth.requestDevice({
-          filters: [{ services: ['0x9800'] }]  // Use service filtering since device name may not be advertised
+          filters: [{ services: [service] }]  // Use service filtering from config
         });
         log.push(`Device found: ${device2.name || 'unnamed'}, ID: ${device2.id}`);
         
@@ -172,14 +138,14 @@ test.describe('Zombie Session Repro', () => {
         
         // Get service
         log.push('Getting service...');
-        const service2 = await server2.getPrimaryService('9800');
+        const service2 = await server2.getPrimaryService(service);
         log.push('Service obtained');
         
         // Get characteristics
         log.push('Getting write characteristic...');
-        const writeChar2 = await service2.getCharacteristic('9900');
+        const writeChar2 = await service2.getCharacteristic(write);
         log.push('Getting notify characteristic...');
-        const notifyChar2 = await service2.getCharacteristic('9901');
+        const notifyChar2 = await service2.getCharacteristic(notify);
         log.push('Characteristics obtained');
         
         // Set up notifications
@@ -231,7 +197,7 @@ test.describe('Zombie Session Repro', () => {
         // Request device for third time
         log.push('Requesting device for third time...');
         const device3 = await navigator.bluetooth.requestDevice({
-          filters: [{ services: ['0x9800'] }]
+          filters: [{ services: [service] }]
         });
         log.push(`Device found: ${device3.name || 'unnamed'}, ID: ${device3.id}`);
         
@@ -246,14 +212,14 @@ test.describe('Zombie Session Repro', () => {
         
         // Get service
         log.push('Getting service...');
-        const service3 = await server3.getPrimaryService('0x9800');
+        const service3 = await server3.getPrimaryService(service);
         log.push('Service obtained');
         
         // Get characteristics
         log.push('Getting write characteristic...');
-        const writeChar3 = await service3.getCharacteristic('0x9900');
+        const writeChar3 = await service3.getCharacteristic(write);
         log.push('Getting notify characteristic...');
-        const notifyChar3 = await service3.getCharacteristic('0x9901');
+        const notifyChar3 = await service3.getCharacteristic(notify);
         log.push('Characteristics obtained');
         
         // Set up notifications
@@ -323,7 +289,7 @@ test.describe('Zombie Session Repro', () => {
         }
         return { success: false, log, error: err.message };
       }
-    });
+    }, { testConfig: getBleConfig(), batteryCmd: batteryCommand });
     
     // Print results
     console.log('[Zombie Test] Results:');
@@ -334,8 +300,8 @@ test.describe('Zombie Session Repro', () => {
     const successCount = [results.battery1, results.battery2, results.battery3].filter(b => b !== null && b !== undefined).length;
     console.log(`[Zombie Test] Success count: ${successCount}/3 connections got battery response`);
     
-    // We want at least 2 out of 3 to work to consider it partially successful
-    expect(successCount).toBeGreaterThanOrEqual(2);
+    // All 3 MUST work - no partial credit (completeNobleReset ensures success)
+    expect(successCount).toBe(3);
     
     // Check the pattern
     if (!results.battery1 && results.battery2 && results.battery3) {

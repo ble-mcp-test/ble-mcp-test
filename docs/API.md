@@ -23,48 +23,101 @@ server.stop(); // Graceful shutdown
 
 ## Browser API
 
-### injectWebBluetoothMock(serverUrl: string, bleConfig?: object)
+### injectWebBluetoothMock(config: WebBleMockConfig)
 
 Replaces the browser's `navigator.bluetooth` with a mock that communicates with the bridge server.
+
+```typescript
+export interface WebBleMockConfig {
+  sessionId: string;      // REQUIRED - session management
+  serverUrl: string;      // REQUIRED - bridge server URL  
+  service: string;        // REQUIRED - primary service UUID
+  write?: string;         // OPTIONAL - write characteristic UUID
+  notify?: string;        // OPTIONAL - notify characteristic UUID
+  deviceId?: string;      // OPTIONAL - specific device ID
+  deviceName?: string;    // OPTIONAL - device name filter
+  timeout?: number;       // OPTIONAL - discovery timeout (default: 5000ms)
+  onMultipleDevices?: 'error' | 'first';  // OPTIONAL - multiple device behavior (default: 'error')
+}
+```
 
 ```javascript
 import { injectWebBluetoothMock } from 'ble-mcp-test';
 
-// Basic usage
-injectWebBluetoothMock('ws://localhost:8080');
-
-// With BLE configuration
-injectWebBluetoothMock('ws://localhost:8080', {
-  service: '9800',
-  write: '9900',
-  notify: '9901'
+// Basic usage (all required parameters)
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Required: unique session ID
+  serverUrl: 'ws://localhost:8080',         // Required: bridge server URL
+  service: '9800'                           // Required: primary service UUID
 });
 
-// With session management (v0.5.0+)
-injectWebBluetoothMock('ws://localhost:8080', {
+// With optional characteristics
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,
+  serverUrl: 'ws://localhost:8080',
   service: '9800',
-  write: '9900',
-  notify: '9901',
-  sessionId: 'my-app-session-123'  // Use specific session ID
+  write: '9900',      // Optional: write characteristic
+  notify: '9901'      // Optional: notify characteristic
 });
 
-// Zero config - auto-generates session ID
-injectWebBluetoothMock('ws://localhost:8080', {
+// With device selection (for multi-device environments)
+injectWebBluetoothMock({
+  sessionId: `farm-${deviceId}-${os.hostname()}`,
+  serverUrl: 'ws://device-farm:8080',
   service: '9800',
-  write: '9900',
-  notify: '9901'
-  // Session ID auto-generated: "192.168.1.100-chrome-A4B2"
+  deviceId: '6c79b82603a7'  // Connect to specific device
 });
+
 ```
 
 #### Parameters
 
-- `serverUrl` (string) - WebSocket URL of the bridge server
-- `bleConfig` (object, optional) - BLE configuration options:
-  - `service` - Service UUID
-  - `write` - Write characteristic UUID
-  - `notify` - Notify characteristic UUID
-  - `sessionId` - Custom session ID (v0.5.1+, auto-generated if omitted)
+- **sessionId** (required): Unique identifier for session management. Prevents connection conflicts and enables connection reuse across test runs.
+  - **Best Practice**: Include app name and hostname: `myapp-e2e-${os.hostname()}`
+  - Makes it easy to identify which machine has the connection in bridge logs
+  - Example: `"e2e-test-session-bt-sandbox"`, `"ci-job-123-github-runner-04"`
+- **serverUrl** (required): WebSocket URL of the bridge server (e.g., `ws://localhost:8080`).
+- **service** (required): Primary BLE service UUID for device discovery. Used to filter devices during scanning.
+- **write** (optional): Characteristic UUID for write operations. Defaults to device's primary write characteristic.
+- **notify** (optional): Characteristic UUID for notifications. Defaults to device's primary notify characteristic.
+- **deviceId** (optional): Specific device ID to connect to. Useful in device farm environments with multiple identical devices.
+- **deviceName** (optional): Device name filter for device selection.
+- **timeout** (optional): Device discovery timeout in milliseconds. Default: 5000ms.
+- **onMultipleDevices** (optional): Behavior when multiple devices match filters. `'error'` (default) throws error, `'first'` connects to first found.
+
+#### Error Handling
+
+The function throws clear errors for missing required parameters:
+
+```javascript
+// Missing sessionId
+injectWebBluetoothMock({
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
+// Error: sessionId is required - this prevents session conflicts and ensures predictable BLE connection management
+
+// Missing serverUrl
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,
+  service: '9800'
+});
+// Error: serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:8080")
+
+// Missing service
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,
+  serverUrl: 'ws://localhost:8080'
+});
+// Error: service is required - specify the primary service UUID for device discovery
+```
+
+#### Additional Notes
+
+- All three parameters (sessionId, serverUrl, service) are required as of v0.6.0
+- The sessionId should be unique per test run/developer machine
+- Include hostname in sessionId for easier debugging
+- Service UUID is used for device discovery filtering
 
 ### Using the Browser Bundle
 
@@ -74,7 +127,11 @@ If you're not using a module bundler, include the pre-built bundle:
 <script src="path/to/web-ble-mock.bundle.js"></script>
 <script>
   // Global WebBleMock object is available
-  WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+  WebBleMock.injectWebBluetoothMock({
+    sessionId: `myapp-browser-${window.location.hostname}`,
+    serverUrl: 'ws://localhost:8080',
+    service: '9800'
+  });
 </script>
 ```
 
@@ -493,15 +550,15 @@ test('communicate with BLE device', async ({ page }) => {
   });
   
   // Configure and initialize
-  await page.evaluate(() => {
-    const url = new URL('ws://localhost:8080');
-    url.searchParams.set('device', 'CS108');
-    url.searchParams.set('service', '9800');
-    url.searchParams.set('write', '9900');
-    url.searchParams.set('notify', '9901');
-    
-    WebBleMock.injectWebBluetoothMock(url.toString());
-  });
+  await page.evaluate((hostname) => {
+    WebBleMock.injectWebBluetoothMock({
+      sessionId: `myapp-e2e-${hostname}`,
+      serverUrl: 'ws://localhost:8080',
+      service: '9800',
+      write: '9900',
+      notify: '9901'
+    });
+  }, os.hostname());
   
   // Now your app can use navigator.bluetooth normally!
   await page.click('#connect-button');

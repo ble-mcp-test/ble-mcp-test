@@ -44,10 +44,28 @@ let bundleContent = readFileSync(bundlePath, 'utf8');
 // The IIFE sets window.WebBleMock inside, but we need to ensure it's actually set
 // Add version info and verification
 const fixExports = `
+/**
+ * ble-mcp-test Web Bluetooth Mock - Version ${version}
+ * 
+ * Documentation & Examples:
+ * - GitHub: https://github.com/ble-mcp-test/ble-mcp-test
+ * - Examples: https://github.com/ble-mcp-test/ble-mcp-test/tree/main/examples
+ * - Docs: https://github.com/ble-mcp-test/ble-mcp-test/tree/main/docs
+ * 
+ * Quick Start (v0.6.0+):
+ * window.WebBleMock.injectWebBluetoothMock({
+ *   sessionId: 'test-session-' + os.hostname(),  // Required: unique session ID
+ *   serverUrl: 'ws://localhost:8080',            // Required: bridge server URL
+ *   service: '9800'                              // Required: service UUID
+ * });
+ * 
+ * See examples/smart-mock-helper.ts for auto-detection of dev vs CI context
+ */
 // Bundle version: ${version}
 if (typeof window !== 'undefined' && window.WebBleMock) {
   window.WebBleMock.version = '${version}';
   console.log('[WebBleMock] Bundle loaded successfully, version: ${version}, exports:', Object.keys(window.WebBleMock));
+  console.log('[WebBleMock] Documentation: https://github.com/ble-mcp-test/ble-mcp-test');
 } else {
   console.error('[WebBleMock] Bundle failed to create window.WebBleMock');
 }

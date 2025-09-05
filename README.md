@@ -15,7 +15,11 @@ ble-mcp-test
 
 # Use in your tests
 import { injectWebBluetoothMock } from 'ble-mcp-test';
-injectWebBluetoothMock('ws://localhost:8080');
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Include app name and hostname
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'  // Your device's primary service UUID
+});
 ```
 
 ## Why This Exists
@@ -35,7 +39,7 @@ sequenceDiagram
     participant BLE as BLE Device
 
     Note over Test,Browser: 1. Test Setup
-    Test->>Browser: injectWebBluetoothMock('ws://localhost:8080')
+    Test->>Browser: injectWebBluetoothMock({sessionId:'myapp-e2e-hostname', serverUrl:'ws://localhost:8080', service:'9800'})
     Browser->>Browser: Replace navigator.bluetooth
 
     Note over Test,BLE: 2. Device Connection
@@ -64,38 +68,194 @@ sequenceDiagram
     Bridge->>Bridge: Cleanup connection
 ```
 
-## Complete Example
+## Real-World Examples
+
+Complete, production-ready examples are available in the `examples/` directory:
+
+- **[dev-server-with-mock.js](examples/dev-server-with-mock.js)** - Development server that injects mock at startup
+- **[playwright-test-helpers.ts](examples/playwright-test-helpers.ts)** - Enhanced test helpers with zombie prevention
+- **[example.spec.ts](examples/example.spec.ts)** - Complete Playwright test suite showing best practices
+
+### Development Server with Mock Injection (Recommended)
+
+This pattern, used in production by TrakRF, provides the most reliable testing experience:
 
 ```javascript
-// Your test file (Playwright, Puppeteer, etc)
-import { injectWebBluetoothMock } from 'ble-mcp-test';
+// dev-server.js - Inject mock once at app startup
+import express from 'express';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 
-test('BLE device communication', async ({ page }) => {
-  // Inject the mock
-  await page.addScriptTag({
-    path: 'node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js'
+async function startDevServer() {
+  // 1. Health check bridge server before starting
+  const bridgeUrl = process.env.BLE_BRIDGE_URL || 'ws://localhost:8080';
+  const healthUrl = bridgeUrl.replace('ws:', 'http:').replace('8080', '8081') + '/health';
+  
+  const health = await fetch(healthUrl);
+  if (!health.ok) {
+    throw new Error('BLE bridge server not running! Start with: pnpm start');
+  }
+  
+  // 2. Start dev server with mock enabled
+  const app = express();
+  
+  // 3. Inject mock configuration into HTML
+  app.get('/', (req, res) => {
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <script src="/web-ble-mock.bundle.js"></script>
+        <script>
+          // Inject mock ONCE with stable session ID
+          window.WebBleMock.injectWebBluetoothMock({
+            sessionId: `myapp-dev-${os.hostname()}`,  // Include app name and hostname
+            serverUrl: '${bridgeUrl}',
+            service: '9800',     // CS108 RFID Reader service
+            write: '9900',       // Write characteristic
+            notify: '9901'       // Notify characteristic
+          });
+        </script>
+      </head>
+      <body>
+        <div id="app"></div>
+        <script src="/app.js"></script>
+      </body>
+      </html>
+    `);
   });
   
-  await page.evaluate(() => {
-    WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
-  });
+  app.listen(5173);
+  console.log('Dev server with BLE mock running on http://localhost:5173');
+}
+```
 
+```javascript
+// app.js - Your application code uses Web Bluetooth normally
+async function connectToReader() {
+  // No mock code here - just standard Web Bluetooth
+  const device = await navigator.bluetooth.requestDevice({
+    filters: [{ services: ['9800'] }]  // Filter by service UUID
+  });
+  
+  const server = await device.gatt.connect();
+  const service = await server.getPrimaryService('9800');
+  const writeChar = await service.getCharacteristic('9900');
+  const notifyChar = await service.getCharacteristic('9901');
+  
+  // Real device communication happens here
+  await notifyChar.startNotifications();
+  notifyChar.addEventListener('characteristicvaluechanged', handleData);
+  
+  return { device, writeChar, notifyChar };
+}
+```
+
+```javascript
+// test.spec.js - Playwright tests against the dev server
+test.describe('RFID Reader Tests', () => {
+  // All tests share the same sessionId: 'dev-stable-session'
+  // Bridge maintains BLE connection across test runs
+  
+  test('read RFID tag', async ({ page }) => {
+    await page.goto('http://localhost:5173');
+    
+    // Click connect button - uses existing BLE session if available
+    await page.click('#connect-btn');
+    
+    // Trigger RFID scan
+    await page.click('#scan-btn');
+    
+    // Real RFID tags respond (physical tags in front of reader)
+    const tagId = await page.locator('#tag-id').textContent();
+    expect(tagId).toBe('E280689400004003DEB6E5A8');  // Real tag!
+  });
+  
+  test('read multiple tags rapidly', async ({ page }) => {
+    await page.goto('http://localhost:5173');
+    
+    // Reuses existing connection from previous test
+    await page.click('#connect-btn');
+    
+    // Rapid tag reads work because connection is stable
+    for (let i = 0; i < 10; i++) {
+      await page.click('#scan-btn');
+      await page.waitForSelector('#tag-count:has-text("' + (i+1) + '")')
+    }
+  });
+});
+```
+
+### Key Benefits of This Pattern
+
+1. **Single Mock Injection** - Mock injected once at server start, not per test
+2. **Stable Session ID** - All tests share `dev-stable-session` for connection reuse  
+3. **Real Hardware** - Tests communicate with actual BLE device through bridge
+4. **Fast Test Execution** - No connection overhead between tests
+5. **Clean State Guarantee** - Bridge ensures no zombie connections
+
+### Session Management Best Practices
+
+```javascript
+// BEST: Include app name and hostname for clarity
+const sessionId = `myapp-dev-${os.hostname()}`;  // e.g., "myapp-dev-macbook-pro"
+
+// OK: Fixed session ID (works for single developer)
+const sessionId = 'myapp-dev-local';
+
+// BAD: Random session ID per test (causes connection churn)
+const sessionId = 'test-' + Date.now();  // ❌ Avoid this
+```
+
+⚠️ **Important for Teams**: Always include `os.hostname()` in your sessionId to prevent conflicts when:
+- Multiple developers work on the same bridge server
+- CI/CD runs tests on different machines  
+- You switch between different development machines
+
+This ensures each machine maintains its own stable BLE connection without interfering with others.
+
+## Complete Example (Standalone Test)
+
+For tests that don't use a dev server, inject the mock per test:
+
+```javascript
+// test.spec.js - Standalone Playwright test
+import { test, expect } from '@playwright/test';
+import * as path from 'path';
+import os from 'os';
+
+test('BLE device communication', async ({ page }) => {
+  // Load the bundle
+  await page.addScriptTag({
+    path: path.join(__dirname, '../node_modules/ble-mcp-test/dist/web-ble-mock.bundle.js')
+  });
+  
+  // Inject mock with hostname-based sessionId
+  await page.evaluate((hostname) => {
+    window.WebBleMock.injectWebBluetoothMock({
+      sessionId: `myapp-e2e-${hostname}`,  // Include app name and hostname
+      serverUrl: 'ws://localhost:8080',
+      service: '9800',
+      write: '9900',
+      notify: '9901'
+    });
+  }, os.hostname());
+  
   // Use Web Bluetooth API normally
-  const device = await page.evaluate(async () => {
+  const batteryLevel = await page.evaluate(async () => {
     const device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'MyDevice' }]
+      filters: [{ services: ['9800'] }]
     });
     
     await device.gatt.connect();
-    const service = await device.gatt.getPrimaryService('180f');
-    const characteristic = await service.getCharacteristic('2a19');
+    const service = await device.gatt.getPrimaryService('9800');
+    const characteristic = await service.getCharacteristic('9901');
     
-    // Read battery level
+    // Read actual data from real device
     const value = await characteristic.readValue();
     return value.getUint8(0);
   });
   
-  expect(device).toBe(75); // 75% battery
+  expect(batteryLevel).toBeGreaterThan(0);
 });
 ```
 
@@ -117,7 +277,7 @@ const client = new NodeBleClient({
   service: '9800',        // Required: service UUID
   write: '9900',          // Required: write characteristic UUID
   notify: '9901',         // Required: notify characteristic UUID
-  sessionId: 'test-123',  // Optional: explicit session ID
+  sessionId: `myapp-node-${os.hostname()}`,  // Include app name and hostname
   debug: true             // Optional: enable debug logging
 });
 
@@ -224,36 +384,57 @@ describe('BLE Device Integration', () => {
 
 ## Session Management (v0.5.2+)
 
-Sessions allow BLE connections to persist across WebSocket disconnects and prevent conflicts:
+Sessions prevent BLE connection conflicts and ensure predictable behavior:
 
 ```javascript
-// Zero config - automatically creates unique session per browser/tool
-injectWebBluetoothMock('ws://localhost:8080');
-// Auto-generates: "192.168.1.100-chrome-A4B2" or "127.0.0.1-playwright-X9Z1"
+// BEST PRACTICE: Include hostname in sessionId for debugging
+// Makes it easy to identify which machine/environment is using the bridge
+import os from 'os';
 
-// Advanced: Use explicit session ID
-injectWebBluetoothMock('ws://localhost:8080', {
-  sessionId: 'my-custom-session'
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,  // e.g., "myapp-e2e-dev-laptop"
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
+
+// For browser environments without os module
+injectWebBluetoothMock({
+  sessionId: `myapp-browser-${window.location.hostname}`,  // e.g., "myapp-browser-localhost"
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
+
+// In CI/CD environments
+injectWebBluetoothMock({
+  sessionId: `myapp-ci-${process.env.CI_JOB_ID || os.hostname()}`,  // e.g., "myapp-ci-job-123"
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
 });
 
 // Session persists for 60 seconds after disconnect
-// Different browsers/tools get different sessions automatically
+// Different sessions allow multiple apps to share the same device
+// Bridge logs show exactly which machine has the connection!
 ```
 
 ### Session Persistence (v0.5.2+)
 ```javascript
-// Sessions persist across page reloads using localStorage
-// Test 1: Page loads
-injectWebBluetoothMock('ws://localhost:8080');
-// Session: "192.168.1.100-chrome-A4B2" (stored in localStorage)
+// Use same sessionId across test runs for session reuse
+// Test 1: First run
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
 
-// Test 2: Page reloads
-injectWebBluetoothMock('ws://localhost:8080'); 
-// Session: "192.168.1.100-chrome-A4B2" (reused from localStorage!)
+// Test 2: Second run (different page, same sessionId)
+injectWebBluetoothMock({
+  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern  // Same session - reuses connection!
+  serverUrl: 'ws://localhost:8080',
+  service: '9800'
+});
 
-// Clear stored session when needed
-import { clearStoredSession } from 'ble-mcp-test';
-clearStoredSession(); // Fresh session on next injection
+// Session persists for 60 seconds after disconnect
+// Same sessionId = connection reuse, different sessionId = new connection
 ```
 
 ### Deterministic Session IDs for Playwright (v0.5.5+)
@@ -346,8 +527,12 @@ This is especially useful when:
 // ❌ WRONG - Don't do this!
 const ws = new WebSocket('ws://localhost:8080/?device=...');
 
-// ✅ CORRECT - Use the mock
-injectWebBluetoothMock('ws://localhost:8080');
+// ✅ CORRECT - Use the mock with required parameters
+injectWebBluetoothMock({
+  sessionId: `myapp-dev-${os.hostname()}`,  // Required: unique session ID
+  serverUrl: 'ws://localhost:8080',         // Required: bridge server URL
+  service: '9800'                           // Required: primary service UUID
+});
 const device = await navigator.bluetooth.requestDevice({...});
 ```
 
@@ -394,7 +579,14 @@ rfkill --version  # optional
 
 ## Roadmap
 
-### v0.6.0 - Developer Experience
+### v0.6.0 - API Redesign ✅
+**Clean, Required-Parameter API** - Eliminates session conflicts and configuration confusion
+- **BREAKING**: Config-based API with required `sessionId`, `serverUrl`, `service`
+- **Enhanced Error Messages**: Clear validation for all required parameters
+- **TypeScript Support**: Full `WebBleMockConfig` interface
+- **Device Selection**: Support for device farms with multiple identical devices
+
+### v0.7.0 - Developer Experience  
 **MCP Enhancements + Golang CLI** - Professional tooling that feels native
 - **Enhanced MCP Tools**: Device reset for test isolation, session state visibility, connection stability
 - **Native CLI**: Single-binary `ble-bridge` command wrapping all MCP tools

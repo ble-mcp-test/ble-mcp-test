@@ -32,9 +32,7 @@ export function getTestConfig(): BridgeTestConfig {
 
   // Validate required configuration
   // Note: device can be empty string on Linux (searches by service UUID only)
-  if (device === undefined) {
-    throw new Error('BLE device configuration missing. Set BLE_MCP_DEVICE_IDENTIFIER in .env.local');
-  }
+  // Device identifier is optional - empty string means search by service only
   
   if (!service || !write || !notify) {
     throw new Error('BLE service/characteristic UUIDs missing. Set BLE_MCP_SERVICE_UUID, BLE_MCP_WRITE_UUID, and BLE_MCP_NOTIFY_UUID in .env.local');

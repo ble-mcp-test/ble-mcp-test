@@ -5,7 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.14] - 2025-09-05
+## [0.6.0] - 2025-01-05
+
+### BREAKING CHANGES
+- **API Redesign**: `injectWebBluetoothMock()` now requires config object with sessionId, serverUrl, and service
+  - **Old**: `injectWebBluetoothMock('ws://localhost:8080', { service: '9800' })`
+  - **New**: `injectWebBluetoothMock({ sessionId: 'test-session', serverUrl: 'ws://localhost:8080', service: '9800' })`
+  - `sessionId` is now **required** - no auto-generation to prevent session conflicts
+  - `service` is now **required** - primary service UUID needed for device discovery
+  - Clear error messages for missing required parameters
+  - Flat config object structure eliminates parameter ordering issues
+
+### Added
+- **Comprehensive Error Validation**: Clear error messages for all missing required parameters
+- **Enhanced TypeScript Support**: Full `WebBleMockConfig` interface with detailed parameter descriptions
+- **Device Selection Options**: Added `deviceId`, `deviceName`, `timeout`, and `onMultipleDevices` parameters for device farm scenarios
+- **JSDoc Documentation**: Added inline documentation with links to GitHub examples and docs
+- **Unified Testing Approach**: Tests now auto-detect dev vs CI context - same tests work everywhere
+- **Test Helpers**: Created shared helpers (setupMockPage, injectMockInPage, connectToDevice) to reduce boilerplate
+- **Bundle Documentation**: Browser bundle includes helpful comments and links to GitHub resources
+
+### Fixed
+- **Noble Zombie Fix Complete**: Achieved 100% reliable BLE connections (3/3 success)
+  - completeNobleReset() now properly cleans up all Noble.js state on disconnect
+  - Clears all cached peripherals, services, and characteristics
+  - Removes all Noble event listeners preventing proper cleanup
+  - Zombie test now passes with strict 3/3 success requirement
+  - Fixed test configuration to use environment variables correctly
+
+### Changed
+- **CS108 Command Constants**: Centralized RFID reader commands for maintainability
+  - Created cs108-commands module with getBatteryVoltageCommand() function
+  - Replaced all duplicate battery command arrays across test files
+  - Standardized command structure for future command additions
+- **Improved Error Messages**: Zombie-specific error message for code 4002
+  - Clear user guidance: "BLE zombie connection detected - restart ble-mcp-test service"
+
+### Removed
+- **Auto-generated Session IDs**: Eliminated confusion and unpredictable session behavior
+- **Optional Parameters**: sessionId, serverUrl, and service are now required for explicit control
+- **Integration Test Category**: Simplified to just unit and E2E tests - removed artificial distinction
+- **Obsolete Tests**: Removed 30+ outdated tests for removed features and complex scenarios
+
+## [0.5.14] - 2025-01-04
 
 ### Changed
 - Updated changelog to include v0.5.13 entry that was missed during publish

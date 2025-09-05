@@ -7,6 +7,7 @@ import { SharedState } from './shared-state.js';
 import { getPackageMetadata } from './utils.js';
 import type { BridgeServer } from './bridge-server.js';
 import { MetricsTracker } from './connection-metrics.js';
+import os from 'os';
 
 /**
  * Observability Server - Separate service for health checks and MCP tools
@@ -57,6 +58,7 @@ export class ObservabilityServer {
       const health = {
         status: 'ok',
         timestamp: new Date().toISOString(),
+        hostname: os.hostname(),
         bridge: this.getBridgeHealth()
       };
       res.json(health);
