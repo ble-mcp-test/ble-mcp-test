@@ -17,18 +17,17 @@ The bridge performs incomplete cleanup during disconnect:
 
 ### Required Behavior:
 1. Bridge server MUST perform complete Noble cleanup on disconnect:
-   - Wait for peripheral 'disconnect' event before marking as disconnected
-   - Remove ALL event listeners from peripheral
-   - Clear characteristic notification listeners
-   - Force Noble to update internal state cache
-   - Consider using noble.reset() if available
+   - Call completeNobleReset() after EVERY disconnect (ALREADY IMPLEMENTED)
+   - Remove ALL event listeners from peripheral (ALREADY IMPLEMENTED)
+   - Clear all Noble JavaScript state (ALREADY IMPLEMENTED)
+   - Do NOT wait for disconnect event (can hang indefinitely)
 2. Add connection state verification after disconnect:
    - Verify peripheral.state === 'disconnected'
    - Attempt rediscovery to confirm device is available
    - If rediscovery fails, force deeper cleanup
-3. When zombie detected, attempt recovery before rejecting:
-   - Try noble.stopScanning() + noble.reset() 
-   - Clear and reinitialize Noble bindings if possible
+3. When zombie detected, recovery is automatic:
+   - completeNobleReset() is ALREADY called on every disconnect/failure
+   - This IS the recovery mechanism - no additional action needed
 4. Only if recovery fails, reject with clear error:
    - WebSocket error code 4002
    - Message: "BLE connection in zombie state - restart ble-mcp-test service"
@@ -74,12 +73,14 @@ Similar error handling pattern in:
 - **User Experience**: Error message must be actionable - tell user exactly what to do
 
 ### Implementation Checklist:
-- [ ] Add zombie connection detection in bridge server
-- [ ] Implement WebSocket rejection with proper error code
-- [ ] Update navigator.bluetooth mock to handle and propagate errors
-- [ ] Add clear error messages throughout the stack
+- [x] Add completeNobleReset() function (DONE)
+- [x] Call reset on every disconnect (DONE)
+- [x] Call reset on connection failures (DONE)
+- [x] Implement WebSocket error codes 4001-4005 (DONE)
+- [x] Add BLEConnectionError class (DONE)
+- [ ] Add zombie-specific error message for code 4002
 - [ ] Update version to 0.5.15 in package.json
 - [ ] Add entry to CHANGELOG.md
-- [ ] Test with actual zombie connection scenario
-- [ ] Update documentation with troubleshooting section
-- [ ] Consider adding `--reset-connection` CLI flag for recovery
+- [ ] Verify zombie-reproduction.spec.ts passes
+- [ ] Create CS108_COMMANDS constants file with battery voltage command
+- [ ] Replace all duplicate command definitions in tests

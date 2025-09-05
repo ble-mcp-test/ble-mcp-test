@@ -150,16 +150,60 @@ MODIFY CHANGELOG.md:
   - ADD: Entry for 0.5.15 with zombie fix details
   - INCLUDE: All improvements made
 
-Task 7: Add zombie recovery test
+Task 7: Create CS108 commands constants
+CREATE src/cs108-commands.ts:
+  - DEFINE: Common CS108 command bytes
+  - EXPORT: getBatteryVoltageCommand() function
+  - PATTERN: Follow existing constants.ts pattern
+
+Task 8: Replace duplicate command definitions
+MODIFY tests/e2e/zombie-reproduction.spec.ts:
+  - IMPORT: CS108 commands from constants
+  - REPLACE: hardcoded batteryCmd with imported constant
+  
+MODIFY tests/e2e/malformed-command-test.spec.ts:
+  - IMPORT: CS108 commands from constants
+  - REPLACE: validBatteryCmd with imported constant
+  
+MODIFY tests/integration/*.test.ts:
+  - FIND: All files with battery command bytes
+  - REPLACE: with imported constants
+
+Task 9: Add zombie recovery test
 CREATE tests/integration/zombie-recovery.test.ts:
   - TEST: Create zombie state
   - VERIFY: Recovery is attempted
   - CHECK: Error message is actionable
+  - USE: CS108 command constants
 ```
 
 ### Pseudocode for Key Changes
 
 ```typescript
+// Task 7: CS108 Commands Constants
+// src/cs108-commands.ts
+export const CS108_COMMANDS = {
+  // Header bytes that all commands start with
+  HEADER: [0xA7, 0xB3],
+  
+  // Common command codes
+  BATTERY_VOLTAGE: 0xA000,
+  INVENTORY_START: 0x8001,
+  INVENTORY_STOP: 0x8100,
+} as const;
+
+export function getBatteryVoltageCommand(): Uint8Array {
+  // Full battery voltage command with checksum
+  return new Uint8Array([
+    0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00
+  ]);
+}
+
+export function createCommand(commandCode: number, data?: number[]): Uint8Array {
+  // Helper to create CS108 commands with proper format
+  // Implementation would calculate checksum, etc.
+}
+
 // Task 1: Enhanced disconnect with event wait
 async disconnect(): Promise<void> {
   if (this.peripheral && this.peripheral.state === 'connected') {
@@ -302,6 +346,8 @@ curl http://localhost:8081/mcp/tool/check_zombie
 - [ ] Version updated to 0.5.15
 - [ ] Changelog documents all changes
 - [ ] MCP tools report zombie state correctly
+- [ ] CS108 command constants used consistently
+- [ ] No duplicate command definitions in tests
 
 ---
 
@@ -314,4 +360,9 @@ curl http://localhost:8081/mcp/tool/check_zombie
 - ❌ Don't forget to update version and changelog
 
 ## Implementation Confidence Score
-**8/10** - Most of the heavy lifting is done with `completeNobleReset()`. Remaining tasks are straightforward enhancements to use the existing infrastructure properly. The main risk is in testing the recovery mechanism thoroughly.
+**9.5/10** - The core fix (`completeNobleReset()`) is already implemented and being called. Remaining tasks are minor:
+- Adding error messages (trivial)
+- Creating CS108 constants file (straightforward refactor)
+- Version bump and changelog (administrative)
+
+The only minor uncertainty (0.5%) is ensuring test expectations align with the fixed behavior.
