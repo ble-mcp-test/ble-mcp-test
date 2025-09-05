@@ -39,7 +39,7 @@ sequenceDiagram
     participant BLE as BLE Device
 
     Note over Test,Browser: 1. Test Setup
-    Test->>Browser: injectWebBluetoothMock({sessionId:'test', serverUrl:'ws://localhost:8080', service:'9800'})
+    Test->>Browser: injectWebBluetoothMock({sessionId:'myapp-e2e-hostname', serverUrl:'ws://localhost:8080', service:'9800'})
     Browser->>Browser: Replace navigator.bluetooth
 
     Note over Test,BLE: 2. Device Connection
