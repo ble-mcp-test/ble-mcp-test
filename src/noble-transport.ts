@@ -108,7 +108,9 @@ export class NobleTransport extends EventEmitter {
     // 1. Stop any scanning
     try {
       await noble.stopScanningAsync();
-    } catch {}
+    } catch {
+      // Ignore errors if not scanning
+    }
     
     // 2. Disconnect ALL peripherals
     const peripherals = (noble as any)._peripherals || {};
@@ -120,7 +122,9 @@ export class NobleTransport extends EventEmitter {
         }
         // Remove all peripheral event listeners
         (peripheral as any).removeAllListeners?.();
-      } catch {}
+      } catch {
+        // Ignore errors during cleanup
+      }
     }
     
     // 3. Clear ALL JavaScript state (this is what process restart does!)

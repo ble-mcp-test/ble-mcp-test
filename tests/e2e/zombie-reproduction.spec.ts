@@ -8,6 +8,7 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { E2E_TEST_CONFIG, getBleConfig } from './test-config';
+import { getBatteryVoltageCommand } from '../../src/cs108-commands';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -130,7 +131,7 @@ test.describe('Zombie Session Repro', () => {
         
         // Send GET_BATTERY_VOLTAGE command (0xA000)
         log.push('Sending battery voltage command...');
-        const batteryCmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+        const batteryCmd = getBatteryVoltageCommand();
         await writeChar1.writeValue(batteryCmd);
         
         // Wait for response
@@ -334,8 +335,8 @@ test.describe('Zombie Session Repro', () => {
     const successCount = [results.battery1, results.battery2, results.battery3].filter(b => b !== null && b !== undefined).length;
     console.log(`[Zombie Test] Success count: ${successCount}/3 connections got battery response`);
     
-    // We want at least 2 out of 3 to work to consider it partially successful
-    expect(successCount).toBeGreaterThanOrEqual(2);
+    // All 3 MUST work - no partial credit (completeNobleReset ensures success)
+    expect(successCount).toBe(3);
     
     // Check the pattern
     if (!results.battery1 && results.battery2 && results.battery3) {

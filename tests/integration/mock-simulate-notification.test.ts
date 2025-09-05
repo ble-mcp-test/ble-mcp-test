@@ -3,6 +3,7 @@ import { MockBluetooth } from '../../src/mock-bluetooth.js';
 import { BridgeServer } from '../../src/index.js';
 import { SharedState } from '../../src/shared-state.js';
 import { getDeviceConfig } from '../test-config.js';
+import { getBatteryVoltageCommand } from '../../src/cs108-commands.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
 
@@ -133,7 +134,7 @@ describe('Mock Simulate Notification', () => {
     // Send real command (if device is available)
     console.log('  Sending real command to device...');
     try {
-      await writeChar.writeValue(new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]));
+      await writeChar.writeValue(getBatteryVoltageCommand());
       // Wait for real response
       await new Promise(resolve => setTimeout(resolve, 100));
     } catch (e) {

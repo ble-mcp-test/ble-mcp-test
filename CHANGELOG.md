@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.15] - 2025-09-05
+
+### Fixed
+- **Noble Zombie Fix Progress**: Improved BLE connection cleanup
+  - completeNobleReset() now properly cleans up all Noble.js state on disconnect
+  - Clears all cached peripherals, services, and characteristics
+  - Removes all Noble event listeners preventing proper cleanup
+  - Work in progress: zombie test currently shows connection timeout issues
+
+### Changed
+- **CS108 Command Constants**: Centralized RFID reader commands for maintainability
+  - Created cs108-commands module with getBatteryVoltageCommand() function
+  - Replaced all duplicate battery command arrays across test files
+  - Standardized command structure for future command additions
+- **Improved Error Messages**: Zombie-specific error message for code 4002
+  - Clear user guidance: "BLE zombie connection detected - restart ble-mcp-test service"
+
+### Added
+- CS108 command constants module at src/cs108-commands.ts
+- Documentation for zombie detection and recovery patterns
+
 ## [0.5.14] - 2025-09-05
 
 ### Changed

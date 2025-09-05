@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import WebSocket from 'ws';
 import { WS_URL, getDeviceConfig, setupTestServer } from '../test-config.js';
 import { connectionFactory } from '../connection-factory.js';
+import { getBatteryVoltageCommand } from '../../src/cs108-commands.js';
 
 const DEVICE_CONFIG = getDeviceConfig();
 const TEST_SESSION_ID = `device-interaction-${Date.now()}`;
@@ -49,7 +50,7 @@ describe.sequential('Device Interaction Tests', () => {
         // Based on packet capture: a7 b3 02 d9 82 37 00 00 a0 00
         const batteryCommand = {
           type: 'data',
-          data: [0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]
+          data: Array.from(getBatteryVoltageCommand())
         };
         
         console.log('  📡 Sending GET_BATTERY_VOLTAGE command...');

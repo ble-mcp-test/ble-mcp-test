@@ -7,6 +7,7 @@ import { test, expect } from '@playwright/test';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { E2E_TEST_CONFIG, getBleConfig } from './test-config';
+import { getBatteryVoltageCommand } from '../../src/cs108-commands';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -74,7 +75,7 @@ test.describe('Malformed Command Recovery Test', () => {
         
         // Send valid battery command to establish baseline
         log.push('Sending VALID battery voltage command (0xA000)...');
-        const validBatteryCmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+        const validBatteryCmd = getBatteryVoltageCommand();
         await writeChar.writeValue(validBatteryCmd);
         
         await new Promise(resolve => setTimeout(resolve, 1500));
