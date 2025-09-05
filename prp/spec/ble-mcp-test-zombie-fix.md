@@ -62,6 +62,9 @@ Similar error handling pattern in:
 - Current ble-mcp-test source: https://github.com/trakrf/ble-mcp-test
 
 ## OTHER CONSIDERATIONS:
+- **Reliability Requirement**: MUST support 3/3 connections successfully (minimum bar)
+- **Real Usage**: Clients run 5-20 tests sequentially - we must be rock solid
+- **No Flakiness Tolerance**: If cleanup isn't working 100%, it's broken
 - **Version Bump Required**: Update to version 0.5.15
 - **Changelog Update**: Document the zombie connection fix in CHANGELOG.md
 - **Backward Compatibility**: Ensure existing working connections are not affected
@@ -81,6 +84,6 @@ Similar error handling pattern in:
 - [ ] Add zombie-specific error message for code 4002
 - [ ] Update version to 0.5.15 in package.json
 - [ ] Add entry to CHANGELOG.md
-- [ ] Verify zombie-reproduction.spec.ts passes
+- [ ] Verify zombie-reproduction.spec.ts passes with 3/3 connections successful
 - [ ] Create CS108_COMMANDS constants file with battery voltage command
 - [ ] Replace all duplicate command definitions in tests

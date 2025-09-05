@@ -37,7 +37,8 @@ Complete the Noble cleanup implementation to:
 - [ ] Clear error message when zombie cannot be recovered
 - [ ] Version bumped to 0.5.15
 - [ ] Changelog updated
-- [ ] Tests verify zombie prevention
+- [ ] zombie-reproduction.spec.ts passes with 3/3 connections successful
+- [ ] System handles 20+ sequential connections without degradation
 
 ## All Needed Context
 
@@ -169,11 +170,17 @@ MODIFY tests/integration/*.test.ts:
   - FIND: All files with battery command bytes
   - REPLACE: with imported constants
 
-Task 9: Add zombie recovery test
-CREATE tests/integration/zombie-recovery.test.ts:
-  - TEST: Create zombie state
-  - VERIFY: Recovery is attempted
-  - CHECK: Error message is actionable
+Task 9: Update zombie test expectations
+MODIFY tests/e2e/zombie-reproduction.spec.ts:
+  - CHANGE: expect(successCount).toBeGreaterThanOrEqual(3)
+  - COMMENT: With proper cleanup, all 3 must succeed
+  - REMOVE: 2/3 partial success - that's not acceptable
+
+Task 10: Add extended connection test
+CREATE tests/integration/extended-connections.test.ts:
+  - TEST: 20 sequential connections
+  - VERIFY: All 20 succeed
+  - CHECK: No performance degradation
   - USE: CS108 command constants
 ```
 
@@ -326,13 +333,22 @@ pnpm pm2:restart
 # 2. Check device availability
 pnpm run check:device
 
-# 3. Connect and disconnect multiple times
-# (Use a test client or E2E tests)
+# 3. Run the zombie test - MUST pass with 3/3
+pnpm exec playwright test zombie-reproduction.spec.ts
 
-# 4. Check for zombies
+# Expected: 
+# - "Success count: 3/3 connections got battery response"
+# - Test passes without any retries
+
+# 4. Run extended test (if implemented)
+pnpm exec playwright test extended-connections.spec.ts
+
+# 5. Check for zombies
 curl http://localhost:8081/mcp/tool/check_zombie
 
-# Expected: No zombies after multiple connect/disconnect cycles
+# Expected: 
+# - {"zombie":{"isZombie":false}}
+# - Zero zombie connections detected
 ```
 
 ## Final Validation Checklist
@@ -360,9 +376,10 @@ curl http://localhost:8081/mcp/tool/check_zombie
 - ❌ Don't forget to update version and changelog
 
 ## Implementation Confidence Score
-**9.5/10** - The core fix (`completeNobleReset()`) is already implemented and being called. Remaining tasks are minor:
-- Adding error messages (trivial)
-- Creating CS108 constants file (straightforward refactor)
-- Version bump and changelog (administrative)
+**10/10** - The core fix (`completeNobleReset()`) is already implemented and being called. With the strict 3/3 requirement:
+- We know EXACTLY what success looks like (no ambiguity)
+- The fix either works 100% or it doesn't (no partial credit)
+- Creating CS108 constants is straightforward refactoring
+- Version bump and changelog are administrative
 
-The only minor uncertainty (0.5%) is ensuring test expectations align with the fixed behavior.
+No uncertainty remains. If `completeNobleReset()` is working as designed, we'll achieve 3/3 success.
