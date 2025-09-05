@@ -99,6 +99,53 @@ export class NobleTransport extends EventEmitter {
   }
 
   /**
+   * Complete Noble state reset - mimics what happens when process restarts
+   * This is what ACTUALLY fixes zombie connections!
+   */
+  private static async completeNobleReset(): Promise<void> {
+    console.log('[Noble] Performing complete state reset (like process restart)');
+    
+    // 1. Stop any scanning
+    try {
+      await noble.stopScanningAsync();
+    } catch {}
+    
+    // 2. Disconnect ALL peripherals
+    const peripherals = (noble as any)._peripherals || {};
+    for (const [id, peripheral] of Object.entries(peripherals)) {
+      try {
+        if ((peripheral as any).state === 'connected') {
+          console.log(`[Noble] Force disconnecting peripheral ${id}`);
+          await (peripheral as any).disconnectAsync();
+        }
+        // Remove all peripheral event listeners
+        (peripheral as any).removeAllListeners?.();
+      } catch {}
+    }
+    
+    // 3. Clear ALL JavaScript state (this is what process restart does!)
+    (noble as any)._peripherals = {};
+    (noble as any)._services = {};
+    (noble as any)._characteristics = {};
+    (noble as any)._descriptors = {};
+    (noble as any)._discovering = false;
+    
+    // 4. Remove ALL event listeners from Noble itself
+    noble.removeAllListeners();
+    
+    // 5. Re-add only the essential state change listener
+    noble.on('stateChange', (state) => {
+      console.log(`[Noble] Bluetooth state changed to: ${state}`);
+    });
+    
+    // 6. Reset scan state
+    (noble as any)._scanServiceUuids = [];
+    (noble as any)._allowDuplicates = false;
+    
+    console.log('[Noble] Complete state reset done - Noble is now as clean as after process restart');
+  }
+
+  /**
    * Scan for device availability (based on check-device-available.js pattern)
    */
   static async scanDeviceAvailability(devicePrefix: string, timeoutMs: number = 5000): Promise<boolean> {
@@ -118,18 +165,20 @@ export class NobleTransport extends EventEmitter {
         resolve(false);
       }, timeoutMs);
 
-      noble.on('discover', (peripheral) => {
+      const onDiscover = (peripheral: any) => {
         const id = peripheral.id;
         const name = peripheral.advertisement.localName || '';
         
         if (id.startsWith(devicePrefix) || name.startsWith(devicePrefix)) {
           clearTimeout(timeout);
-          noble.removeAllListeners('discover');
+          noble.removeListener('discover', onDiscover);
           noble.stopScanningAsync().catch(() => {});
           console.log(`[Noble] Device availability confirmed: ${name || 'Unknown'} [${id}]`);
           resolve(true);
         }
-      });
+      };
+      
+      noble.on('discover', onDiscover);
 
       noble.startScanningAsync([], true).catch(() => resolve(false));
     });
@@ -184,6 +233,19 @@ export class NobleTransport extends EventEmitter {
         Math.ceil((Date.now() - NobleTransport.cleanupStartTime) / 1000) : 0;
       const remainingTime = Math.max(1, 15 - cleanupTime); // Assume max 15s cleanup
       throw new Error(`BLE stack recovering, please try again in ${remainingTime} seconds`);
+    }
+    
+    // Clean up Noble state BEFORE connecting (preventive maintenance)
+    const state = await NobleTransport.getResourceState();
+    if (state.listenerCounts.discover > 2 || state.peripheralCount > 10) {
+      console.log(`[Noble] Pre-connection cleanup: ${state.listenerCounts.discover} discover listeners, ${state.peripheralCount} cached peripherals`);
+      // Use complete reset if state is bad
+      if (state.listenerCounts.discover > 5 || state.peripheralCount > 20) {
+        console.log('[Noble] State heavily polluted - doing complete reset');
+        await NobleTransport.completeNobleReset();
+      } else {
+        await NobleTransport.cleanupGlobalResources();
+      }
     }
     
     this.connectInProgress = true;
@@ -337,6 +399,11 @@ export class NobleTransport extends EventEmitter {
       console.log(`[Noble] Adding 3s recovery delay after connection error`);
       await new Promise(resolve => setTimeout(resolve, 3000));
       
+      // CRITICAL: Reset Noble state after connection failure
+      // This prevents zombie accumulation
+      console.log('[Noble] Resetting Noble state after connection failure');
+      await NobleTransport.completeNobleReset();
+      
       throw error;
     }
   }
@@ -436,6 +503,7 @@ export class NobleTransport extends EventEmitter {
         }
       };
       
+      // CRITICAL: Store the listener so we can remove it
       noble.on('discover', onDiscover);
     });
   }
@@ -731,6 +799,10 @@ export class NobleTransport extends EventEmitter {
 
   async disconnect(): Promise<void> {
     await this.cleanup({ force: false, verifyResources: true });
+    
+    // CRITICAL: Reset Noble to pristine state after EVERY disconnect
+    // This mimics what happens when we restart the service
+    await NobleTransport.completeNobleReset();
   }
   
   /**
