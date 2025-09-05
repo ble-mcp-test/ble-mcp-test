@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **Auto-generated Session IDs**: Eliminated confusion and unpredictable session behavior
 - **Optional Parameters**: sessionId, serverUrl, and service are now required for explicit control
+- **Integration Test Category**: Simplified to just unit and E2E tests - removed artificial distinction
+- **Obsolete Tests**: Removed 30+ outdated tests for removed features and complex scenarios
 
 ## [0.5.15] - 2025-09-05
 
