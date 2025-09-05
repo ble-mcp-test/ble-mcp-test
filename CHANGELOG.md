@@ -25,14 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test Helpers**: Created shared helpers (setupMockPage, injectMockInPage, connectToDevice) to reduce boilerplate
 - **Bundle Documentation**: Browser bundle includes helpful comments and links to GitHub resources
 
-### Removed
-- **Auto-generated Session IDs**: Eliminated confusion and unpredictable session behavior
-- **Optional Parameters**: sessionId, serverUrl, and service are now required for explicit control
-- **Integration Test Category**: Simplified to just unit and E2E tests - removed artificial distinction
-- **Obsolete Tests**: Removed 30+ outdated tests for removed features and complex scenarios
-
-## [0.5.15] - 2025-09-05
-
 ### Fixed
 - **Noble Zombie Fix Complete**: Achieved 100% reliable BLE connections (3/3 success)
   - completeNobleReset() now properly cleans up all Noble.js state on disconnect
@@ -49,11 +41,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Improved Error Messages**: Zombie-specific error message for code 4002
   - Clear user guidance: "BLE zombie connection detected - restart ble-mcp-test service"
 
-### Added
-- CS108 command constants module at src/cs108-commands.ts
-- Documentation for zombie detection and recovery patterns
+### Removed
+- **Auto-generated Session IDs**: Eliminated confusion and unpredictable session behavior
+- **Optional Parameters**: sessionId, serverUrl, and service are now required for explicit control
+- **Integration Test Category**: Simplified to just unit and E2E tests - removed artificial distinction
+- **Obsolete Tests**: Removed 30+ outdated tests for removed features and complex scenarios
 
-## [0.5.14] - 2025-09-05
+## [0.5.14] - 2025-01-04
 
 ### Changed
 - Updated changelog to include v0.5.13 entry that was missed during publish
