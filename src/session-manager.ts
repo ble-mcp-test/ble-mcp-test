@@ -3,6 +3,7 @@ import { BleSession } from './ble-session.js';
 import { WebSocketHandler } from './ws-handler.js';
 import type { BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
+import { ZombieDetector } from './zombie-detector.js';
 
 /**
  * SessionManager - Manages BLE session lifecycle and WebSocket routing
@@ -106,6 +107,36 @@ export class SessionManager {
   }
 
   /**
+   * Remove session immediately with cleanup
+   * Used when BLE connection fails and session needs immediate removal
+   */
+  async removeSession(sessionId: string, reason: string = 'connection failed'): Promise<void> {
+    const session = this.sessions.get(sessionId);
+    
+    if (!session) {
+      console.log(`[SessionManager] Cannot remove session ${sessionId} - not found`);
+      return;
+    }
+
+    console.log(`[SessionManager] Removing session ${sessionId}: ${reason}`);
+    
+    try {
+      // Clean up BLE resources first
+      await session.cleanup(reason);
+    } catch (error) {
+      console.error(`[SessionManager] Error during session cleanup for ${sessionId}:`, error);
+    }
+    
+    // Remove from sessions map
+    this.sessions.delete(sessionId);
+    
+    // Update shared state to reflect the change
+    this.updateSharedState();
+    
+    console.log(`[SessionManager] Session ${sessionId} removed successfully`);
+  }
+
+  /**
    * Update shared state with session information
    */
   private updateSharedState(): void {
@@ -148,6 +179,31 @@ export class SessionManager {
    * Check for and clean up stale/zombie sessions
    */
   private async checkStaleSessions(): Promise<void> {
+    // First, run zombie detection across all sessions
+    const totalActiveWebSockets = Array.from(this.sessions.values())
+      .reduce((sum, session) => sum + session.getStatus().activeWebSockets, 0);
+    
+    const zombieResult = ZombieDetector.getInstance().checkForZombie(totalActiveWebSockets);
+    
+    if (zombieResult.isZombie) {
+      console.log(`[SessionManager] 🧟 ZOMBIE CONNECTION DETECTED!`);
+      console.log(`  Severity: ${zombieResult.severity}`);
+      console.log(`  Reason: ${zombieResult.reason}`);
+      console.log(`  Recommended Action: ${zombieResult.recommendedAction}`);
+      console.log(`  Evidence:`);
+      zombieResult.evidence.forEach(evidence => {
+        console.log(`    - ${evidence}`);
+      });
+      
+      // For critical zombies, force cleanup all sessions
+      if (zombieResult.severity === 'critical') {
+        console.log('[SessionManager] Critical zombie detected - forcing cleanup of all sessions');
+        await this.forceCleanupAll('critical zombie detected');
+        return;
+      }
+    }
+    
+    // Then check individual sessions
     for (const [sessionId, session] of this.sessions) {
       const status = session.getStatus();
       

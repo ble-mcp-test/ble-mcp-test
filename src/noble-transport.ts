@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
 import { expandUuidVariants } from './utils.js';
+import { ZombieDetector } from './zombie-detector.js';
 
 /**
  * Noble BLE Transport
@@ -210,6 +211,10 @@ export class NobleTransport extends EventEmitter {
         'Device connection timeout'
       );
       
+      // Record successful connection for zombie detection
+      const zombieDetector = ZombieDetector.getInstance();
+      zombieDetector.recordSuccessfulConnection();
+      
       // Discover services with timeout
       const services: any[] = await this.withInternalTimeout(
         this.peripheral.discoverServicesAsync(),
@@ -391,6 +396,11 @@ export class NobleTransport extends EventEmitter {
         const errorMsg = devicePrefix 
           ? `Device ${devicePrefix} with service variants [${serviceUuidVariants.join(', ')}] not found`
           : `No devices found with service variants [${serviceUuidVariants.join(', ')}]`;
+        
+        // Record zombie detection pattern
+        const zombieDetector = ZombieDetector.getInstance();
+        zombieDetector.recordNoDevicesFoundError(devicePrefix || 'unknown', errorMsg);
+        
         reject(new Error(errorMsg));
       }, 15000);
       
@@ -401,8 +411,13 @@ export class NobleTransport extends EventEmitter {
         
         // If device filter provided, check it
         if (devicePrefix) {
-          // Try to match by name or ID
-          if ((name && name.startsWith(devicePrefix)) || id === devicePrefix) {
+          // Normalize both IDs for comparison (remove colons, lowercase)
+          const normalizeId = (str: string) => str.toLowerCase().replace(/:/g, '');
+          const normalizedPrefix = normalizeId(devicePrefix);
+          const normalizedId = normalizeId(id);
+          
+          // Try to match by name or normalized ID
+          if ((name && name.startsWith(devicePrefix)) || normalizedId === normalizedPrefix) {
             cleanupScan();
             console.log(`[Noble] Found matching device: ${name || id} (service: ${serviceUuid})`);
             resolve(device);
@@ -766,5 +781,84 @@ export class NobleTransport extends EventEmitter {
       console.error(`[Noble] Error checking connection state: ${e}`);
       return false;
     }
+  }
+
+  /**
+   * Connect to a pre-validated peripheral (used by atomic validation)
+   * The peripheral should already be connected to GATT with validated services/characteristics
+   */
+  async connectToValidatedPeripheral(peripheral: any, config: BleConfig): Promise<string> {
+    console.log(`[Noble] Connecting transport to pre-validated peripheral`);
+    
+    // Store the peripheral reference
+    this.peripheral = peripheral;
+    const deviceName = peripheral.advertisement.localName || peripheral.id;
+
+    // Record successful connection for zombie detection
+    const zombieDetector = ZombieDetector.getInstance();
+    zombieDetector.recordSuccessfulConnection();
+    
+    // Discover services to get characteristics (should be fast since validation already did this)
+    const services: any[] = await this.withInternalTimeout(
+      this.peripheral.discoverServicesAsync(),
+      5000,
+      'Service re-discovery timeout'
+    );
+    
+    // Find the service and characteristics (using same logic as validation)
+    let targetService: any = null;
+    for (const service of services) {
+      const sUuid = service.uuid.toLowerCase().replace(/-/g, '');
+      const configUuidVariants = expandUuidVariants(config.serviceUuid);
+      if (configUuidVariants.some(variant => sUuid === variant)) {
+        targetService = service;
+        break;
+      }
+    }
+    
+    if (!targetService) {
+      throw new Error('Service not found during transport connection');
+    }
+    
+    // Discover characteristics
+    const characteristics: any[] = await this.withInternalTimeout(
+      targetService.discoverCharacteristicsAsync(),
+      5000,
+      'Characteristic re-discovery timeout'
+    );
+    
+    // Find write and notify characteristics
+    this.writeChar = characteristics.find((c: any) => {
+      const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
+      const writeVariants = expandUuidVariants(config.writeUuid);
+      return writeVariants.some(variant => cUuid === variant);
+    });
+    
+    this.notifyChar = characteristics.find((c: any) => {
+      const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
+      const notifyVariants = expandUuidVariants(config.notifyUuid);
+      return notifyVariants.some(variant => cUuid === variant);
+    });
+    
+    if (!this.writeChar || !this.notifyChar) {
+      throw new Error('Required characteristics not found during transport connection');
+    }
+    
+    // Subscribe to notifications
+    this.notifyChar.on('data', (data: Buffer) => {
+      this.emit('data', new Uint8Array(data));
+    });
+    
+    // Subscribe to notifications with retry logic
+    await this.subscribeWithRetry(this.notifyChar);
+    
+    // Handle unexpected disconnect
+    this.peripheral.once('disconnect', () => {
+      console.log(`[Noble] Device disconnected`);
+      this.emit('disconnect');
+    });
+    
+    console.log(`[Noble] Transport connected successfully to validated peripheral`);
+    return deviceName;
   }
 }

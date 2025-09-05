@@ -6,6 +6,7 @@ import { createHttpApp } from './mcp-http-transport.js';
 import { SharedState } from './shared-state.js';
 import { getPackageMetadata } from './utils.js';
 import type { BridgeServer } from './bridge-server.js';
+import { MetricsTracker } from './connection-metrics.js';
 
 /**
  * Observability Server - Separate service for health checks and MCP tools
@@ -59,6 +60,53 @@ export class ObservabilityServer {
         bridge: this.getBridgeHealth()
       };
       res.json(health);
+    });
+    
+    // Metrics endpoint
+    app.get('/metrics', (req, res) => {
+      const tracker = MetricsTracker.getInstance();
+      const metrics = tracker.getMetrics();
+      const health = tracker.getHealthReport();
+      
+      const response = {
+        metrics: {
+          connections: {
+            total: metrics.totalConnections,
+            successful: metrics.successfulConnections,
+            failed: metrics.failedConnections,
+            failureRate: metrics.totalConnections > 0 
+              ? (metrics.failedConnections / metrics.totalConnections).toFixed(3) 
+              : 0
+          },
+          reconnections: {
+            total: metrics.totalReconnections,
+            bySession: Object.fromEntries(metrics.reconnectionsPerSession)
+          },
+          resources: {
+            maxListeners: metrics.maxListenerCount,
+            maxPeripherals: metrics.maxPeripheralCount,
+            listenerWarnings: metrics.listenerWarnings,
+            leakDetected: metrics.resourceLeakDetected,
+            zombieConnections: metrics.zombieConnectionsDetected,
+            bluetoothRestarts: metrics.bluetoothRestarts
+          },
+          sessions: {
+            active: metrics.activeSessions,
+            total: metrics.totalSessions,
+            averageDuration: metrics.sessionDurations.length > 0
+              ? Math.floor(metrics.sessionDurations.reduce((a, b) => a + b, 0) / metrics.sessionDurations.length / 1000)
+              : 0
+          },
+          timing: {
+            averageConnectionTime: Math.floor(metrics.averageConnectionTime),
+            lastConnectionTime: metrics.lastConnectionTime,
+            uptimeSeconds: Math.floor(metrics.uptimeMs / 1000)
+          },
+          health: health
+        }
+      };
+      
+      res.json(response);
     });
     
     // Add MCP HTTP endpoints

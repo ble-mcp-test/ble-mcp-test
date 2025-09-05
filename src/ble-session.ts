@@ -2,6 +2,10 @@ import { EventEmitter } from 'events';
 import type { WebSocket } from 'ws';
 import { NobleTransport, type BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
+import { MetricsTracker } from './connection-metrics.js';
+import { BLEConnectionError } from './constants.js';
+import noble from '@stoprocent/noble';
+import { expandUuidVariants } from './utils.js';
 
 /**
  * BLE Session - Manages a persistent BLE connection that can survive WebSocket disconnects
@@ -35,57 +39,174 @@ export class BleSession extends EventEmitter {
   }
 
   /**
-   * Connect to BLE device (if not already connected)
+   * Connect to BLE device with atomic validation
+   * WebSocket connections are only accepted after complete BLE stack validation
    */
   async connect(): Promise<string> {
+    const metrics = MetricsTracker.getInstance();
+    
     if (this.transport && this.deviceName) {
       console.log(`[Session:${this.sessionId}] Reusing existing BLE connection to ${this.deviceName}`);
+      metrics.recordReconnection(this.sessionId);
       return this.deviceName;
     }
 
-    console.log(`[Session:${this.sessionId}] Establishing new BLE connection`);
-    this.transport = new NobleTransport();
-    
-    // Set up transport event handlers
-    this.transport.on('data', (data: Uint8Array) => {
-      this.sharedState?.logPacket('RX', data);
-      this.emit('data', data);
-    });
-    
-    this.transport.on('disconnect', async () => {
-      console.log(`[Session:${this.sessionId}] Noble disconnect event - cleaning up session`);
-      this.sharedState?.setConnectionState({ connected: false, deviceName: null });
-      
-      // CRITICAL: When Noble disconnects, we MUST cleanup immediately
-      // Keeping the transport alive creates zombie connections because Noble already freed the device
-      try {
-        await this.cleanup('noble disconnect');
-      } catch (e) {
-        console.error(`[Session:${this.sessionId}] Error during Noble disconnect cleanup:`, e);
-      }
-    });
-    
-    this.transport.on('error', (error) => {
-      console.log(`[Session:${this.sessionId}] BLE transport error: ${error}`);
-      this.cleanup('transport error', error);
-    });
+    console.log(`[Session:${this.sessionId}] Starting atomic BLE validation`);
+    metrics.recordConnectionAttempt();
 
+    let peripheral: any = null;
+    
     try {
-      // Connect and start idle timer
-      this.deviceName = await this.transport.connect(this.config);
+      // STEP 1: Validate Noble state
+      if (noble.state !== 'poweredOn') {
+        console.log(`[Session:${this.sessionId}] Noble state: ${noble.state}, waiting for power on...`);
+        await this.withTimeout(
+          noble.waitForPoweredOnAsync(), 
+          15000,
+          'Bluetooth adapter timeout - check if Bluetooth is enabled'
+        );
+      }
+
+      // STEP 2: Find device - throw HARDWARE_NOT_FOUND if not found
+      console.log(`[Session:${this.sessionId}] Scanning for BLE device...`);
+      peripheral = await this.findDevice();
+      if (!peripheral) {
+        throw new BLEConnectionError('HARDWARE_NOT_FOUND', 'No CS108 devices found matching configuration');
+      }
+      
+      const deviceName = peripheral.advertisement.localName || peripheral.id;
+      console.log(`[Session:${this.sessionId}] Found device: ${deviceName}`);
+
+      // STEP 3: Connect to GATT - throw GATT_CONNECTION_FAILED if fails
+      console.log(`[Session:${this.sessionId}] Connecting to GATT server...`);
+      await this.withTimeout(
+        peripheral.connectAsync(),
+        10000,
+        'GATT connection timeout'
+      );
+
+      // STEP 4: Discover services - throw SERVICE_NOT_FOUND if missing
+      console.log(`[Session:${this.sessionId}] Discovering services...`);
+      const services = await this.withTimeout(
+        peripheral.discoverServicesAsync(),
+        10000,
+        'Service discovery timeout'
+      );
+
+      // Find the target service using UUID variants
+      let targetService: any = null;
+      for (const service of services as any[]) {
+        const sUuid = service.uuid.toLowerCase().replace(/-/g, '');
+        const configUuidVariants = expandUuidVariants(this.config.serviceUuid);
+        if (configUuidVariants.some(variant => sUuid === variant)) {
+          targetService = service;
+          console.log(`[Session:${this.sessionId}] Found service using UUID format: ${sUuid}`);
+          break;
+        }
+      }
+
+      if (!targetService) {
+        await peripheral.disconnectAsync();
+        throw new BLEConnectionError('SERVICE_NOT_FOUND', `Service ${this.config.serviceUuid} not found on device`);
+      }
+
+      // STEP 5: Discover characteristics - throw CHARACTERISTICS_NOT_FOUND if missing
+      console.log(`[Session:${this.sessionId}] Discovering characteristics...`);
+      const characteristics = await this.withTimeout(
+        targetService.discoverCharacteristicsAsync(),
+        10000,
+        'Characteristic discovery timeout'
+      );
+
+      // Find required characteristics using UUID variants
+      const writeChar = (characteristics as any[]).find((c: any) => {
+        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
+        const writeVariants = expandUuidVariants(this.config.writeUuid);
+        return writeVariants.some(variant => cUuid === variant);
+      });
+
+      const notifyChar = (characteristics as any[]).find((c: any) => {
+        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
+        const notifyVariants = expandUuidVariants(this.config.notifyUuid);
+        return notifyVariants.some(variant => cUuid === variant);
+      });
+
+      if (!writeChar || !notifyChar) {
+        await peripheral.disconnectAsync();
+        throw new BLEConnectionError('CHARACTERISTICS_NOT_FOUND', 'Required write or notify characteristics not found');
+      }
+
+      // STEP 6: ATOMIC SUCCESS - All validation passed, now create transport
+      console.log(`[Session:${this.sessionId}] BLE validation complete - creating transport`);
+      this.transport = new NobleTransport();
+      
+      // Set up transport event handlers
+      this.transport.on('data', (data: Uint8Array) => {
+        this.sharedState?.logPacket('RX', data);
+        this.emit('data', data);
+      });
+      
+      this.transport.on('disconnect', async () => {
+        console.log(`[Session:${this.sessionId}] Noble disconnect event - cleaning up session`);
+        this.sharedState?.setConnectionState({ connected: false, deviceName: null });
+        
+        // CRITICAL: When Noble disconnects, we MUST cleanup immediately
+        try {
+          await this.cleanup('noble disconnect');
+        } catch (e) {
+          console.error(`[Session:${this.sessionId}] Error during Noble disconnect cleanup:`, e);
+        }
+      });
+      
+      this.transport.on('error', (error) => {
+        console.log(`[Session:${this.sessionId}] BLE transport error: ${error}`);
+        this.cleanup('transport error', error);
+      });
+
+      // Connect the transport to the validated peripheral
+      this.deviceName = await this.transport.connectToValidatedPeripheral(peripheral, this.config);
       this.resetIdleTimer();
       
-      console.log(`[Session:${this.sessionId}] Connected to ${this.deviceName}`);
+      console.log(`[Session:${this.sessionId}] Atomic connection successful to ${deviceName}`);
       this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
+      metrics.recordConnectionSuccess();
       return this.deviceName;
-    } catch (error) {
-      // Connection failed - clean up the transport
-      console.log(`[Session:${this.sessionId}] Connection failed: ${error}`);
+
+    } catch (error: any) {
+      // Connection failed at any step - clean up partial connections
+      console.log(`[Session:${this.sessionId}] Atomic connection failed: ${error.message}`);
+      metrics.recordConnectionFailure();
+      
+      // Clean up peripheral if it was connected
+      if (peripheral?.state === 'connected') {
+        try {
+          await peripheral.disconnectAsync();
+        } catch (e) {
+          console.error(`[Session:${this.sessionId}] Error disconnecting peripheral:`, e);
+        }
+      }
+      
+      // Clean up transport if it was created
       if (this.transport) {
-        await this.transport.cleanup({ force: true });
+        try {
+          await this.transport.cleanup({ force: true });
+        } catch (e) {
+          console.error(`[Session:${this.sessionId}] Error cleaning up transport:`, e);
+        }
         this.transport = null;
       }
-      throw error;
+      
+      // Re-throw as BLEConnectionError for proper close code mapping
+      if (error instanceof BLEConnectionError) {
+        throw error;
+      } else {
+        // Map generic errors to appropriate BLE connection errors
+        if (error.message?.includes('timeout')) {
+          throw new BLEConnectionError('GATT_CONNECTION_FAILED', `Connection timeout: ${error.message}`);
+        } else {
+          throw new BLEConnectionError('HARDWARE_NOT_FOUND', error.message || 'Unknown connection error');
+        }
+      }
     }
   }
 
@@ -331,5 +452,64 @@ export class BleSession extends EventEmitter {
       gracePeriodSec: this.gracePeriodSec,
       idleTimeoutSec: this.idleTimeoutSec
     };
+  }
+
+  /**
+   * Helper method to add timeout to promises
+   */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(errorMessage));
+      }, timeoutMs);
+
+      promise
+        .then(resolve)
+        .catch(reject)
+        .finally(() => clearTimeout(timeout));
+    });
+  }
+
+  /**
+   * Find BLE device matching configuration
+   */
+  private async findDevice(): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        noble.removeAllListeners('discover');
+        noble.stopScanningAsync().catch(() => {});
+        reject(new Error('Device discovery timeout'));
+      }, 10000);
+
+      noble.on('discover', (peripheral: any) => {
+        const id = peripheral.id;
+        const name = peripheral.advertisement.localName || '';
+        
+        // Check if device matches configuration
+        const matchesDevice = !this.config.devicePrefix || 
+          id.startsWith(this.config.devicePrefix) || 
+          name.startsWith(this.config.devicePrefix);
+
+        // Check if device advertises the required service
+        const advertisedServices = peripheral.advertisement.serviceUuids || [];
+        const serviceVariants = expandUuidVariants(this.config.serviceUuid);
+        const matchesService = advertisedServices.some((uuid: string) => {
+          const normalizedUuid = uuid.toLowerCase().replace(/-/g, '');
+          return serviceVariants.some(variant => normalizedUuid === variant);
+        });
+
+        if (matchesDevice && (matchesService || !advertisedServices.length)) {
+          clearTimeout(timeout);
+          noble.removeAllListeners('discover');
+          noble.stopScanningAsync().catch(() => {});
+          console.log(`[Session:${this.sessionId}] Device found: ${name || 'Unknown'} [${id}]`);
+          resolve(peripheral);
+        }
+      });
+
+      // Start scanning with service UUIDs if device prefix not specified
+      const scanServiceUuids = this.config.devicePrefix ? [] : expandUuidVariants(this.config.serviceUuid);
+      noble.startScanningAsync(scanServiceUuids, true).catch(reject);
+    });
   }
 }

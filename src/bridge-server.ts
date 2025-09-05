@@ -4,6 +4,11 @@ import type { SharedState } from './shared-state.js';
 import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
 import { getPackageMetadata } from './utils.js';
+import { 
+  WEBSOCKET_CLOSE_CODES, 
+  CLOSE_CODE_MESSAGES, 
+  mapErrorToCloseCode 
+} from './constants.js';
 
 /**
  * BridgeServer - HTTP server and WebSocket routing
@@ -78,9 +83,11 @@ export class BridgeServer {
         return;
       }
       
+      let session: any = null;
+      
       try {
         // Get or create session
-        let session = this.sessionManager.getOrCreateSession(sessionId, config);
+        session = this.sessionManager.getOrCreateSession(sessionId, config);
         
         if (!session) {
           // Session rejected - device is busy
@@ -101,30 +108,39 @@ export class BridgeServer {
           }
           
           if (!session) {
-            ws.send(JSON.stringify({ 
-              type: 'error', 
-              error: 'Device is busy with another session',
-              blocking_session_id: blockingSession?.sessionId,
-              device: config.devicePrefix
-            }));
-            ws.close();
+            const closeCode = WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND;
+            const message = 'Device is busy with another session';
+            ws.close(closeCode, message);
             return;
           }
         }
         
-        // Connect BLE if not already connected
+        // ATOMIC VALIDATION: Connect BLE and validate complete stack BEFORE WebSocket acceptance
+        console.log(`[Bridge] Starting atomic BLE validation for session ${sessionId}`);
         const deviceName = await session.connect();
         
-        // Send connection success
+        // ONLY NOW - BLE validation successful - accept WebSocket connection
+        console.log(`[Bridge] BLE validation successful - accepting WebSocket connection`);
         ws.send(JSON.stringify({ type: 'connected', device: deviceName }));
         
         // Attach WebSocket to session
         this.sessionManager.attachWebSocket(session, ws);
         
       } catch (error: any) {
-        console.error(`[Bridge] Connection error:`, error);
-        ws.send(JSON.stringify({ type: 'error', error: error.message || 'Connection failed' }));
-        ws.close();
+        console.error(`[Bridge] Atomic connection validation failed:`, error);
+        
+        // CRITICAL: Clean up session immediately on connection failure
+        if (session) {
+          console.log(`[Bridge] Removing failed session ${sessionId} from SessionManager`);
+          await this.sessionManager.removeSession(sessionId, 'connection validation failed');
+        }
+        
+        // Map error to appropriate WebSocket close code
+        const closeCode = mapErrorToCloseCode(error);
+        const message = CLOSE_CODE_MESSAGES[closeCode] || error.message || 'Connection failed';
+        
+        console.log(`[Bridge] Closing WebSocket with code ${closeCode}: ${message}`);
+        ws.close(closeCode, message);
       }
     });
   }

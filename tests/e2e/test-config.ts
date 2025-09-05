@@ -9,7 +9,8 @@ export const E2E_TEST_CONFIG = {
   sessionId: 'e2e-test-session',
   
   // BLE device configuration from environment
-  device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
+  // Don't specify a device by default - let it connect to any device with the service
+  device: process.env.BLE_MCP_DEVICE_IDENTIFIER || undefined,
   service: process.env.BLE_MCP_SERVICE_UUID || '9800',
   write: process.env.BLE_MCP_WRITE_UUID || '9900',
   notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
@@ -23,8 +24,8 @@ export const E2E_TEST_CONFIG = {
 
 // Helper to get BLE config object for navigator.bluetooth mock
 export function getBleConfig() {
+  // NEVER include device - only use service-based filtering
   return {
-    device: E2E_TEST_CONFIG.device,
     service: E2E_TEST_CONFIG.service,
     write: E2E_TEST_CONFIG.write,
     notify: E2E_TEST_CONFIG.notify,
