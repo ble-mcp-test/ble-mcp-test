@@ -65,12 +65,29 @@ export class ObservabilityServer {
     });
     
     // Metrics endpoint
-    app.get('/metrics', (req, res) => {
+    app.get('/metrics', async (req, res) => {
       const tracker = MetricsTracker.getInstance();
       const metrics = tracker.getMetrics();
+      
+      // Get real-time zombie count from hardware
+      try {
+        const { NobleTransport } = await import('./noble-transport.js');
+        const actualZombieCount = await NobleTransport.countHardwareZombies();
+        tracker.setZombieCount(actualZombieCount);
+        metrics.zombieConnectionsDetected = actualZombieCount;
+      } catch (e) {
+        // If we can't check hardware, set to 0
+        tracker.setZombieCount(0);
+        metrics.zombieConnectionsDetected = 0;
+      }
+      
       const health = tracker.getHealthReport();
       
       const response = {
+        config: {
+          gracePeriodSec: parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10),
+          idleTimeoutSec: parseInt(process.env.BLE_SESSION_IDLE_TIMEOUT_SEC || process.env.BLE_MCP_IDLE_TIMEOUT || '300', 10)
+        },
         metrics: {
           connections: {
             total: metrics.totalConnections,

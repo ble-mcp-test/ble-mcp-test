@@ -153,6 +153,11 @@ export class MetricsTracker {
     this.metrics.zombieConnectionsDetected++;
   }
   
+  // Set current zombie count (for real-time detection)
+  setZombieCount(count: number): void {
+    this.metrics.zombieConnectionsDetected = count;
+  }
+  
   recordBluetoothRestart(): void {
     this.metrics.bluetoothRestarts++;
   }

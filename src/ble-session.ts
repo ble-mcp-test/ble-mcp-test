@@ -23,6 +23,7 @@ export class BleSession extends EventEmitter {
   private graceTimer: NodeJS.Timeout | null = null;
   private idleTimer: NodeJS.Timeout | null = null;
   private lastTxTime = Date.now();
+  private cleanupInProgress = false; // Prevent duplicate cleanup calls
   public sessionManager?: any; // Reference to SessionManager for cleanup commands
   
   // Timeout configuration (in seconds)
@@ -311,7 +312,15 @@ export class BleSession extends EventEmitter {
    * @param closeWebSockets - Close WebSockets during cleanup (default: true)
    */
   async cleanup(reason: string, error?: any, force: boolean = false, closeWebSockets: boolean = true): Promise<void> {
-    console.log(`[Session:${this.sessionId}] Cleanup (reason: ${reason}, force: ${force}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
+    console.log(`[Session:${this.sessionId}] 🧹 CLEANUP STARTING (reason: ${reason}, force: ${force}, hasTransport: ${!!this.transport}, activeWS: ${this.activeWebSockets.size})`);
+    console.log(`[Session:${this.sessionId}] This cleanup MUST trigger completeNobleReset() to clear zombies`);
+    
+    // Prevent multiple cleanups
+    if (this.cleanupInProgress) {
+      console.log(`[Session:${this.sessionId}] ⚠️ Cleanup already in progress, skipping duplicate call`);
+      return;
+    }
+    this.cleanupInProgress = true;
     
     // Clear timers
     if (this.graceTimer) {
@@ -341,6 +350,9 @@ export class BleSession extends EventEmitter {
     let cleanupSucceeded = false;
     if (this.transport) {
       try {
+        // ALWAYS do full cleanup - grace period expired means disconnect Noble
+        // We were incorrectly keeping BLE connected after grace period
+        console.log(`[Session:${this.sessionId}] Doing full transport cleanup (reason: ${reason})`);
         await this.transport.cleanup({ 
           force, 
           verifyResources: true,

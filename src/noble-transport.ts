@@ -99,43 +99,174 @@ export class NobleTransport extends EventEmitter {
   }
 
   /**
+   * Count hardware-level zombie connections
+   */
+  static async countHardwareZombies(): Promise<number> {
+    if (process.platform !== 'linux') {
+      return 0;
+    }
+    
+    try {
+      const { execSync } = await import('child_process');
+      const output = execSync('sudo hcitool con 2>/dev/null || true', { encoding: 'utf8' });
+      
+      // Count connections from hcitool output
+      const lines = output.split('\n').filter(line => line.includes('handle'));
+      
+      // Check if Noble knows about these connections
+      const peripherals = (noble as any)._peripherals || new Map();
+      const nobleConnectedCount = peripherals instanceof Map 
+        ? Array.from(peripherals.values()).filter((p: any) => p.state === 'connected').length
+        : Object.values(peripherals).filter((p: any) => p.state === 'connected').length;
+      
+      // Hardware connections that Noble doesn't know about are zombies
+      const hardwareCount = lines.length;
+      const zombieCount = Math.max(0, hardwareCount - nobleConnectedCount);
+      
+      if (zombieCount > 0) {
+        console.log(`[Noble] Hardware zombie count: ${zombieCount} (${hardwareCount} hardware connections, ${nobleConnectedCount} Noble connections)`);
+      }
+      
+      return zombieCount;
+    } catch (e) {
+      return 0;
+    }
+  }
+  
+  /**
+   * Check for hardware-level zombie connections using hcitool
+   */
+  private static async checkHardwareZombies(): Promise<boolean> {
+    if (process.platform !== 'linux') {
+      return false;
+    }
+    
+    try {
+      const { execSync } = await import('child_process');
+      const output = execSync('sudo hcitool con 2>/dev/null || true', { encoding: 'utf8' });
+      
+      // Parse connections from hcitool output
+      const lines = output.split('\n').filter(line => line.includes('handle'));
+      if (lines.length > 0) {
+        console.log('[Noble] ⚠️ HARDWARE ZOMBIES DETECTED:');
+        lines.forEach(line => {
+          console.log(`[Noble]   ${line.trim()}`);
+          // Extract handle number for disconnection
+          const handleMatch = line.match(/handle (\d+)/);
+          if (handleMatch) {
+            const handle = handleMatch[1];
+            try {
+              console.log(`[Noble] Disconnecting hardware zombie handle ${handle}...`);
+              execSync(`sudo hcitool ledc ${handle} 2>/dev/null || true`);
+            } catch (e) {
+              console.log(`[Noble] Failed to disconnect handle ${handle}`);
+            }
+          }
+        });
+        return true;
+      }
+    } catch (e) {
+      // Ignore errors - hcitool might not be available
+    }
+    return false;
+  }
+
+  /**
    * Complete Noble state reset - mimics what happens when process restarts
    * This is what ACTUALLY fixes zombie connections!
    */
   private static async completeNobleReset(): Promise<void> {
-    console.log('[Noble] Performing complete state reset (like process restart)');
+    console.log('[Noble] ====== COMPLETE NOBLE RESET STARTING ======');
+    console.log('[Noble] This mimics a process restart and SHOULD clear all zombies');
+    
+    // Try Noble's built-in reset() first - this resets the HCI interface!
+    try {
+      if (typeof (noble as any).reset === 'function') {
+        console.log('[Noble] 🎯 Calling noble.reset() to reset HCI interface...');
+        (noble as any).reset();
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Give HCI time to reset
+      } else {
+        console.log('[Noble] No noble.reset() method available');
+      }
+    } catch (e) {
+      console.log('[Noble] Error calling noble.reset():', e);
+    }
+    
+    // Check for hardware-level zombies first
+    const hadHardwareZombies = await NobleTransport.checkHardwareZombies();
+    if (hadHardwareZombies) {
+      console.log('[Noble] Hardware zombies cleared, waiting for cleanup...');
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Give more time for hardware to disconnect
+      
+      // Double-check hardware is clean
+      const stillHasZombies = await NobleTransport.checkHardwareZombies();
+      if (stillHasZombies) {
+        console.log('[Noble] ⚠️ Hardware zombies persist after first cleanup attempt, trying again...');
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    // Log initial state
+    const beforeState = await NobleTransport.getResourceState();
+    console.log(`[Noble] BEFORE RESET - Peripherals: ${beforeState.peripheralCount}, Listeners: discover=${beforeState.listenerCounts.discover}, scanStop=${beforeState.listenerCounts.scanStop}`);
     
     // 1. Stop any scanning
     try {
       await noble.stopScanningAsync();
+      console.log('[Noble] Stopped scanning');
     } catch {
       // Ignore errors if not scanning
     }
     
     // 2. Disconnect ALL peripherals
     const peripherals = (noble as any)._peripherals || {};
-    for (const [id, peripheral] of Object.entries(peripherals)) {
-      try {
-        if ((peripheral as any).state === 'connected') {
-          console.log(`[Noble] Force disconnecting peripheral ${id}`);
-          await (peripheral as any).disconnectAsync();
+    const peripheralCount = Object.keys(peripherals).length;
+    if (peripheralCount > 0) {
+      console.log(`[Noble] Found ${peripheralCount} peripherals to clean up`);
+      for (const [id, peripheral] of Object.entries(peripherals)) {
+        try {
+          if ((peripheral as any).state === 'connected') {
+            console.log(`[Noble] Force disconnecting peripheral ${id}`);
+            await (peripheral as any).disconnectAsync();
+          }
+          // Remove all peripheral event listeners
+          (peripheral as any).removeAllListeners?.();
+        } catch {
+          // Ignore errors during cleanup
         }
-        // Remove all peripheral event listeners
-        (peripheral as any).removeAllListeners?.();
-      } catch {
-        // Ignore errors during cleanup
       }
     }
     
     // 3. Clear ALL JavaScript state (this is what process restart does!)
-    (noble as any)._peripherals = {};
+    console.log('[Noble] Clearing all Noble internal state...');
+    // CRITICAL: Noble uses Map for _peripherals, not plain object!
+    if ((noble as any)._peripherals instanceof Map) {
+      (noble as any)._peripherals.clear();
+    } else {
+      (noble as any)._peripherals = new Map();
+    }
     (noble as any)._services = {};
     (noble as any)._characteristics = {};
     (noble as any)._descriptors = {};
     (noble as any)._discovering = false;
     
     // 4. Remove ALL event listeners from Noble itself
+    const eventNamesBefore = noble.eventNames();
+    const listenersBefore = eventNamesBefore.length;
+    console.log(`[Noble] Event names before cleanup: ${eventNamesBefore.join(', ')}`);
+    
+    // First, explicitly remove any device-specific disconnect listeners
+    eventNamesBefore.forEach(eventName => {
+      if (typeof eventName === 'string' && eventName.startsWith('disconnect:')) {
+        console.log(`[Noble] Removing device-specific listener: ${eventName}`);
+        noble.removeAllListeners(eventName);
+      }
+    });
+    
+    // Then remove all other listeners
     noble.removeAllListeners();
+    
+    console.log(`[Noble] Removed ${listenersBefore} event listeners from Noble`);
     
     // 5. Re-add only the essential state change listener
     noble.on('stateChange', (state) => {
@@ -146,7 +277,11 @@ export class NobleTransport extends EventEmitter {
     (noble as any)._scanServiceUuids = [];
     (noble as any)._allowDuplicates = false;
     
-    console.log('[Noble] Complete state reset done - Noble is now as clean as after process restart');
+    // Log final state
+    const afterState = await NobleTransport.getResourceState();
+    console.log(`[Noble] AFTER RESET - Peripherals: ${afterState.peripheralCount}, Listeners: discover=${afterState.listenerCounts.discover}, scanStop=${afterState.listenerCounts.scanStop}`);
+    console.log('[Noble] ====== COMPLETE NOBLE RESET FINISHED ======');
+    console.log('[Noble] Noble is now as clean as after process restart');
   }
 
   /**
@@ -335,6 +470,11 @@ export class NobleTransport extends EventEmitter {
       if (!this.writeChar || !this.notifyChar) {
         throw new Error('Required characteristics not found');
       }
+      
+      // Remove any existing listeners before adding new ones
+      // This prevents listener leaks on reconnection
+      this.notifyChar.removeAllListeners('data');
+      this.peripheral.removeAllListeners('disconnect');
       
       // Subscribe to notifications
       this.notifyChar.on('data', (data: Buffer) => {
@@ -570,7 +710,9 @@ export class NobleTransport extends EventEmitter {
   }
 
   /**
-   * Unified cleanup method with configurable options
+   * THE ONLY METHOD for disconnecting Noble from BLE device
+   * This properly disconnects Noble, cleans up resources, and prevents zombies
+   * 
    * @param options - Cleanup configuration
    * @param options.force - Use aggressive cleanup (default: false)
    * @param options.resetStack - Reset BLE stack after cleanup (default: false for graceful, true for force)
@@ -691,6 +833,14 @@ export class NobleTransport extends EventEmitter {
       }
     }
     
+    // Remove characteristic listeners BEFORE clearing references
+    if (this.notifyChar) {
+      this.notifyChar.removeAllListeners('data');
+    }
+    if (this.peripheral) {
+      this.peripheral.removeAllListeners('disconnect');
+    }
+    
     // Clear references
     this.peripheral = null;
     this.writeChar = null;
@@ -704,12 +854,13 @@ export class NobleTransport extends EventEmitter {
       await this.resetNobleStack();
     }
     
+    // Get resource state for monitoring
+    const state = await NobleTransport.getResourceState();
+    
     // Verify and clean resources if requested
     if (verifyResources) {
       // Brief delay to allow async cleanup to complete
       await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const state = await NobleTransport.getResourceState();
       
       // Check for resource leaks and clean if needed
       if (state.listenerCounts.scanStop > 90 || 
@@ -720,7 +871,15 @@ export class NobleTransport extends EventEmitter {
       }
     }
     
-    console.log(`[Noble] ${force ? 'Aggressive' : 'Graceful'} cleanup complete`);
+    // ALWAYS do complete reset after cleanup
+    // This is what prevents zombie connections!
+    console.log('[Noble] 🔄 CRITICAL: Calling completeNobleReset() to prevent zombies');
+    console.log(`[Noble]   - Force cleanup: ${force}`);
+    console.log(`[Noble]   - Connect in progress: ${this.connectInProgress}`);
+    console.log(`[Noble]   - Peripheral count: ${state.peripheralCount}`);
+    await NobleTransport.completeNobleReset();
+    
+    console.log(`[Noble] ✅ ${force ? 'Aggressive' : 'Graceful'} cleanup complete with full Noble reset`);
     
     // Clear cleanup flag
     NobleTransport.cleanupInProgress = false;
@@ -801,24 +960,7 @@ export class NobleTransport extends EventEmitter {
     }
   }
 
-  async disconnect(): Promise<void> {
-    await this.cleanup({ force: false, verifyResources: true });
-    
-    // CRITICAL: Reset Noble to pristine state after EVERY disconnect
-    // This mimics what happens when we restart the service
-    await NobleTransport.completeNobleReset();
-  }
-  
-  /**
-   * Force cleanup - WARNING: This is broken and creates zombies
-   * @deprecated forceCleanup() is currently not working as expected. Do not use it.
-   * If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues
-   * TODO: Fix or remove this - it's worse than normal cleanup
-   */
-  async forceCleanup(): Promise<void> {
-    console.warn('[Noble] WARNING: forceCleanup() is not working as expected - it creates zombie connections. Do not use it. Report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues');
-    await this.cleanup({ force: true, resetStack: true, verifyResources: true });
-  }
+
 
   /**
    * Check if the peripheral is actually connected
