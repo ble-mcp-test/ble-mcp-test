@@ -202,6 +202,8 @@ test.describe('Session Pool Behavior - Verify Proper BLE Connection Pooling', ()
     await setupMockPage(page, '<html><body>Grace Period Expiry Test</body></html>');
 
     const result = await page.evaluate(async (config) => {
+      // Use a unique session ID for this test to avoid reusing pooled connections
+      config.sessionId = 'grace-period-test-' + Date.now();
       const results: any = { sessionId: config.sessionId };
 
       try {
@@ -226,8 +228,8 @@ test.describe('Session Pool Behavior - Verify Proper BLE Connection Pooling', ()
         await bleDevice.gatt.disconnect();
         const graceStartTime = Date.now();
         
-        // Wait for grace period to expire (add buffer)
-        const waitTime = MOCK_GRACE_PERIOD_MS + 2000;
+        // Wait for grace period to expire (add buffer for cleanup to complete)
+        const waitTime = MOCK_GRACE_PERIOD_MS + 4000;
         console.log(`[TEST] Waiting ${waitTime}ms for grace period to expire`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         

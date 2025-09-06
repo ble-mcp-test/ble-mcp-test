@@ -1,657 +1,303 @@
 import { EventEmitter } from 'events';
 import noble from '@stoprocent/noble';
-import { expandUuidVariants } from './utils.js';
-import { ZombieDetector } from './zombie-detector.js';
+import { BLEConnectionError } from './constants.js';
+import { logErrorWithStack } from './utils.js';
+
+// Export config type for compatibility
+export interface BleConfig {
+  service: string;       // Primary service UUID
+  write: string;         // Write characteristic UUID
+  notify: string;        // Notify characteristic UUID
+  deviceId?: string;     // Exact device ID/address for matching
+  deviceName?: string;   // Device name filter (partial match)
+  timeout?: number;      // Discovery timeout in milliseconds
+}
 
 /**
- * Noble BLE Transport
+ * SIMPLIFIED Noble BLE Transport - v2.0
  * 
- * Handles all BLE device communication.
- * No state management, just pure BLE operations.
- * 
- * Events:
- * - 'data': (data: Uint8Array) - Notification received from device
- * - 'disconnect': () - Device disconnected
- * - 'error': (error: any) - Transport error occurred
+ * Complete rewrite with minimal complexity:
+ * - try/catch/finally for all async operations
+ * - Simple cleanup: just disconnectAsync() + noble.reset()
+ * - No workarounds, no fallbacks, no complex state management
+ * - If it fails, it fails cleanly
  */
-
-export interface BleConfig {
-  devicePrefix?: string;  // Optional - for specific device targeting
-  serviceUuid: string;     // Single service UUID (will be expanded internally)
-  writeUuid: string;
-  notifyUuid: string;
-}
-
-export interface NobleResourceState {
-  peripheralCount: number;
-  listenerCounts: Record<string, number>;
-  scanningActive: boolean;
-  hciConnections: number;
-  cacheSize: number;
-}
+let transportInstanceCount = 0;
 
 export class NobleTransport extends EventEmitter {
   private peripheral: any = null;
   private writeChar: any = null;
   private notifyChar: any = null;
-  private connectInProgress = false;
+  private cleanupInProgress: boolean = false;
+  private instanceId: number;
   
-  // Static flags to prevent connections during cleanup
-  private static cleanupInProgress = false;
-  private static cleanupStartTime: number | null = null;
-
-  /**
-   * Get current Noble resource state for monitoring
-   */
-  static async getResourceState(): Promise<NobleResourceState> {
-    return {
-      peripheralCount: Object.keys((noble as any)._peripherals || {}).length,
-      listenerCounts: {
-        discover: noble.listenerCount('discover'),
-        scanStop: noble.listenerCount('scanStop'),
-        stateChange: noble.listenerCount('stateChange'),
-        warning: noble.listenerCount('warning')
-      },
-      scanningActive: (noble as any)._discovering || false,
-      hciConnections: (noble as any)._bindings?.listenerCount?.('warning') || 0,
-      cacheSize: Object.keys((noble as any)._services || {}).length + Object.keys((noble as any)._characteristics || {}).length
-    };
-  }
-
-  /**
-   * Clean up Noble global resources (static helper for cleanup method)
-   */
-  private static async cleanupGlobalResources(): Promise<void> {
-    const state = await NobleTransport.getResourceState();
-
-    // Clean up scanStop listeners (critical leak source per docs/NOBLE-DISCOVERASYNC-LEAK.md)
-    if (state.listenerCounts.scanStop > 90) {
-      console.log('[Noble] Cleaning up scanStop listener leak (count > 90)');
-      noble.removeAllListeners('scanStop');
-    }
-
-    // Clean up discover listeners
-    if (state.listenerCounts.discover > 10) {
-      console.log('[Noble] Cleaning up discover listener leak (count > 10)');
-      noble.removeAllListeners('discover');
-    }
-
-    // Force stop scanning
-    try {
-      await noble.stopScanningAsync();
-    } catch {
-      // Ignore stop scanning errors
-    }
-
-    // Clear peripheral cache if excessive
-    if (state.peripheralCount > 50) {
-      console.log('[Noble] Clearing excessive peripheral cache');
-      const peripherals = (noble as any)._peripherals || {};
-      Object.keys(peripherals).forEach(key => {
-        try {
-          peripherals[key]?.removeAllListeners?.();
-        } catch {
-          // Ignore cleanup errors
-        }
-      });
-      (noble as any)._peripherals = {};
-    }
-  }
-
-  /**
-   * Count hardware-level zombie connections
-   */
-  static async countHardwareZombies(): Promise<number> {
-    if (process.platform !== 'linux') {
-      return 0;
-    }
+  constructor(private config: BleConfig) {
+    super();
+    this.instanceId = ++transportInstanceCount;
+    console.log(`[Noble] Creating NobleTransport instance #${this.instanceId}`);
     
-    try {
-      const { execSync } = await import('child_process');
-      const output = execSync('sudo hcitool con 2>/dev/null || true', { encoding: 'utf8' });
-      
-      // Count connections from hcitool output
-      const lines = output.split('\n').filter(line => line.includes('handle'));
-      
-      // Check if Noble knows about these connections
-      const peripherals = (noble as any)._peripherals || new Map();
-      const nobleConnectedCount = peripherals instanceof Map 
-        ? Array.from(peripherals.values()).filter((p: any) => p.state === 'connected').length
-        : Object.values(peripherals).filter((p: any) => p.state === 'connected').length;
-      
-      // Hardware connections that Noble doesn't know about are zombies
-      const hardwareCount = lines.length;
-      const zombieCount = Math.max(0, hardwareCount - nobleConnectedCount);
-      
-      if (zombieCount > 0) {
-        console.log(`[Noble] Hardware zombie count: ${zombieCount} (${hardwareCount} hardware connections, ${nobleConnectedCount} Noble connections)`);
-      }
-      
-      return zombieCount;
-    } catch (e) {
-      return 0;
+    // Log stack trace to see who's creating instances
+    const stack = new Error().stack;
+    if (stack) {
+      const lines = stack.split('\n').slice(1, 3);
+      console.log(`[Noble] Instance #${this.instanceId} created from:`);
+      lines.forEach(line => console.log(`  ${line.trim()}`));
     }
   }
   
   /**
-   * Check for hardware-level zombie connections using hcitool
+   * Diagnostic function to inspect Noble's internal state
    */
-  private static async checkHardwareZombies(): Promise<boolean> {
-    if (process.platform !== 'linux') {
-      return false;
+  private inspectNobleState(context: string): void {
+    console.log(`[Noble] === State Inspection (${context}) ===`);
+    
+    // Noble's basic state
+    console.log(`[Noble] State: ${noble.state}`);
+    console.log(`[Noble] Address: ${noble.address || 'unknown'}`);
+    
+    // Check internal _state if available
+    if ((noble as any)._state) {
+      console.log(`[Noble] Internal _state: ${(noble as any)._state}`);
     }
     
-    try {
-      const { execSync } = await import('child_process');
-      const output = execSync('sudo hcitool con 2>/dev/null || true', { encoding: 'utf8' });
-      
-      // Parse connections from hcitool output
-      const lines = output.split('\n').filter(line => line.includes('handle'));
-      if (lines.length > 0) {
-        console.log('[Noble] ⚠️ HARDWARE ZOMBIES DETECTED:');
-        lines.forEach(line => {
-          console.log(`[Noble]   ${line.trim()}`);
-          // Extract handle number for disconnection
-          const handleMatch = line.match(/handle (\d+)/);
-          if (handleMatch) {
-            const handle = handleMatch[1];
-            try {
-              console.log(`[Noble] Disconnecting hardware zombie handle ${handle}...`);
-              execSync(`sudo hcitool ledc ${handle} 2>/dev/null || true`);
-            } catch (e) {
-              console.log(`[Noble] Failed to disconnect handle ${handle}`);
-            }
-          }
+    // Check scanning state
+    if ((noble as any)._scanState) {
+      console.log(`[Noble] Scan state: ${(noble as any)._scanState}`);
+    }
+    
+    // Check peripherals map
+    if ((noble as any)._peripherals) {
+      const peripherals = (noble as any)._peripherals;
+      if (peripherals instanceof Map) {
+        console.log(`[Noble] Peripherals in map: ${peripherals.size}`);
+        peripherals.forEach((peripheral: any, id: string) => {
+          console.log(`[Noble]   - ${id}: state=${peripheral.state}, connected=${peripheral.state === 'connected'}`);
         });
-        return true;
-      }
-    } catch (e) {
-      // Ignore errors - hcitool might not be available
-    }
-    return false;
-  }
-
-  /**
-   * Complete Noble state reset - mimics what happens when process restarts
-   * This is what ACTUALLY fixes zombie connections!
-   */
-  private static async completeNobleReset(): Promise<void> {
-    console.log('[Noble] ====== COMPLETE NOBLE RESET STARTING ======');
-    console.log('[Noble] This mimics a process restart and SHOULD clear all zombies');
-    
-    // Try Noble's built-in reset() first - this resets the HCI interface!
-    try {
-      if (typeof (noble as any).reset === 'function') {
-        console.log('[Noble] 🎯 Calling noble.reset() to reset HCI interface...');
-        (noble as any).reset();
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Give HCI time to reset
-      } else {
-        console.log('[Noble] No noble.reset() method available');
-      }
-    } catch (e) {
-      console.log('[Noble] Error calling noble.reset():', e);
-    }
-    
-    // Check for hardware-level zombies first
-    const hadHardwareZombies = await NobleTransport.checkHardwareZombies();
-    if (hadHardwareZombies) {
-      console.log('[Noble] Hardware zombies cleared, waiting for cleanup...');
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Give more time for hardware to disconnect
-      
-      // Double-check hardware is clean
-      const stillHasZombies = await NobleTransport.checkHardwareZombies();
-      if (stillHasZombies) {
-        console.log('[Noble] ⚠️ Hardware zombies persist after first cleanup attempt, trying again...');
-        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else if (typeof peripherals === 'object') {
+        const ids = Object.keys(peripherals);
+        console.log(`[Noble] Peripherals in object: ${ids.length}`);
+        ids.forEach(id => {
+          const p = peripherals[id];
+          console.log(`[Noble]   - ${id}: state=${p.state}, connected=${p.state === 'connected'}`);
+        });
       }
     }
     
-    // Log initial state
-    const beforeState = await NobleTransport.getResourceState();
-    console.log(`[Noble] BEFORE RESET - Peripherals: ${beforeState.peripheralCount}, Listeners: discover=${beforeState.listenerCounts.discover}, scanStop=${beforeState.listenerCounts.scanStop}`);
-    
-    // 1. Stop any scanning
-    try {
-      await noble.stopScanningAsync();
-      console.log('[Noble] Stopped scanning');
-    } catch {
-      // Ignore errors if not scanning
-    }
-    
-    // 2. Disconnect ALL peripherals
-    const peripherals = (noble as any)._peripherals || {};
-    const peripheralCount = Object.keys(peripherals).length;
-    if (peripheralCount > 0) {
-      console.log(`[Noble] Found ${peripheralCount} peripherals to clean up`);
-      for (const [id, peripheral] of Object.entries(peripherals)) {
-        try {
-          if ((peripheral as any).state === 'connected') {
-            console.log(`[Noble] Force disconnecting peripheral ${id}`);
-            await (peripheral as any).disconnectAsync();
-          }
-          // Remove all peripheral event listeners
-          (peripheral as any).removeAllListeners?.();
-        } catch {
-          // Ignore errors during cleanup
-        }
-      }
-    }
-    
-    // 3. Clear ALL JavaScript state (this is what process restart does!)
-    console.log('[Noble] Clearing all Noble internal state...');
-    // CRITICAL: Noble uses Map for _peripherals, not plain object!
-    if ((noble as any)._peripherals instanceof Map) {
-      (noble as any)._peripherals.clear();
+    // Check our own peripheral
+    if (this.peripheral) {
+      console.log(`[Noble] Our peripheral: ${this.peripheral.id || this.peripheral.uuid}, state=${this.peripheral.state}`);
     } else {
-      (noble as any)._peripherals = new Map();
+      console.log(`[Noble] Our peripheral: null`);
     }
-    (noble as any)._services = {};
-    (noble as any)._characteristics = {};
-    (noble as any)._descriptors = {};
-    (noble as any)._discovering = false;
     
-    // 4. Remove ALL event listeners from Noble itself
-    const eventNamesBefore = noble.eventNames();
-    const listenersBefore = eventNamesBefore.length;
-    console.log(`[Noble] Event names before cleanup: ${eventNamesBefore.join(', ')}`);
-    
-    // First, explicitly remove any device-specific disconnect listeners
-    eventNamesBefore.forEach(eventName => {
-      if (typeof eventName === 'string' && eventName.startsWith('disconnect:')) {
-        console.log(`[Noble] Removing device-specific listener: ${eventName}`);
-        noble.removeAllListeners(eventName);
+    // Check bindings state if available
+    if ((noble as any)._bindings) {
+      const bindings = (noble as any)._bindings;
+      if (bindings._state) {
+        console.log(`[Noble] Bindings state: ${bindings._state}`);
       }
-    });
+      if (bindings._peripherals) {
+        console.log(`[Noble] Bindings peripherals: ${Object.keys(bindings._peripherals).length}`);
+      }
+      // Check for handles
+      if (bindings._handles) {
+        console.log(`[Noble] Bindings handles: ${Object.keys(bindings._handles).length}`);
+      }
+      if (bindings._gatts) {
+        console.log(`[Noble] Bindings gatts: ${Object.keys(bindings._gatts).length}`);
+      }
+    }
     
-    // Then remove all other listeners
-    noble.removeAllListeners();
+    // Check event listeners on noble
+    const listenerCounts = noble.eventNames().map(event => 
+      `${String(event)}:${noble.listenerCount(event)}`
+    ).join(', ');
+    console.log(`[Noble] Event listeners: ${listenerCounts || 'none'}`);
     
-    console.log(`[Noble] Removed ${listenersBefore} event listeners from Noble`);
+    // Check for accumulated discovery filters
+    if ((noble as any)._discoveredPeripheralUUids) {
+      console.log(`[Noble] Discovered peripheral UUIDs: ${(noble as any)._discoveredPeripheralUUids.length}`);
+    }
     
-    // 5. Re-add only the essential state change listener
-    noble.on('stateChange', (state) => {
-      console.log(`[Noble] Bluetooth state changed to: ${state}`);
-    });
-    
-    // 6. Reset scan state
-    (noble as any)._scanServiceUuids = [];
-    (noble as any)._allowDuplicates = false;
-    
-    // Log final state
-    const afterState = await NobleTransport.getResourceState();
-    console.log(`[Noble] AFTER RESET - Peripherals: ${afterState.peripheralCount}, Listeners: discover=${afterState.listenerCounts.discover}, scanStop=${afterState.listenerCounts.scanStop}`);
-    console.log('[Noble] ====== COMPLETE NOBLE RESET FINISHED ======');
-    console.log('[Noble] Noble is now as clean as after process restart');
+    console.log(`[Noble] === End State Inspection ===`);
   }
 
   /**
-   * Scan for device availability (based on check-device-available.js pattern)
+   * Expand UUID to handle different formats
    */
-  static async scanDeviceAvailability(devicePrefix: string, timeoutMs: number = 5000): Promise<boolean> {
-    if (noble.state !== 'poweredOn') {
+  private expandUuid(uuid: string): string[] {
+    const base = uuid.toLowerCase().replace(/-/g, '');
+    const variants = [base];
+    
+    // Add full UUID format for 4-char UUIDs
+    if (base.length === 4) {
+      variants.push(`0000${base}00001000800000805f9b34fb`);
+    }
+    // Add format with dashes
+    if (base.length === 32) {
+      const withDashes = `${base.slice(0,8)}-${base.slice(8,12)}-${base.slice(12,16)}-${base.slice(16,20)}-${base.slice(20)}`;
+      variants.push(withDashes);
+    }
+    
+    return variants;
+  }
+
+  /**
+   * Find a device - scanning with proper cleanup in finally
+   * Supports both exact deviceId matching and deviceName filtering
+   */
+  private async findDevice(): Promise<any> {
+    const timeoutMs = this.config.timeout || 10000;
+    await noble.waitForPoweredOnAsync();
+    
+    const serviceVariants = this.expandUuid(this.config.service);
+    
+    // Set up timeout promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new BLEConnectionError('HARDWARE_NOT_FOUND', 'Device discovery timeout')), timeoutMs);
+    });
+    
+    // Set up discovery promise
+    const discoveryPromise = (async () => {
       try {
-        await noble.waitForPoweredOnAsync();
-      } catch (e) {
-        console.log(`[Noble] Device availability check failed - Bluetooth not powered on: ${e}`);
-        return false;
-      }
-    }
-
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        noble.removeAllListeners('discover');
-        noble.stopScanningAsync().catch(() => {});
-        resolve(false);
-      }, timeoutMs);
-
-      const onDiscover = (peripheral: any) => {
-        const id = peripheral.id;
-        const name = peripheral.advertisement.localName || '';
+        // Start scanning with service filter
+        await noble.startScanningAsync(serviceVariants, true);
         
-        if (id.startsWith(devicePrefix) || name.startsWith(devicePrefix)) {
-          clearTimeout(timeout);
-          noble.removeListener('discover', onDiscover);
-          noble.stopScanningAsync().catch(() => {});
-          console.log(`[Noble] Device availability confirmed: ${name || 'Unknown'} [${id}]`);
-          resolve(true);
+        // Use async generator for discovery
+        for await (const peripheral of noble.discoverAsync()) {
+          const name = peripheral.advertisement?.localName || '';
+          const address = peripheral.address || peripheral.id;
+          
+          // Check device match
+          let deviceMatch = true;
+          
+          if (this.config.deviceId) {
+            // Exact ID match
+            deviceMatch = address ? address.toLowerCase() === this.config.deviceId.toLowerCase() : false;
+          } else if (this.config.deviceName) {
+            // Partial name match
+            deviceMatch = name.toLowerCase().includes(this.config.deviceName.toLowerCase());
+          }
+          // If neither specified, any device with the service matches (already filtered by startScanningAsync)
+          
+          if (deviceMatch) {
+            return peripheral;
+          }
         }
-      };
-      
-      noble.on('discover', onDiscover);
-
-      noble.startScanningAsync([], true).catch(() => resolve(false));
-    });
+      } finally {
+        // Always stop scanning
+        try {
+          await noble.stopScanningAsync();
+        } catch {
+          // Ignore stop scanning errors
+        }
+      }
+    })();
+    
+    // Race between timeout and discovery
+    return Promise.race([timeoutPromise, discoveryPromise]);
   }
 
-
-  async resetNobleStack(): Promise<void> {
-    console.log('[Noble] WARNING: Skipping BLE stack reset to prevent crashes');
-    console.log('[Noble] rfkill operations can crash Noble if done during active operations');
-    console.log('[Noble] If BLE is truly stuck, manually run: sudo systemctl restart bluetooth');
-    
-    // Force stop scanning first (safe operation)
-    try {
-      await noble.stopScanningAsync();
-    } catch {
-      // Ignore stop scanning errors during reset
+  /**
+   * Connect to device
+   */
+  async connect(): Promise<{ name: string; id: string }> {
+    // Check if cleanup is in progress - fail immediately if true
+    if (this.cleanupInProgress) {
+      throw new BLEConnectionError('CLEANUP_IN_PROGRESS', 'Cannot connect while cleanup is in progress');
     }
-    
-    // DO NOT use rfkill here - it crashes Noble if there are active handles
-    // Only wait for Noble state recovery
-    
-    // Wait for Noble to stabilize (all platforms)
-    console.log('[Noble] Waiting for Noble state to stabilize...');
-    await new Promise<void>((resolve) => {
-      const timeout = setTimeout(() => {
-        console.log('[Noble] State stabilization timeout - continuing anyway');
-        resolve();
-      }, 3000);
-      
-      const checkState = () => {
-        if (noble.state === 'poweredOn') {
-          clearTimeout(timeout);
-          console.log('[Noble] Noble is powered on');
-          resolve();
-        } else {
-          console.log(`[Noble] Current state: ${noble.state}, waiting...`);
-          setTimeout(checkState, 500);
-        }
-      };
-      
-      // Start checking immediately
-      checkState();
-    });
-    
-    console.log('[Noble] Noble state check complete');
-  }
-
-  async connect(config: BleConfig): Promise<string> {
-    // Block connection if cleanup is in progress
-    if (NobleTransport.cleanupInProgress) {
-      const cleanupTime = NobleTransport.cleanupStartTime ? 
-        Math.ceil((Date.now() - NobleTransport.cleanupStartTime) / 1000) : 0;
-      const remainingTime = Math.max(1, 15 - cleanupTime); // Assume max 15s cleanup
-      throw new Error(`BLE stack recovering, please try again in ${remainingTime} seconds`);
-    }
-    
-    // Clean up Noble state BEFORE connecting (preventive maintenance)
-    const state = await NobleTransport.getResourceState();
-    if (state.listenerCounts.discover > 2 || state.peripheralCount > 10) {
-      console.log(`[Noble] Pre-connection cleanup: ${state.listenerCounts.discover} discover listeners, ${state.peripheralCount} cached peripherals`);
-      // Use complete reset if state is bad
-      if (state.listenerCounts.discover > 5 || state.peripheralCount > 20) {
-        console.log('[Noble] State heavily polluted - doing complete reset');
-        await NobleTransport.completeNobleReset();
-      } else {
-        await NobleTransport.cleanupGlobalResources();
-      }
-    }
-    
-    this.connectInProgress = true;
     
     try {
-      // Wait for Noble to be ready with timeout
-      if (noble.state !== 'poweredOn') {
-        console.log(`[Noble] State: ${noble.state}, waiting for power on...`);
-        await this.withInternalTimeout(
-          noble.waitForPoweredOnAsync(),
-          15000,
-          'Bluetooth adapter timeout - check if Bluetooth is enabled'
-        );
+      // Find the device
+      this.peripheral = await this.findDevice();
+      
+      if (!this.peripheral) {
+        throw new BLEConnectionError('HARDWARE_NOT_FOUND', 'Device discovery returned no device');
       }
       
-      // Find device using UUID variants for scanning
-      this.peripheral = await this.findDevice(config.serviceUuid, config.devicePrefix);
-      const deviceName = this.peripheral.advertisement.localName || this.peripheral.id;
+      const name = this.peripheral.advertisement?.localName || 'Unknown';
+      const id = this.peripheral.address || this.peripheral.id;
+      console.log(`[Noble] Found device: ${name} (${id})`);
       
-      // Connect to peripheral with timeout
-      console.log(`[Noble] Connecting to ${deviceName}...`);
-      await this.withInternalTimeout(
-        this.peripheral.connectAsync(),
-        10000,
-        'Device connection timeout'
-      );
+      // Connect to peripheral
+      await this.peripheral.connectAsync();
+      console.log(`[Noble] Connected to ${name} (${id})`);
       
-      // Record successful connection for zombie detection
-      const zombieDetector = ZombieDetector.getInstance();
-      zombieDetector.recordSuccessfulConnection();
+      // Discover services
+      const serviceVariants = this.expandUuid(this.config.service);
+      console.log(`[Noble] Discovering services: ${serviceVariants.join(', ')}`);
+      const services = await this.peripheral.discoverServicesAsync(serviceVariants);
       
-      // Discover services with timeout
-      const services: any[] = await this.withInternalTimeout(
-        this.peripheral.discoverServicesAsync(),
-        10000,
-        'Service discovery timeout'
-      );
-      
-      // Find the service and discover what UUID format the device actually uses
-      let targetService: any = null;
-      let actualServiceUuid: string = '';
-      
-      for (const service of services) {
-        const sUuid = service.uuid.toLowerCase().replace(/-/g, '');
-        const configUuidVariants = expandUuidVariants(config.serviceUuid);
-        if (configUuidVariants.some(variant => sUuid === variant)) {
-          targetService = service;
-          actualServiceUuid = sUuid; // Remember the format the device actually uses
-          console.log(`[Noble] Found service using UUID format: ${actualServiceUuid}`);
-          break;
-        }
+      if (!services || services.length === 0) {
+        // Also try discovering ALL services to see what's available
+        console.log(`[Noble] Service ${this.config.service} not found, discovering all services for debugging...`);
+        const allServices = await this.peripheral.discoverServicesAsync([]);
+        console.log(`[Noble] Available services: ${allServices?.map((s: any) => s.uuid).join(', ') || 'none'}`);
+        throw new BLEConnectionError('SERVICE_NOT_FOUND', `Service ${this.config.service} not found on device`);
       }
+      console.log(`[Noble] Found service: ${services[0].uuid}`);
       
-      if (!targetService) {
-        throw new Error(`Service ${config.serviceUuid} not found`);
-      }
+      // Discover characteristics
+      const service = services[0];
+      const characteristics = await service.discoverCharacteristicsAsync();
       
-      // Discover characteristics with timeout
-      const characteristics: any[] = await this.withInternalTimeout(
-        targetService.discoverCharacteristicsAsync(),
-        10000,
-        'Characteristic discovery timeout'
-      );
-      
-      // Find characteristics using all possible UUID variants
-      // Each characteristic might use different format (standard vs custom)
-      console.log(`[Noble] Looking for characteristics (any format):`);
-      console.log(`[Noble]   Write variants: [${expandUuidVariants(config.writeUuid).join(', ')}]`);
-      console.log(`[Noble]   Notify variants: [${expandUuidVariants(config.notifyUuid).join(', ')}]`);
+      // Find write and notify characteristics
+      const writeVariants = this.expandUuid(this.config.write);
+      const notifyVariants = this.expandUuid(this.config.notify);
       
       this.writeChar = characteristics.find((c: any) => {
-        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const writeVariants = expandUuidVariants(config.writeUuid);
-        return writeVariants.some(variant => cUuid === variant);
+        const uuid = c.uuid.toLowerCase().replace(/-/g, '');
+        return writeVariants.includes(uuid);
       });
       
       this.notifyChar = characteristics.find((c: any) => {
-        const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-        const notifyVariants = expandUuidVariants(config.notifyUuid);
-        return notifyVariants.some(variant => cUuid === variant);
+        const uuid = c.uuid.toLowerCase().replace(/-/g, '');
+        return notifyVariants.includes(uuid);
       });
       
       if (!this.writeChar || !this.notifyChar) {
-        throw new Error('Required characteristics not found');
+        throw new BLEConnectionError('CHARACTERISTICS_NOT_FOUND', 
+          `Required characteristics not found (write: ${this.config.write}, notify: ${this.config.notify})`);
       }
       
-      // Remove any existing listeners before adding new ones
-      // This prevents listener leaks on reconnection
-      this.notifyChar.removeAllListeners('data');
-      this.peripheral.removeAllListeners('disconnect');
-      
-      // Subscribe to notifications
+      // Set up notifications
       this.notifyChar.on('data', (data: Buffer) => {
         this.emit('data', new Uint8Array(data));
       });
       
-      // Subscribe to notifications with retry logic
-      await this.subscribeWithRetry(this.notifyChar);
+      await this.notifyChar.subscribeAsync();
+      console.log(`[Noble] Subscribed to notifications`);
       
       // Handle unexpected disconnect
-      this.peripheral.once('disconnect', () => {
-        console.log(`[Noble] Device disconnected`);
+      this.peripheral.once('disconnect', async () => {
+        console.log(`[Noble] Device disconnected - cleaning up transport`);
+        // Clean up our own state when device disconnects
+        await this.cleanup();
+        // Let session know we're disconnected (for status updates)
         this.emit('disconnect');
       });
       
-      console.log(`[Noble] Connected successfully to ${deviceName}`);
-      this.connectInProgress = false;
-      return deviceName;
+      console.log(`[Noble] Successfully connected to ${name} (${id})`);
+      return { name, id };
       
     } catch (error: any) {
-      this.connectInProgress = false;
+      logErrorWithStack('[Noble] Connection failed', error);
       
-      console.log(`[Noble] Connection failed: ${error}`);
-      
-      // For connection errors, we MUST do full cleanup
-      // Incomplete connections leave the BLE stack in a bad state
-      if (this.peripheral) {
-        console.log(`[Noble] Performing full cleanup after connection error`);
-        try {
-          // Try graceful disconnect first
-          if (this.peripheral.state === 'connected' || this.peripheral.state === 'connecting') {
-            console.log(`[Noble] ERROR RECOVERY: Peripheral state: ${this.peripheral.state} - attempting disconnect`);
-            const disconnectStart = Date.now();
-            const result = await Promise.race([
-              this.peripheral.disconnectAsync().then(() => 'completed'),
-              new Promise(resolve => setTimeout(() => resolve('timeout'), 5000)) // 5s timeout
-            ]);
-            const disconnectTime = Date.now() - disconnectStart;
-            
-            if (result === 'timeout') {
-              console.warn(`[Noble] ⚠️ ERROR RECOVERY DISCONNECT TIMEOUT after ${disconnectTime}ms (5s limit) - possible zombie connection!`);
-            } else {
-              console.log(`[Noble] ERROR RECOVERY: Disconnect completed successfully in ${disconnectTime}ms`);
-            }
-          }
-          
-          // Remove all listeners
-          this.peripheral.removeAllListeners?.();
-        } catch (cleanupError) {
-          console.log(`[Noble] Cleanup after connection error failed: ${cleanupError}`);
-        }
+      // Inspect Noble state on specific errors
+      if (error === 22 || error === 62 || error.message?.includes('22') || error.message?.includes('62')) {
+        console.log(`[Noble] Error ${error} detected - inspecting Noble state...`);
+        this.inspectNobleState(`Error ${error}`);
       }
       
-      // Clear our references
-      this.peripheral = null;
-      this.writeChar = null;
-      this.notifyChar = null;
-      
-      // Clear device search cleanup if it exists
-      if (this.findDeviceCleanup) {
-        this.findDeviceCleanup();
-        this.findDeviceCleanup = null;
-      }
-      
-      // Always add recovery delay after connection errors
-      console.log(`[Noble] Adding 3s recovery delay after connection error`);
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      // CRITICAL: Reset Noble state after connection failure
-      // This prevents zombie accumulation
-      console.log('[Noble] Resetting Noble state after connection failure');
-      await NobleTransport.completeNobleReset();
-      
+      // Clean up on error
+      await this.cleanup();
       throw error;
     }
   }
 
-  private findDeviceCleanup: (() => void) | null = null;
-
-  private async findDevice(serviceUuid: string, devicePrefix?: string): Promise<any> {
-    // Ensure any previous scan is cleaned up
-    if (this.findDeviceCleanup) {
-      this.findDeviceCleanup();
-      this.findDeviceCleanup = null;
-    }
-    
-    // Stop any existing scan (no-op if not scanning)
-    await noble.stopScanningAsync();
-    
-    return new Promise((resolve, reject) => {
-      let timeout: NodeJS.Timeout | null = null;
-      let onDiscover: ((device: any) => void) | null = null;
-      
-      // Cleanup function that always runs
-      const cleanupScan = () => {
-        if (timeout) {
-          clearTimeout(timeout);
-          timeout = null;
-        }
-        if (onDiscover) {
-          noble.removeListener('discover', onDiscover);
-          onDiscover = null;
-        }
-        // Always try to stop scanning, ignore errors
-        noble.stopScanningAsync().catch(() => {});
-        this.findDeviceCleanup = null;
-      };
-      
-      // Store cleanup function so it can be called externally if needed
-      this.findDeviceCleanup = cleanupScan;
-      
-      // Expand UUID into all possible variants (short, long) for scanning
-      // This handles both client formats and platform differences
-      const serviceUuidVariants = expandUuidVariants(serviceUuid);
-      
-      // Start scanning with all UUID variants
-      const scanMessage = devicePrefix 
-        ? `[Noble] Starting BLE scan for service variants [${serviceUuidVariants.join(', ')}] with device filter: ${devicePrefix}...`
-        : `[Noble] Starting BLE scan for any device with service variants [${serviceUuidVariants.join(', ')}]...`;
-      console.log(scanMessage);
-      noble.startScanningAsync(serviceUuidVariants, true).then(() => {
-        // Scanning started successfully
-      }).catch((error) => {
-        cleanupScan();
-        reject(error);
-      });
-      
-      timeout = setTimeout(() => {
-        cleanupScan();
-        const errorMsg = devicePrefix 
-          ? `Device ${devicePrefix} with service variants [${serviceUuidVariants.join(', ')}] not found`
-          : `No devices found with service variants [${serviceUuidVariants.join(', ')}]`;
-        
-        // Record zombie detection pattern
-        const zombieDetector = ZombieDetector.getInstance();
-        zombieDetector.recordNoDevicesFoundError(devicePrefix || 'unknown', errorMsg);
-        
-        reject(new Error(errorMsg));
-      }, 15000);
-      
-      onDiscover = async (device: any) => {
-        const name = device.advertisement.localName || '';
-        const id = device.id;
-        console.log(`[Noble] Discovered device: ${name || 'Unknown'} [${id}], checking against filter: ${devicePrefix || 'none'}`);
-        
-        // If device filter provided, check it
-        if (devicePrefix) {
-          // Normalize both IDs for comparison (remove colons, lowercase)
-          const normalizeId = (str: string) => str.toLowerCase().replace(/:/g, '');
-          const normalizedPrefix = normalizeId(devicePrefix);
-          const normalizedId = normalizeId(id);
-          
-          // Try to match by name or normalized ID
-          if ((name && name.startsWith(devicePrefix)) || normalizedId === normalizedPrefix) {
-            cleanupScan();
-            console.log(`[Noble] Found matching device: ${name || id} (service: ${serviceUuid})`);
-            resolve(device);
-          } else if (devicePrefix === 'CS108') {
-            // Special case for CS108 - accept any device with the right service UUID
-            // since CS108 devices often don't advertise their name
-            cleanupScan();
-            console.log(`[Noble] Found CS108-compatible device: ${name || id} (service: ${serviceUuid})`);
-            resolve(device);
-          }
-        } else {
-          // No device filter - take first device with matching service
-          cleanupScan();
-          console.log(`[Noble] Found device with service variants [${serviceUuidVariants.join(', ')}]: ${name || id}`);
-          resolve(device);
-        }
-      };
-      
-      // CRITICAL: Store the listener so we can remove it
-      noble.on('discover', onDiscover);
-    });
-  }
-
+  /**
+   * Write data to device
+   */
   async write(data: Uint8Array): Promise<void> {
     if (!this.writeChar) {
       throw new Error('Not connected');
@@ -660,423 +306,202 @@ export class NobleTransport extends EventEmitter {
   }
 
   /**
-   * Internal timeout helper that just rejects - no cleanup
-   * Cleanup is handled by the main try/catch in connect()
+   * SIMPLE CLEANUP
+   * Just disconnect, clear state, and reset Noble
    */
-  private async withInternalTimeout<T>(
-    promise: Promise<T>,
-    timeoutMs: number,
-    errorMessage: string
-  ): Promise<T> {
-    return Promise.race([
-      promise,
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(errorMessage)), timeoutMs);
-      })
-    ]);
-  }
-
-  /**
-   * Subscribe to notifications with retry logic
-   * Common BLE issue - retry instead of going nuclear
-   */
-  private async subscribeWithRetry(notifyChar: any, maxRetries: number = 3): Promise<void> {
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+  async cleanup(): Promise<void> {
+    // Guard against concurrent cleanup
+    if (this.cleanupInProgress) {
+      console.log(`[Noble] Instance #${this.instanceId} - ⚠️ Cleanup already in progress, skipping duplicate call`);
+      // Log stack trace to understand who's calling cleanup twice
+      const stack = new Error().stack;
+      if (stack) {
+        const lines = stack.split('\n').slice(1, 4);
+        console.log(`[Noble] Instance #${this.instanceId} - Duplicate cleanup called from:`);
+        lines.forEach(line => console.log(`  ${line.trim()}`));
+      }
+      return;
+    }
+    
+    this.cleanupInProgress = true;
+    console.log(`[Noble] Instance #${this.instanceId} - Starting cleanup`);
+    
+    // Log stack trace for debugging double cleanup
+    const stack = new Error().stack;
+    if (stack) {
+      const lines = stack.split('\n').slice(1, 4);
+      console.log('[Noble] Cleanup initiated from:');
+      lines.forEach(line => console.log(`  ${line.trim()}`));
+    }
+    
+    // Inspect state before cleanup
+    if (process.env.BLE_MCP_LOG_LEVEL === 'debug') {
+      this.inspectNobleState('Before cleanup');
+    }
+    
+    try {
+      // Stop any active scanning
       try {
-        console.log(`[Noble] Notification subscription attempt ${attempt}/${maxRetries}`);
-        
-        await this.withInternalTimeout(
-          notifyChar.subscribeAsync(),
-          15000, // Increased from 5s to 15s
-          `Notification subscription timeout (attempt ${attempt}/${maxRetries})`
-        );
-        
-        console.log(`[Noble] Notification subscription successful`);
-        return; // Success!
-        
-      } catch (error) {
-        console.log(`[Noble] Subscription attempt ${attempt} failed: ${error}`);
-        
-        if (attempt === maxRetries) {
-          throw new Error(`Notification subscription failed after ${maxRetries} attempts: ${error}`);
-        }
-        
-        // Exponential backoff: 1s, 2s, 4s
-        const delay = Math.pow(2, attempt - 1) * 1000;
-        console.log(`[Noble] Retrying in ${delay}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await noble.stopScanningAsync();
+      } catch {
+        // Ignore scanning errors
       }
-    }
-  }
-
-  /**
-   * THE ONLY METHOD for disconnecting Noble from BLE device
-   * This properly disconnects Noble, cleans up resources, and prevents zombies
-   * 
-   * @param options - Cleanup configuration
-   * @param options.force - Use aggressive cleanup (default: false)
-   * @param options.resetStack - Reset BLE stack after cleanup (default: false for graceful, true for force)
-   * @param options.verifyResources - Verify and clean Noble resources after cleanup (default: true)
-   * @param options.deviceName - Device name for resource verification
-   */
-  async cleanup(options: {
-    force?: boolean;
-    resetStack?: boolean;
-    verifyResources?: boolean;
-    deviceName?: string;
-  } = {}): Promise<void> {
-    const { 
-      force = false, 
-      resetStack = force,
-      verifyResources = true
-    } = options;
-
-    // SAFETY: Never run cleanup during active connection
-    if (this.connectInProgress) {
-      console.log(`[Noble] WARNING: Cleanup requested during active connection - skipping to prevent crash`);
-      return;
-    }
-
-    console.log(`[Noble] Starting ${force ? 'aggressive' : 'graceful'} cleanup`);
     
-    // Set cleanup flag to block new connections
-    NobleTransport.cleanupInProgress = true;
-    NobleTransport.cleanupStartTime = Date.now();
-    
-    // Clean up any active device search
-    if (this.findDeviceCleanup) {
-      this.findDeviceCleanup();
-      this.findDeviceCleanup = null;
-    }
-    
-    // Stop scanning
-    try {
-      await noble.stopScanningAsync();
-    } catch {
-      // Ignore scan stop errors
-    }
-    
-    // Handle peripheral cleanup
-    if (this.peripheral) {
-      // Remove listeners first
-      this.peripheral.removeAllListeners?.();
+    // CRITICAL: Disconnect ALL connected peripherals in Noble's map
+    // This handles zombie connections from failed discoveries
+    if ((noble as any)._peripherals) {
+      const peripherals = (noble as any)._peripherals;
+      const connectedPeripherals: any[] = [];
       
-      if (this.notifyChar) {
-        this.notifyChar.removeAllListeners?.();
+      if (peripherals instanceof Map) {
+        peripherals.forEach((p: any) => {
+          if (p.state === 'connected' || p.state === 'connecting' || p.state === 'disconnecting') {
+            connectedPeripherals.push(p);
+          }
+        });
+      } else if (typeof peripherals === 'object') {
+        Object.values(peripherals).forEach((p: any) => {
+          if (p.state === 'connected' || p.state === 'connecting' || p.state === 'disconnecting') {
+            connectedPeripherals.push(p);
+          }
+        });
       }
       
-      if (!force) {
-        // Graceful cleanup
+      // Disconnect all connected peripherals
+      for (const p of connectedPeripherals) {
         try {
-          // Try graceful unsubscribe
-          if (this.notifyChar) {
-            await Promise.race([
-              this.notifyChar.unsubscribeAsync(),
-              new Promise(resolve => setTimeout(resolve, 1000))
-            ]);
-          }
-          
-          // Try graceful disconnect with longer timeout
-          console.log(`[Noble] NORMAL DISCONNECT: Attempting graceful disconnect...`);
-          const disconnectStart = Date.now();
-          const result = await Promise.race([
-            this.peripheral.disconnectAsync().then(() => 'completed'),
-            new Promise(resolve => setTimeout(() => resolve('timeout'), 10000)) // Increased from 2s to 10s
-          ]);
-          const disconnectTime = Date.now() - disconnectStart;
-          
-          if (result === 'timeout') {
-            console.warn(`[Noble] ⚠️ NORMAL DISCONNECT TIMEOUT after ${disconnectTime}ms (10s limit) - likely zombie!`);
-            throw new Error('Disconnect timeout - zombie connection likely');
-          } else {
-            console.log(`[Noble] NORMAL DISCONNECT: Completed successfully in ${disconnectTime}ms`);
-          }
-        } catch (e) {
-          console.log(`[Noble] Graceful disconnect failed: ${e}`);
-          // Force disconnect as fallback
-          try {
-            console.log(`[Noble] Attempting force disconnect...`);
-            (this.peripheral as any)._peripheral?.disconnect?.();
-            await new Promise(resolve => setTimeout(resolve, 3000));
-          } catch (forceError) {
-            console.log(`[Noble] Force disconnect also failed: ${forceError}`);
-          }
+          console.log(`[Noble] Disconnecting peripheral: ${p.id || p.uuid}, state=${p.state}`);
+          p.removeAllListeners();
+          await p.disconnectAsync();
+        } catch (error) {
+          console.log(`[Noble] Error disconnecting peripheral ${p.id || p.uuid}:`, error);
+        }
+      }
+    }
+    
+      // Clear references
+      this.peripheral = null;
+      this.writeChar = null;
+      this.notifyChar = null;
+      
+      // Clear our own listeners
+      this.removeAllListeners();
+      
+      // Reset Noble's HCI interface
+      // This should clear any hardware-level zombie connections
+      try {
+        // Inspect before reset to see what's stuck
+        if (process.env.BLE_MCP_LOG_LEVEL === 'debug') {
+          this.inspectNobleState('Before noble.reset()');
         }
         
-        // Verify disconnect actually worked
-        try {
-          const state = this.peripheral.state;
-          if (state === 'connected') {
-            console.error(`[Noble] WARNING: Peripheral still shows connected after disconnect attempts`);
+        console.log('[Noble] Resetting HCI interface');
+        (noble as any).reset();
+
+        // Dynamic settling delay - wait only as long as needed for peripherals to disconnect
+        const checkInterval = 200; // Check every 200ms
+        const maxWaitTime = 5000;  // Maximum 5 seconds
+        let totalWaitTime = 0;
+        
+        console.log('[Noble] Checking for remaining peripherals...');
+        
+        while (totalWaitTime < maxWaitTime) {
+          // Check if all peripherals are disconnected
+          let hasConnectedPeripherals = false;
+          
+          if ((noble as any)._peripherals) {
+            const peripherals = (noble as any)._peripherals;
             
-            // Last resort: OS-level disconnect if we have the address
-            if (this.peripheral.address && process.platform === 'linux') {
-              await this.osLevelDisconnect(this.peripheral.address);
+            if (peripherals instanceof Map) {
+              peripherals.forEach((p: any) => {
+                if (p.state === 'connected' || p.state === 'connecting' || p.state === 'disconnecting') {
+                  hasConnectedPeripherals = true;
+                }
+              });
+            } else if (typeof peripherals === 'object') {
+              Object.values(peripherals).forEach((p: any) => {
+                if (p.state === 'connected' || p.state === 'connecting' || p.state === 'disconnecting') {
+                  hasConnectedPeripherals = true;
+                }
+              });
             }
-          } else {
-            console.log(`[Noble] Disconnect verified - peripheral state: ${state}`);
           }
-        } catch (e) {
-          console.log(`[Noble] Could not verify disconnect state: ${e}`);
+          
+          // If all peripherals are disconnected, we're done
+          if (!hasConnectedPeripherals) {
+            console.log(`[Noble] All peripherals settled after ${totalWaitTime}ms`);
+            break;
+          }
+          
+          // Wait before checking again
+          await new Promise(resolve => setTimeout(resolve, checkInterval));
+          totalWaitTime += checkInterval;
+          
+          // Log progress every second
+          if (totalWaitTime % 1000 === 0) {
+            console.log(`[Noble] Still waiting for peripherals to disconnect... (${totalWaitTime}ms elapsed)`);
+            if (process.env.BLE_MCP_LOG_LEVEL === 'debug') {
+              this.inspectNobleState(`After ${totalWaitTime}ms settling`);
+            }
+          }
         }
-      } else {
-        // Aggressive cleanup - but still wait briefly for disconnect
-        try {
-          console.log(`[Noble] Force disconnect initiated`);
-          (this.peripheral as any)._peripheral?.disconnect?.();
-          // Brief wait for disconnect to propagate (not 1 full second)
-          await new Promise(resolve => setTimeout(resolve, 100));
-          console.log(`[Noble] Force disconnect complete`);
-        } catch (e) {
-          console.log(`[Noble] Force disconnect failed: ${e}`);
-        }
-      }
-    }
-    
-    // Remove characteristic listeners BEFORE clearing references
-    if (this.notifyChar) {
-      this.notifyChar.removeAllListeners('data');
-    }
-    if (this.peripheral) {
-      this.peripheral.removeAllListeners('disconnect');
-    }
-    
-    // Clear references
-    this.peripheral = null;
-    this.writeChar = null;
-    this.notifyChar = null;
-    
-    // Remove all transport listeners
-    this.removeAllListeners();
-    
-    // Reset BLE stack if requested
-    if (resetStack) {
-      await this.resetNobleStack();
-    }
-    
-    // Get resource state for monitoring
-    const state = await NobleTransport.getResourceState();
-    
-    // Verify and clean resources if requested
-    if (verifyResources) {
-      // Brief delay to allow async cleanup to complete
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Check for resource leaks and clean if needed
-      if (state.listenerCounts.scanStop > 90 || 
-          state.listenerCounts.discover > 10 || 
-          state.peripheralCount > 100) {
-        console.log('[Noble] Resource leak detected - cleaning global resources');
-        await NobleTransport.cleanupGlobalResources();
-      }
-    }
-    
-    // ALWAYS do complete reset after cleanup
-    // This is what prevents zombie connections!
-    console.log('[Noble] 🔄 CRITICAL: Calling completeNobleReset() to prevent zombies');
-    console.log(`[Noble]   - Force cleanup: ${force}`);
-    console.log(`[Noble]   - Connect in progress: ${this.connectInProgress}`);
-    console.log(`[Noble]   - Peripheral count: ${state.peripheralCount}`);
-    await NobleTransport.completeNobleReset();
-    
-    console.log(`[Noble] ✅ ${force ? 'Aggressive' : 'Graceful'} cleanup complete with full Noble reset`);
-    
-    // Clear cleanup flag
-    NobleTransport.cleanupInProgress = false;
-    NobleTransport.cleanupStartTime = null;
-  }
-  
-  /**
-   * OS-level disconnect as last resort
-   */
-  private async osLevelDisconnect(address: string): Promise<void> {
-    // Only supported on Linux currently
-    if (process.platform !== 'linux') {
-      console.log(`[Noble] OS-level disconnect not available on ${process.platform}`);
-      return;
-    }
-    
-    console.log(`[Noble] Attempting OS-level disconnect for ${address} (Linux)`);
-    
-    const { exec } = await import('child_process');
-    const { promisify } = await import('util');
-    const execAsync = promisify(exec);
-    
-    try {
-      // Format address for hcitool (uppercase with colons)
-      const formattedAddress = address.toUpperCase();
-      
-      // Try hcitool disconnect (Linux only)
-      await execAsync(`sudo hcitool ledc ${formattedAddress}`);
-      console.log(`[Noble] OS-level disconnect successful`);
-      
-      // Give it a moment to take effect
-      await new Promise(resolve => setTimeout(resolve, 1000));
-    } catch (e: any) {
-      console.error(`[Noble] OS-level disconnect failed: ${e}`);
-      
-      // Check if it's an I/O error which indicates BLE stack corruption
-      if (e.message?.includes('Input/output error')) {
-        console.error(`[Noble] CRITICAL: BLE stack appears corrupted (I/O error)`);
-        console.log(`[Noble] Attempting rfkill recovery to reset BLE hardware...`);
         
-        try {
-          // Try rfkill block/unblock to reset the BLE hardware (Linux only)
-          await execAsync('sudo rfkill block bluetooth');
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          await execAsync('sudo rfkill unblock bluetooth');
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          console.log(`[Noble] rfkill recovery completed - BLE hardware reset`);
-          
-          // Wait for Noble to detect the power cycle
-          console.log('[Noble] Waiting for Noble to detect BLE power cycle...');
-          await new Promise<void>((resolve) => {
-            const timeout = setTimeout(() => {
-              console.log('[Noble] Power state recovery timeout - continuing anyway');
-              resolve();
-            }, 5000);
-            
-            const checkState = () => {
-              if (noble.state === 'poweredOn') {
-                clearTimeout(timeout);
-                console.log('[Noble] Noble detected BLE power on');
-                resolve();
-              } else {
-                setTimeout(checkState, 500);
-              }
-            };
-            
-            checkState();
-          });
-        } catch (rfkillError) {
-          console.error(`[Noble] rfkill recovery failed: ${rfkillError}`);
-          console.error(`[Noble] MANUAL INTERVENTION REQUIRED: The BLE stack is corrupted.`);
-          console.error(`[Noble] On Linux: Run 'sudo systemctl restart bluetooth' to recover.`);
+        if (totalWaitTime >= maxWaitTime) {
+          console.warn(`[Noble] Timeout waiting for peripherals to settle after ${maxWaitTime}ms`);
+          if (process.env.BLE_MCP_LOG_LEVEL === 'debug') {
+            this.inspectNobleState('After timeout - peripherals may still be connected');
+          }
         }
-      }
-      // For other errors, we already logged them - not fatal
-    }
-  }
 
-
-
-  /**
-   * Check if the peripheral is actually connected
-   * Used to verify Noble's disconnect events aren't spurious
-   */
-  async isConnected(): Promise<boolean> {
-    if (!this.peripheral) {
-      return false;
-    }
-    
-    try {
-      // Check Noble's reported state
-      const state = this.peripheral.state;
-      console.log(`[Noble] Connection state check: ${state}`);
-      
-      if (state !== 'connected') {
-        return false;
-      }
-      
-      // Double-check by trying to read a characteristic (if we have one)
-      if (this.notifyChar) {
-        try {
-          // Try to read the characteristic to verify connection is alive
-          await this.notifyChar.readAsync();
-          console.log(`[Noble] Connection verified - can still read from device`);
-          return true;
-        } catch (readError) {
-          console.log(`[Noble] Connection check failed - cannot read: ${readError}`);
-          return false;
+        // WORKAROUND: Noble doesn't clear its state properly on reset
+        // We must clear it manually to prevent zombie connections and discovery issues
+        
+        // Clear peripherals map
+        if ((noble as any)._peripherals) {
+          const peripherals = (noble as any)._peripherals;
+          const size = peripherals instanceof Map ? peripherals.size : Object.keys(peripherals).length;
+          if (size > 0) {
+            console.log(`[Noble] WARNING: ${size} peripherals still in map after reset!`);
+            
+            // Clear all peripherals from the map
+            if (peripherals instanceof Map) {
+              peripherals.clear();
+            } else {
+              Object.keys(peripherals).forEach(key => delete peripherals[key]);
+            }
+            console.log(`[Noble] Cleared peripherals map`);
+          }
         }
+        
+        // Clear discovered peripheral UUIDs array
+        if ((noble as any)._discoveredPeripheralUUids && (noble as any)._discoveredPeripheralUUids.length > 0) {
+          console.log(`[Noble] Clearing ${(noble as any)._discoveredPeripheralUUids.length} discovered peripheral UUIDs`);
+          (noble as any)._discoveredPeripheralUUids = [];
+        }
+        
+        // Clear any allowDuplicates flag that might affect discovery
+        if ((noble as any)._allowDuplicates) {
+          console.log(`[Noble] Resetting allowDuplicates flag`);
+          (noble as any)._allowDuplicates = false;
+        }
+      } catch (error) {
+        console.log('[Noble] Reset error (ignoring):', error);
       }
       
-      // If we can't verify with a read, trust Noble's state
-      return state === 'connected';
-    } catch (e) {
-      console.error(`[Noble] Error checking connection state: ${e}`);
-      return false;
+      console.log(`[Noble] Instance #${this.instanceId} - Cleanup complete`);
+    } finally {
+      // Always reset the flag
+      this.cleanupInProgress = false;
     }
   }
 
   /**
-   * Connect to a pre-validated peripheral (used by atomic validation)
-   * The peripheral should already be connected to GATT with validated services/characteristics
+   * Check if connected
    */
-  async connectToValidatedPeripheral(peripheral: any, config: BleConfig): Promise<string> {
-    console.log(`[Noble] Connecting transport to pre-validated peripheral`);
-    
-    // Store the peripheral reference
-    this.peripheral = peripheral;
-    const deviceName = peripheral.advertisement.localName || peripheral.id;
-
-    // Record successful connection for zombie detection
-    const zombieDetector = ZombieDetector.getInstance();
-    zombieDetector.recordSuccessfulConnection();
-    
-    // Discover services to get characteristics (should be fast since validation already did this)
-    const services: any[] = await this.withInternalTimeout(
-      this.peripheral.discoverServicesAsync(),
-      5000,
-      'Service re-discovery timeout'
-    );
-    
-    // Find the service and characteristics (using same logic as validation)
-    let targetService: any = null;
-    for (const service of services) {
-      const sUuid = service.uuid.toLowerCase().replace(/-/g, '');
-      const configUuidVariants = expandUuidVariants(config.serviceUuid);
-      if (configUuidVariants.some(variant => sUuid === variant)) {
-        targetService = service;
-        break;
-      }
-    }
-    
-    if (!targetService) {
-      throw new Error('Service not found during transport connection');
-    }
-    
-    // Discover characteristics
-    const characteristics: any[] = await this.withInternalTimeout(
-      targetService.discoverCharacteristicsAsync(),
-      5000,
-      'Characteristic re-discovery timeout'
-    );
-    
-    // Find write and notify characteristics
-    this.writeChar = characteristics.find((c: any) => {
-      const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-      const writeVariants = expandUuidVariants(config.writeUuid);
-      return writeVariants.some(variant => cUuid === variant);
-    });
-    
-    this.notifyChar = characteristics.find((c: any) => {
-      const cUuid = c.uuid.toLowerCase().replace(/-/g, '');
-      const notifyVariants = expandUuidVariants(config.notifyUuid);
-      return notifyVariants.some(variant => cUuid === variant);
-    });
-    
-    if (!this.writeChar || !this.notifyChar) {
-      throw new Error('Required characteristics not found during transport connection');
-    }
-    
-    // Subscribe to notifications
-    this.notifyChar.on('data', (data: Buffer) => {
-      this.emit('data', new Uint8Array(data));
-    });
-    
-    // Subscribe to notifications with retry logic
-    await this.subscribeWithRetry(this.notifyChar);
-    
-    // Handle unexpected disconnect
-    this.peripheral.once('disconnect', () => {
-      console.log(`[Noble] Device disconnected`);
-      this.emit('disconnect');
-    });
-    
-    console.log(`[Noble] Transport connected successfully to validated peripheral`);
-    return deviceName;
+  isConnected(): boolean {
+    return this.peripheral && this.peripheral.state === 'connected';
   }
+
 }
+
+export default NobleTransport;

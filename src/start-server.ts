@@ -55,6 +55,10 @@ console.log('\n   Press Ctrl+C to stop\n');
 
 // Initialize Noble early to avoid timeout issues
 console.log('Initializing Bluetooth...');
+
+// Increase max listeners to prevent warnings during test runs
+noble.setMaxListeners(15);
+
 if (noble.state !== 'poweredOn') {
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
@@ -72,6 +76,8 @@ if (noble.state !== 'poweredOn') {
   });
 }
 console.log('✅ Bluetooth ready');
+
+// Noble starts fresh with each process - no cleanup needed
 
 // Create shared state for both services
 const sharedState = new SharedState();

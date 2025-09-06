@@ -5,6 +5,28 @@ export function formatHex(data: Uint8Array | Buffer): string {
   return bytes.toString('hex').toUpperCase().match(/.{2}/g)?.join(' ') || '';
 }
 
+/**
+ * Log error with stack trace showing where it was thrown
+ */
+export function logErrorWithStack(prefix: string, error: any): void {
+  console.error(`${prefix}:`, error.message || error);
+  
+  if (error.stack) {
+    const stackLines = error.stack.split('\n');
+    // First line is usually the error message, second line is where it was thrown
+    const thrownFrom = stackLines[1]?.trim() || 'unknown location';
+    console.error(`${prefix} thrown from: ${thrownFrom}`);
+    
+    // For debugging, show first few stack frames
+    if (process.env.BLE_MCP_LOG_LEVEL === 'debug') {
+      console.error(`${prefix} stack trace:`);
+      stackLines.slice(0, 5).forEach((line: string) => console.error(`  ${line}`));
+    }
+  } else if (typeof error === 'object') {
+    console.error(`${prefix} details:`, error);
+  }
+}
+
 export function normalizeLogLevel(level: string | undefined): LogLevel {
   const normalized = (level || 'debug').toLowerCase();
   

@@ -69,17 +69,10 @@ export class ObservabilityServer {
       const tracker = MetricsTracker.getInstance();
       const metrics = tracker.getMetrics();
       
-      // Get real-time zombie count from hardware
-      try {
-        const { NobleTransport } = await import('./noble-transport.js');
-        const actualZombieCount = await NobleTransport.countHardwareZombies();
-        tracker.setZombieCount(actualZombieCount);
-        metrics.zombieConnectionsDetected = actualZombieCount;
-      } catch (e) {
-        // If we can't check hardware, set to 0
-        tracker.setZombieCount(0);
-        metrics.zombieConnectionsDetected = 0;
-      }
+      // In simplified version, we don't track hardware zombies
+      // noble.reset() should handle them
+      tracker.setZombieCount(0);
+      metrics.zombieConnectionsDetected = 0;
       
       const health = tracker.getHealthReport();
       

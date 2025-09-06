@@ -93,11 +93,16 @@ export class MetricsTracker {
     this.connectionStartTime = null;
   }
   
-  // Reconnection tracking
-  recordReconnection(sessionId: string): void {
+  // Session reuse tracking
+  recordSessionReuse(sessionId: string): void {
     this.metrics.totalReconnections++;
     const count = this.metrics.reconnectionsPerSession.get(sessionId) || 0;
     this.metrics.reconnectionsPerSession.set(sessionId, count + 1);
+  }
+  
+  // Deprecated - use recordSessionReuse instead
+  recordReconnection(sessionId: string): void {
+    this.recordSessionReuse(sessionId);
   }
   
   // Session tracking

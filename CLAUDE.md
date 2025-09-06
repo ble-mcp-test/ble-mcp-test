@@ -14,6 +14,37 @@ The BLE bridge server runs under PM2 process manager. Use these commands:
 pnpm build && pnpm pm2:restart
 ```
 
+## 🏗️ ARCHITECTURE: Mock Web Bluetooth → Bridge → Real Hardware
+**CRITICAL: Understand this architecture to avoid confusion:**
+
+```
+[Browser/Playwright Test]
+         ↓
+[mock-bluetooth.ts - Web Bluetooth API Mock]
+         ↓
+    (WebSocket)
+         ↓
+[Bridge Server (bridge-server.ts)]
+         ↓
+[Noble Transport (noble-transport.ts)]
+         ↓
+[REAL BLE HARDWARE (CS108 Reader)]
+```
+
+**Key Points:**
+- **mock-bluetooth.ts** ONLY mocks the `navigator.bluetooth` Web API in the browser
+- The mock connects via WebSocket to the bridge server
+- The bridge server uses Noble to connect to **REAL HARDWARE**
+- We are **NOT mocking the hardware** - the bridge talks to actual BLE devices
+- When tests send commands, they go to REAL devices and get REAL responses
+- The entire purpose is to enable browser-based tests to control REAL BLE hardware
+- If there's no real CS108 device available, connections will fail
+
+**Common Misconceptions to Avoid:**
+- ❌ "The device shows as 'Unknown' so it's not a CS108" - WRONG. Noble often doesn't report device names, especially on Linux
+- ❌ "The mock should simulate device responses" - WRONG. The mock only provides Web Bluetooth API, real devices provide responses
+- ❌ "We're mocking the CS108" - WRONG. We connect to the REAL CS108 hardware
+
 ## 🎯 PRIMARY PURPOSE: E2E Testing with Playwright
 **This tool is built SPECIFICALLY for Playwright E2E testing of BLE devices.**
 - If it doesn't work with Playwright E2E tests, we have FAILED

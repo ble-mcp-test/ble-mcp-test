@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { LogEntry, LogBuffer } from './log-buffer.js';
 import { getPackageMetadata } from './utils.js';
 import { MetricsTracker } from './connection-metrics.js';
-import { ZombieDetector } from './zombie-detector.js';
+// import { ZombieDetector } from './zombie-detector.js';  // DISABLED for refactoring
 
 // Interface for services that provide MCP tools
 interface McpToolProvider {
@@ -331,6 +331,8 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
     description: 'Check for zombie BLE connection patterns and get recommendations',
     inputSchema: {},
     handler: async () => {
+      // DISABLED for refactoring
+      /*
       const detector = ZombieDetector.getInstance();
       
       // Get current WebSocket count - provider may not have getAllSessions
@@ -338,15 +340,12 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
       
       const result = detector.checkForZombie(totalWebSockets);
       const recentErrors = detector.getRecentErrors();
+      */
       
       const response = {
-        zombie: result,
-        recentErrors: recentErrors.map(error => ({
-          timestamp: new Date(error.timestamp).toISOString(),
-          sessionId: error.sessionId,
-          error: error.errorMessage
-        })),
-        activeWebSockets: totalWebSockets,
+        zombie: { isZombie: false, severity: 'none', reason: 'Detection disabled for refactoring' },
+        recentErrors: [],
+        activeWebSockets: 0,
         checkTime: new Date().toISOString()
       };
       
