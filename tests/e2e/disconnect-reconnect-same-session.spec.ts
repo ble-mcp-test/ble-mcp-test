@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getBleConfig, setupMockPage } from './test-config';
+import { getBleConfig, setupMockPage, testCommandHelper } from './test-config';
 
 test.describe('Disconnect-Reconnect Same Session - The ACTUAL Bug', () => {
   test('should handle disconnect event without breaking session reuse', async ({ page }) => {
@@ -8,7 +8,7 @@ test.describe('Disconnect-Reconnect Same Session - The ACTUAL Bug', () => {
     // Setup page with bundle and auto-inject mock  
     await setupMockPage(page, '<html><body>Disconnect-Reconnect Test</body></html>');
 
-    const result = await page.evaluate(async (config) => {
+    const result = await page.evaluate(async ({ config }) => {
       const results: any = { sessionId: config.sessionId };
 
       try {
@@ -54,11 +54,10 @@ test.describe('Disconnect-Reconnect Same Session - The ACTUAL Bug', () => {
         const server = bleDevice.gatt;
         const service = await server.getPrimaryService(config.service);
         const writeChar = await service.getCharacteristic(config.write);
+        const notifyChar = await service.getCharacteristic(config.notify);
         
-        // Send a simple command
-        await writeChar.writeValue(new Uint8Array([0xA7, 0xB3, 0x02, 0x6A, 0x82, 0x37, 0x00, 0x00, 0x90, 0x01]));
-        results.canWrite = true;
-        console.log('[TEST] Successfully wrote to device after reconnect');
+        // Mark that we successfully got characteristics after reconnect
+        results.characteristicsFound = true;
         
         // Clean disconnect
         await bleDevice.gatt.disconnect();
@@ -72,7 +71,7 @@ test.describe('Disconnect-Reconnect Same Session - The ACTUAL Bug', () => {
       }
       
       return results;
-    }, getBleConfig());
+    }, { config: getBleConfig() });
 
     console.log('Test results:', JSON.stringify(result, null, 2));
 
@@ -82,6 +81,10 @@ test.describe('Disconnect-Reconnect Same Session - The ACTUAL Bug', () => {
     expect(result.disconnected).toBe(true);
     expect(result.secondConnect.connected).toBe(true);
     expect(result.secondConnect.sameDevice).toBe(true);
-    expect(result.canWrite).toBe(true);
+    expect(result.characteristicsFound).toBe(true);
+    
+    // Test command execution after disconnect-reconnect
+    const canWriteAfterReconnect = await testCommandHelper(page);
+    expect(canWriteAfterReconnect).toBe(true);
   });
 });

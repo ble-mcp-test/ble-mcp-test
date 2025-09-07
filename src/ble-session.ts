@@ -32,6 +32,7 @@ export class BleSession extends EventEmitter {
    * Connect to BLE device
    */
   async connect(): Promise<string> {
+    console.log(`[Session:${this.sessionId}] Connecting to device...`);
     const metrics = MetricsTracker.getInstance();
     metrics.recordConnectionAttempt();
     
@@ -60,12 +61,15 @@ export class BleSession extends EventEmitter {
       this.deviceId = device.id;
       this.recordActivity();
       
+      console.log(`[Session:${this.sessionId}] Connected to ${this.deviceName || 'Unknown'} [${this.deviceId}]`);
       this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
       metrics.recordConnectionSuccess();
       return this.deviceName || 'unnamed';
 
     } catch (error: any) {
       // Connection failed - clean up
+      console.error(`[Session:${this.sessionId}] Connection failed:`, error.message || error);
+      console.error(`[Session:${this.sessionId}] Error stack:`, error.stack);
       metrics.recordConnectionFailure();
       
       // NobleTransport.connect() already calls cleanup() on error,
@@ -93,6 +97,7 @@ export class BleSession extends EventEmitter {
    */
   addWebSocket(ws: WebSocket): void {
     this.activeWebSockets.add(ws);
+    console.log(`[Session:${this.sessionId}] WebSocket added (${this.activeWebSockets.size} active)`);
     this.recordActivity();
   }
 
@@ -101,6 +106,7 @@ export class BleSession extends EventEmitter {
    */
   removeWebSocket(ws: WebSocket): void {
     this.activeWebSockets.delete(ws);
+    console.log(`[Session:${this.sessionId}] WebSocket removed (${this.activeWebSockets.size} active)`);
     this.recordActivity();
   }
 
@@ -131,12 +137,14 @@ export class BleSession extends EventEmitter {
    * @param closeWebSockets - Close WebSockets during cleanup (default: true)
    */
   async cleanup(reason: string, closeWebSockets: boolean = true): Promise<void> {
+    console.log(`[Session:${this.sessionId}] Cleanup: ${reason}`);
+    
     // Clean up transport if we have one
     if (this.transport) {
       try {
         await this.transport.cleanup();
-      } catch {
-        // Ignore cleanup errors
+      } catch (error) {
+        console.error(`[Session:${this.sessionId}] Transport cleanup error:`, error);
       }
       this.transport = null;
     }

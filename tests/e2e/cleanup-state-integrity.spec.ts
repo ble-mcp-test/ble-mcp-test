@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { getBleConfig, setupMockPage } from './test-config';
+import { getBleConfig, setupMockPage, testCommandHelper } from './test-config';
 
 test.describe('Cleanup State Integrity - Verify Noble State After Cleanup', () => {
   test('should maintain Noble state integrity after cleanup operations', async ({ page }) => {
@@ -8,7 +8,7 @@ test.describe('Cleanup State Integrity - Verify Noble State After Cleanup', () =
     // Setup page with bundle and auto-inject mock  
     await setupMockPage(page, '<html><body>Noble State Integrity Test</body></html>');
 
-    const result = await page.evaluate(async (config) => {
+    const result = await page.evaluate(async ({ config }) => {
       const results: any = { 
         sessionId: config.sessionId,
         connections: []
@@ -61,8 +61,10 @@ test.describe('Cleanup State Integrity - Verify Noble State After Cleanup', () =
         const server = finalDevice.gatt;
         const service = await server.getPrimaryService(config.service);
         const writeChar = await service.getCharacteristic(config.write);
-        await writeChar.writeValue(new Uint8Array([0xA7, 0xB3, 0x02, 0x6A, 0x82, 0x37, 0x00, 0x00, 0x90, 0x01]));
-        results.canWrite = true;
+        const notifyChar = await service.getCharacteristic(config.notify);
+        
+        // Mark that we successfully got the characteristics
+        results.characteristicsFound = true;
         
         await finalDevice.gatt.disconnect();
         
@@ -78,7 +80,7 @@ test.describe('Cleanup State Integrity - Verify Noble State After Cleanup', () =
       }
       
       return results;
-    }, getBleConfig());
+    }, { config: getBleConfig() });
 
     console.log('Test results:', JSON.stringify(result, null, 2));
 
@@ -89,7 +91,11 @@ test.describe('Cleanup State Integrity - Verify Noble State After Cleanup', () =
       expect(conn.connected).toBe(true);
     });
     expect(result.finalConnection.connected).toBe(true);
-    expect(result.canWrite).toBe(true);
+    expect(result.characteristicsFound).toBe(true);
+    
+    // Test command execution using helper
+    const canWrite = await testCommandHelper(page);
+    expect(canWrite).toBe(true);
     
     // If this test fails with isNobleStateError=true, 
     // it means completeNobleReset is corrupting Noble's state

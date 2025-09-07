@@ -75,6 +75,7 @@ export class SessionManager {
       }
       
       // Create new session
+      console.log(`[SessionManager] Creating new session: ${sessionId}`);
       session = new BleSession(sessionId, config, this.sharedState);
       this.sessions.set(sessionId, session);
       
@@ -95,6 +96,7 @@ export class SessionManager {
       this.updateSharedState();
     } else {
       // Track session reuse in metrics
+      console.log(`[SessionManager] Reusing existing session: ${sessionId}`);
       MetricsTracker.getInstance().recordSessionReuse(sessionId);
     }
     
@@ -184,6 +186,7 @@ export class SessionManager {
       const session = this.sessions.get(sessionId);
       if (session) {
         // Remove session from map BEFORE cleanup to prevent race condition
+        console.log(`[SessionManager] Session ${sessionId} inactivity timeout (${this.inactivityTimeoutSec}s) - cleaning up pooled connection`);
         this.sessions.delete(sessionId);
         this.clearSessionTimer(sessionId);
         this.updateSharedState();
@@ -193,8 +196,9 @@ export class SessionManager {
         
         try {
           await session.cleanup('inactivity timeout');
-        } catch {
-          // Ignore cleanup errors
+          console.log(`[SessionManager] Session ${sessionId} cleanup complete`);
+        } catch (error) {
+          console.error(`[SessionManager] Session ${sessionId} cleanup error:`, error);
         } finally {
           this.transportCleanupInProgress = false;
         }
@@ -213,6 +217,15 @@ export class SessionManager {
       clearTimeout(timer);
       this.sessionTimers.delete(sessionId);
     }
+  }
+
+  /**
+   * Clear a specific session (for tests and cleanup commands)
+   */
+  clearSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+    this.clearSessionTimer(sessionId);
+    this.updateSharedState();
   }
 
   /**

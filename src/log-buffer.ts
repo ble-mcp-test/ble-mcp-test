@@ -1,5 +1,6 @@
 import { formatHex } from './utils.js';
 import { Logger } from './logger.js';
+import { ConsoleLogger } from './console-logger.js';
 
 export interface LogEntry {
   id: number;              // Global sequence number
@@ -16,11 +17,13 @@ export class LogBuffer {
   private sequenceCounter = 0;
   private clientPositions = new Map<string, number>(); // client_id -> last_seen_id
   private subscribers: Array<(entry: LogEntry) => void> = [];
+  private consoleLogger: ConsoleLogger;
 
   constructor(maxSize?: number) {
     // Default 10k, configurable via env var or constructor
     this.maxSize = maxSize || parseInt(process.env.BLE_MCP_LOG_BUFFER_SIZE || '10000', 10);
     this.logger = new Logger('LogBuffer');
+    this.consoleLogger = new ConsoleLogger();
     
     // Validate reasonable bounds (100 to 1M entries)
     if (this.maxSize < 100) this.maxSize = 100;
@@ -44,6 +47,9 @@ export class LogBuffer {
     while (this.buffer.length > this.maxSize) {
       this.buffer.shift();
     }
+
+    // Console logging via dedicated logger
+    this.consoleLogger.logEntry(entry);
 
     // Notify subscribers
     this.subscribers.forEach(callback => callback(entry));

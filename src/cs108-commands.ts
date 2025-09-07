@@ -1,6 +1,6 @@
 /**
  * CS108 RFID Reader Command Constants
- * All commands follow format: [header, length, ...data, checksum]
+ * Simplified to only include the trigger status command used by testing
  */
 
 export const CS108_COMMANDS = {
@@ -8,39 +8,41 @@ export const CS108_COMMANDS = {
   HEADER: [0xA7, 0xB3] as const,
   
   // Command codes (big-endian)
-  BATTERY_VOLTAGE: 0xA000,
-  INVENTORY_START: 0x8001,
-  INVENTORY_STOP: 0x8100,
-  // Add more as needed
+  TRIGGER_STATUS: 0xA001, // Used by testing API for predictable responses
 } as const;
 
+// Trigger status command - predictable response for testing
+// This replaces battery voltage command which has unpredictable responses
+export const TRIGGER_STATUS_COMMAND = new Uint8Array([
+  0xA7, 0xB3, // Header
+  0x02,       // Length
+  0xD9, 0x82, 0x37, 0x00, 0x00, // Data
+  0xA0, 0x01  // Command code (trigger status)
+]);
+
 /**
- * Get battery voltage command
- * @returns Complete command with checksum
+ * @deprecated Use TRIGGER_STATUS_COMMAND constant instead
+ * Get command bytes for specified command type
  */
-export function getBatteryVoltageCommand(): Uint8Array {
-  // Full command: header + length + data + checksum
-  return new Uint8Array([
-    0xA7, 0xB3, // Header
-    0x02,       // Length
-    0xD9, 0x82, 0x37, 0x00, 0x00, // Data
-    0xA0, 0x00  // Command code (battery voltage)
-  ]);
+export function getCommandBytes(_command: 'battery' | 'test' | 'trigger'): Uint8Array {
+  console.warn('getCommandBytes is deprecated. Use TRIGGER_STATUS_COMMAND constant instead.');
+  return TRIGGER_STATUS_COMMAND; // Always return trigger status command for consistency
 }
 
 /**
- * Build command with checksum calculation
- * @param code Command code
- * @param data Optional data payload
- * @returns Complete command with checksum
+ * @deprecated Use navigator.bluetooth.testing API instead
+ * Get the trigger status command bytes for browser context
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function buildCommand(_code: number, _data?: number[]): Uint8Array {
-  // Implementation for building commands dynamically
-  // Would calculate checksum, handle length, etc.
-  // TODO: Implement when needed for other commands
-  const command: number[] = [];
-  command.push(...CS108_COMMANDS.HEADER);
-  // Add implementation details when needed
-  return new Uint8Array(command);
+export function getTriggerStatusCommandString(): string {
+  console.warn('getTriggerStatusCommandString is deprecated. Use navigator.bluetooth.testing API instead.');
+  return Array.from(TRIGGER_STATUS_COMMAND).join(',');
+}
+
+/**
+ * @deprecated Use navigator.bluetooth.testing API instead
+ * Get the trigger status command bytes
+ */
+export function getTriggerStatusCommandBytes(): number[] {
+  console.warn('getTriggerStatusCommandBytes is deprecated. Use navigator.bluetooth.testing API instead.');
+  return Array.from(TRIGGER_STATUS_COMMAND);
 }

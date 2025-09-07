@@ -52,6 +52,10 @@ export class WebSocketHandler extends EventEmitter {
         else if (msg.type === 'force_cleanup') {
           await this.handleForceCleanup(msg);
         }
+        // Handle session cleanup command (for tests)
+        else if (msg.type === 'cleanup_session') {
+          await this.handleSessionCleanup(msg);
+        }
         // Handle admin cleanup command
         else if (msg.type === 'admin_cleanup') {
           await this.handleAdminCleanup(msg);
@@ -98,6 +102,40 @@ export class WebSocketHandler extends EventEmitter {
   private sendError(error: string): void {
     if (this.ws.readyState === this.ws.OPEN) {
       this.ws.send(JSON.stringify({ type: 'error', error }));
+    }
+  }
+
+  private async handleSessionCleanup(_msg: WSMessage): Promise<void> {
+    try {
+      // Clean up the current session (including transport)
+      await this.session.cleanup('session cleanup requested');
+      
+      // Clear from session manager
+      if (this.sessionManager) {
+        const allSessions = this.sessionManager.getAllSessions();
+        const thisSession = allSessions.find(s => s.sessionId === this.session.sessionId);
+        if (thisSession) {
+          // This will remove it from the map
+          this.sessionManager.clearSession(this.session.sessionId);
+        }
+      }
+      
+      // Send confirmation
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'session_cleanup_complete', 
+          sessionId: this.session.sessionId,
+          message: 'Session cleaned up successfully'
+        }));
+        
+        // Give message time to send before closing
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Now close the WebSocket
+        this.ws.close();
+      }
+    } catch (error) {
+      this.sendError(`Session cleanup failed: ${error}`);
     }
   }
 

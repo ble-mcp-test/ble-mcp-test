@@ -89,6 +89,7 @@ export class BridgeServer {
       
       try {
         // Get or create session (now async - waits for cleanup if needed)
+        console.log(`[Bridge] Requesting session: ${sessionId}`);
         session = await this.sessionManager.getOrCreateSession(sessionId, config);
         
         if (!session) {
@@ -117,34 +118,36 @@ export class BridgeServer {
           }
         }
         
-        // Check if session is already connected or needs connection
+        // Check if session has existing transport or needs connection
         let deviceName: string;
         const status = session.getStatus();
         
-        if (status.connected) {
-          // Already connected - just reuse existing connection
-          console.log(`[Bridge] Session ${sessionId} already connected, reusing`);
+        if (status.hasTransport) {
+          // Session has existing transport - reuse it
+          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'}`);
           deviceName = status.deviceName || 'unnamed';
         } else {
           // Need to connect
           console.log(`[Bridge] Starting BLE connection for session ${sessionId}`);
           deviceName = await session.connect();
+          console.log(`[Bridge] Connected to device: ${deviceName}`);
         }
         
         // BLE validation successful - accept WebSocket connection
-        console.log(`[Bridge] BLE validation successful - accepting WebSocket connection`);
+        console.log(`[Bridge] BLE validation successful for session ${sessionId} - accepting WebSocket connection`);
         ws.send(JSON.stringify({ type: 'connected', device: deviceName }));
         
         // Attach WebSocket to session
         this.sessionManager.attachWebSocket(session, ws);
         
       } catch (error: any) {
-        console.error(`[Bridge] Atomic connection validation failed:`, error);
+        console.error(`[Bridge] Connection validation failed for session ${sessionId}:`, error.message || error);
+        console.error(`[Bridge] Error stack:`, error.stack);
         
         // Don't remove the session - it might be reused by the next test
         // The session will clean itself up via grace period/idle timeout
         // This allows tests to retry with the same session ID
-        console.log(`[Bridge] Connection validation failed for session ${sessionId}, but keeping session for potential reuse`);
+        console.log(`[Bridge] Keeping session ${sessionId} for potential reuse despite error`);
         
         // Map error to appropriate WebSocket close code
         const closeCode = mapErrorToCloseCode(error);

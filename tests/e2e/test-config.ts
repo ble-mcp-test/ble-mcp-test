@@ -153,47 +153,118 @@ export async function injectMockInPage(
   return config;
 }
 
+
+// ============================================================================
+// Device-Specific Test Commands - Isolated for Easy Device Swapping
+// ============================================================================
+
+// Device-specific details isolated at the top
+const TEST_COMMAND_BYTES = [0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x01];
+const TEST_RESPONSE_VALIDATION = {
+  expectedLength: 11,
+  expectedBytes: { 8: 0xA0, 9: 0x01, 10: 0x00 }
+};
+
+// Test result interface for consistency
+export interface TestResult {
+  success: boolean;
+  response?: Uint8Array;
+  responseHex?: string;
+  error?: string;
+  timeout?: boolean;
+}
+
 /**
- * Standard device connection flow with error handling
- * Returns common test result structure
+ * Send test command to device - handles full connection lifecycle
+ * Connects, sends command, returns success/failure
  */
-export async function connectToDevice(
-  page: Page,
-  config = getBleConfig(),
-  deviceFilter?: string
-) {
-  return page.evaluate(async ({ cfg, filter }) => {
+export async function testCommandHelper(page: Page): Promise<boolean> {
+  return page.evaluate(async ({ commandBytes, validation }) => {
     try {
-      // Inject mock if not already injected
-      if (!navigator.bluetooth || !(navigator.bluetooth as any).__mock) {
-        window.WebBleMock.injectWebBluetoothMock(cfg);
-      }
+      const { testCommand } = (navigator.bluetooth as any).testing;
       
-      // Request device
+      // Connect to device
       const device = await navigator.bluetooth.requestDevice({
-        filters: [filter ? { namePrefix: filter } : { services: [cfg.service] }]
+        filters: [{ services: ['9800'] }]
       });
       
-      // Connect
-      const server = await device.gatt!.connect();
+      await device.gatt!.connect();
+      const service = await device.gatt!.getPrimaryService('9800');
+      const writeChar = await service.getCharacteristic('9900');
+      const notifyChar = await service.getCharacteristic('9901');
       
-      return {
-        success: true,
-        connected: server.connected,
-        deviceId: device.id,
-        deviceName: device.name,
-        sessionId: (device as any).sessionId,
-        error: null
-      };
-    } catch (error: any) {
-      return {
-        success: false,
-        connected: false,
-        deviceId: null,
-        deviceName: null,
-        sessionId: null,
-        error: error.message
-      };
+      const result = await testCommand({
+        device,
+        writeCharacteristic: writeChar,
+        notifyCharacteristic: notifyChar,
+        command: new Uint8Array(commandBytes),
+        timeout: 2000,
+        validateResponse: (data: Uint8Array) => {
+          if (data.length !== validation.expectedLength) return false;
+          for (const [index, value] of Object.entries(validation.expectedBytes)) {
+            if (data[Number(index)] !== value) return false;
+          }
+          return true;
+        }
+      });
+      
+      return result.success;
+    } catch (error) {
+      console.error('[testCommandHelper] Exception:', error);
+      return false;
     }
-  }, { cfg: config, filter: deviceFilter });
+  }, { 
+    commandBytes: TEST_COMMAND_BYTES,
+    validation: TEST_RESPONSE_VALIDATION
+  });
+}
+
+/**
+ * Test notification simulation - verifies bytes in = bytes out
+ * Uses the same connection pattern as testCommand() for consistency
+ */
+export async function testSimulateNotification(page: Page, testBytes: number[] = [0x01, 0x02, 0x03]): Promise<boolean> {
+  return page.evaluate(async ({ config, bytes }) => {
+    try {
+      // Create a mock device that doesn't require WebSocket connection
+      // We'll create the characteristic directly and test simulation on it
+      
+      const { simulateNotification } = (navigator.bluetooth as any).testing;
+      
+      // Create a mock characteristic that implements the event system
+      const mockCharacteristic = {
+        uuid: config.notify,
+        value: new DataView(new ArrayBuffer(0)),
+        listeners: {},
+        addEventListener: function(type: string, listener: Function) {
+          if (!this.listeners[type]) this.listeners[type] = [];
+          this.listeners[type].push(listener);
+        },
+        dispatchEvent: function(event: Event) {
+          const listeners = this.listeners[event.type] || [];
+          listeners.forEach((listener: Function) => listener(event));
+        }
+      };
+      
+      let receivedData: number[] = [];
+      mockCharacteristic.addEventListener('characteristicvaluechanged', (event: any) => {
+        const data = new Uint8Array(event.target.value.buffer);
+        receivedData = Array.from(data);
+      });
+      
+      await simulateNotification({
+        characteristic: mockCharacteristic,
+        data: new Uint8Array(bytes)
+      });
+      
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const success = bytes.length === receivedData.length && 
+             bytes.every((byte, index) => byte === receivedData[index]);
+      
+      return success;
+    } catch (error: any) {
+      return false;
+    }
+  }, { config: getBleConfig(), bytes: testBytes });
 }

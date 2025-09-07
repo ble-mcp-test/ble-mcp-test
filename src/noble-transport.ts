@@ -35,19 +35,17 @@ export class NobleTransport extends EventEmitter {
     // Increase max listeners to prevent warnings during test runs
     noble.setMaxListeners(15);
     
-    if (noble.state !== 'poweredOn') {
-      await new Promise<void>((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve(); // Continue anyway on timeout
-        }, timeoutMs);
-        
-        noble.once('stateChange', (state) => {
-          clearTimeout(timeout);
-          if (state === 'poweredOn') {
-            resolve();
-          }
-        });
-      });
+    // Use Noble's built-in method instead of checking internal state
+    try {
+      await Promise.race([
+        noble.waitForPoweredOnAsync(),
+        new Promise<void>((resolve) => {
+          setTimeout(() => resolve(), timeoutMs); // Continue anyway on timeout
+        })
+      ]);
+    } catch (error) {
+      // Continue anyway on error - let connection attempts handle power issues
+      console.warn('[Noble] Power on wait failed:', error);
     }
     
     this.initialized = true;
@@ -63,28 +61,58 @@ export class NobleTransport extends EventEmitter {
 
   /**
    * Expand UUID to handle different formats
+   * Supports both short (9800) and long (00009800-0000-1000-8000-00805f9b34fb) formats
    */
   private expandUuid(uuid: string): string[] {
-    const base = uuid.toLowerCase().replace(/-/g, '');
-    const variants = [base];
+    const normalized = uuid.toLowerCase().replace(/-/g, '');
+    const variants: string[] = [];
     
-    // Add full UUID format for 4-char UUIDs
-    if (base.length === 4) {
-      variants.push(`0000${base}00001000800000805f9b34fb`);
+    // Check if it's a standard Bluetooth long UUID (32 chars without dashes)
+    // Format: 0000XXXX00001000800000805f9b34fb where XXXX is the short UUID
+    if (normalized.length === 32 && normalized.endsWith('00001000800000805f9b34fb')) {
+      // Extract the short UUID (characters 4-8)
+      const shortUuid = normalized.slice(4, 8);
+      
+      // Add short UUID variants
+      variants.push(shortUuid);  // e.g., "9800"
+      
+      // Add long UUID variants
+      variants.push(normalized);  // Without dashes
+      const withDashes = `${normalized.slice(0,8)}-${normalized.slice(8,12)}-${normalized.slice(12,16)}-${normalized.slice(16,20)}-${normalized.slice(20)}`;
+      variants.push(withDashes);  // With dashes
     }
-    // Add format with dashes
-    if (base.length === 32) {
-      const withDashes = `${base.slice(0,8)}-${base.slice(8,12)}-${base.slice(12,16)}-${base.slice(16,20)}-${base.slice(20)}`;
+    // Handle short UUID (4 chars)
+    else if (normalized.length === 4) {
+      variants.push(normalized);  // e.g., "9800"
+      
+      // Create full UUID from short
+      const fullUuid = `0000${normalized}00001000800000805f9b34fb`;
+      variants.push(fullUuid);
+      
+      // Add with dashes
+      const withDashes = `0000${normalized}-0000-1000-8000-00805f9b34fb`;
       variants.push(withDashes);
     }
+    // Handle other formats as-is
+    else {
+      variants.push(normalized);
+      
+      // If it has the right length for a UUID with dashes removed, add dashed version
+      if (normalized.length === 32) {
+        const withDashes = `${normalized.slice(0,8)}-${normalized.slice(8,12)}-${normalized.slice(12,16)}-${normalized.slice(16,20)}-${normalized.slice(20)}`;
+        variants.push(withDashes);
+      }
+    }
     
-    return variants;
+    // Remove duplicates
+    return [...new Set(variants)];
   }
 
   /**
    * Find a device by scanning
    */
   private async findDevice(): Promise<any> {
+    console.log(`[Noble] Scanning for device...`);
     const timeoutMs = this.config.timeout || DEFAULT_TIMEOUT_MS;
     await noble.waitForPoweredOnAsync();
     
@@ -119,6 +147,7 @@ export class NobleTransport extends EventEmitter {
           // If neither specified, any device with the service matches
           
           if (deviceMatch) {
+            console.log(`[Noble] Found device: ${name || 'Unknown'} [${address}]`);
             return peripheral;
           }
         }
@@ -156,8 +185,10 @@ export class NobleTransport extends EventEmitter {
       const name = this.peripheral.advertisement?.localName || 'Unknown';
       const id = this.peripheral.address || this.peripheral.id;
       
+      console.log(`[Noble] Connecting to GATT server...`);
       // Connect to peripheral
       await this.peripheral.connectAsync();
+      console.log(`[Noble] Connected to GATT server`);
       
       // Discover services
       const serviceVariants = this.expandUuid(this.config.service);
@@ -199,6 +230,7 @@ export class NobleTransport extends EventEmitter {
       
       // Handle unexpected disconnect
       this.peripheral.once('disconnect', async () => {
+        console.log(`[Noble] Device disconnected unexpectedly`);
         // Clean up our own state when device disconnects
         await this.cleanup();
         // Let session know we're disconnected (for status updates)
@@ -209,6 +241,7 @@ export class NobleTransport extends EventEmitter {
       
     } catch (error: any) {
       // Clean up on error
+      console.error(`[Noble] Connection error:`, error.message || error);
       await this.cleanup();
       throw error;
     }
