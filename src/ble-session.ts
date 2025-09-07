@@ -4,8 +4,6 @@ import { NobleTransport, type BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
 import { MetricsTracker } from './connection-metrics.js';
 import { BLEConnectionError } from './constants.js';
-import { logErrorWithStack } from './utils.js';
-import noble from '@stoprocent/noble';
 
 /**
  * BLE Session - Manages a persistent BLE connection that can survive WebSocket disconnects
@@ -13,7 +11,7 @@ import noble from '@stoprocent/noble';
  * Features:
  * - Multiple WebSockets can attach to same BLE connection
  * - Single inactivity timeout for session cleanup
- * - Clean state management and logging
+ * - Clean state management
  */
 export class BleSession extends EventEmitter {
   private transport: NobleTransport | null = null;
@@ -21,7 +19,6 @@ export class BleSession extends EventEmitter {
   private deviceName: string | null = null;
   private deviceId: string | null = null;
   private lastActivityTime = Date.now();
-  private cleanupInProgress = false;
   
   constructor(
     public readonly sessionId: string,
@@ -29,7 +26,6 @@ export class BleSession extends EventEmitter {
     private sharedState: SharedState | null = null
   ) {
     super();
-    console.log(`[Session:${sessionId}] Created`);
   }
 
   /**
@@ -37,12 +33,10 @@ export class BleSession extends EventEmitter {
    */
   async connect(): Promise<string> {
     const metrics = MetricsTracker.getInstance();
-    console.log(`[Session:${this.sessionId}] Connecting to BLE device`);
     metrics.recordConnectionAttempt();
     
     try {
-      // Create transport and let it handle ALL the BLE stuff
-      console.log(`[Session:${this.sessionId}] Creating transport`);
+      // Create transport and let it handle all BLE operations
       this.transport = new NobleTransport(this.config);
       
       // Set up transport event handlers
@@ -52,8 +46,7 @@ export class BleSession extends EventEmitter {
       });
       
       this.transport.on('disconnect', () => {
-        console.log(`[Session:${this.sessionId}] Transport disconnected`);
-        // Just update state - transport handles its own cleanup
+        // Update state when transport disconnects
         this.sharedState?.setConnectionState({ connected: false, deviceName: null });
         // Clear our transport reference since it's now cleaned up
         this.transport = null;
@@ -61,21 +54,18 @@ export class BleSession extends EventEmitter {
         this.deviceId = null;
       });
 
-      // Let the transport do ALL the BLE work
+      // Connect via transport
       const device = await this.transport.connect();
       this.deviceName = device.name;
       this.deviceId = device.id;
       this.recordActivity();
       
-      const deviceInfo = this.getDeviceInfo();
-      console.log(`[Session:${this.sessionId}] Successfully connected to ${deviceInfo}`);
       this.sharedState?.setConnectionState({ connected: true, deviceName: this.deviceName });
       metrics.recordConnectionSuccess();
       return this.deviceName || 'unnamed';
 
     } catch (error: any) {
       // Connection failed - clean up
-      logErrorWithStack(`[Session:${this.sessionId}] Connection failed`, error);
       metrics.recordConnectionFailure();
       
       // NobleTransport.connect() already calls cleanup() on error,
@@ -103,7 +93,6 @@ export class BleSession extends EventEmitter {
    */
   addWebSocket(ws: WebSocket): void {
     this.activeWebSockets.add(ws);
-    console.log(`[Session:${this.sessionId}] Added WebSocket (${this.activeWebSockets.size} active)`);
     this.recordActivity();
   }
 
@@ -111,14 +100,8 @@ export class BleSession extends EventEmitter {
    * Remove WebSocket from this session
    */
   removeWebSocket(ws: WebSocket): void {
-    const wasActive = this.activeWebSockets.has(ws);
     this.activeWebSockets.delete(ws);
-    console.log(`[Session:${this.sessionId}] Removed WebSocket (${this.activeWebSockets.size} active, was active: ${wasActive})`);
     this.recordActivity();
-    
-    if (this.activeWebSockets.size === 0) {
-      console.log(`[Session:${this.sessionId}] No active WebSockets`);
-    }
   }
 
   /**
@@ -148,15 +131,12 @@ export class BleSession extends EventEmitter {
    * @param closeWebSockets - Close WebSockets during cleanup (default: true)
    */
   async cleanup(reason: string, closeWebSockets: boolean = true): Promise<void> {
-    console.log(`[Session:${this.sessionId}] Cleanup (reason: ${reason})`);
-
     // Clean up transport if we have one
     if (this.transport) {
       try {
         await this.transport.cleanup();
-      } catch (e) {
-        // Log but continue - cleanup should be best-effort
-        console.error(`[Session:${this.sessionId}] Transport cleanup error:`, e);
+      } catch {
+        // Ignore cleanup errors
       }
       this.transport = null;
     }
@@ -182,8 +162,6 @@ export class BleSession extends EventEmitter {
       sessionId: this.sessionId, 
       reason
     });
-    
-    console.log(`[Session:${this.sessionId}] Cleanup complete`);
   }
 
   /**
@@ -227,21 +205,4 @@ export class BleSession extends EventEmitter {
     
     return this.deviceId;
   }
-  
-  /**
-   * Helper method to add timeout to promises
-   */
-  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number, errorMessage: string): Promise<T> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error(errorMessage));
-      }, timeoutMs);
-
-      promise
-        .then(resolve)
-        .catch(reject)
-        .finally(() => clearTimeout(timeout));
-    });
-  }
-
 }

@@ -78,8 +78,7 @@ export class ObservabilityServer {
       
       const response = {
         config: {
-          gracePeriodSec: parseInt(process.env.BLE_SESSION_GRACE_PERIOD_SEC || process.env.BLE_MCP_GRACE_PERIOD || '60', 10),
-          idleTimeoutSec: parseInt(process.env.BLE_SESSION_IDLE_TIMEOUT_SEC || process.env.BLE_MCP_IDLE_TIMEOUT || '300', 10)
+          idleTimeoutSec: parseInt(process.env.BLE_MCP_IDLE_TIMEOUT || '600', 10)
         },
         metrics: {
           connections: {

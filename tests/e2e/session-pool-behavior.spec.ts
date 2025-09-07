@@ -196,20 +196,20 @@ test.describe('Session Pool Behavior - Verify Proper BLE Connection Pooling', ()
     });
   });
 
-  test('should properly handle grace period expiry', async ({ page }) => {
-    // This test temporarily sets a short grace period on the server for testing
+  test('should properly handle idle timeout expiry', async ({ page }) => {
+    // This test temporarily sets a short idle timeout on the server for testing
     
-    await setupMockPage(page, '<html><body>Grace Period Expiry Test</body></html>');
+    await setupMockPage(page, '<html><body>Idle Timeout Expiry Test</body></html>');
 
     const result = await page.evaluate(async (config) => {
       // Use a unique session ID for this test to avoid reusing pooled connections
-      config.sessionId = 'grace-period-test-' + Date.now();
+      config.sessionId = 'idle-timeout-test-' + Date.now();
       const results: any = { sessionId: config.sessionId };
 
       try {
-        // When running with test-grace-period.sh, the server has a 3s grace period
-        // Otherwise it's 60s which is too long for testing
-        const MOCK_GRACE_PERIOD_MS = 3000; // Set to 3 seconds via test script
+        // When running with test-idle-timeout.sh, the server has a 3s idle timeout
+        // Otherwise it's 600s which is too long for testing
+        const MOCK_IDLE_TIMEOUT_MS = 3000; // Set to 3 seconds via test script
         
         // Initial connection
         console.log('[TEST] Initial connection');
@@ -223,32 +223,32 @@ test.describe('Session Pool Behavior - Verify Proper BLE Connection Pooling', ()
         
         results.initialConnectTime = initialConnectTime;
         
-        // Disconnect to start grace period
-        console.log('[TEST] Disconnecting to start grace period');
+        // Disconnect to start idle timeout
+        console.log('[TEST] Disconnecting to start idle timeout');
         await bleDevice.gatt.disconnect();
-        const graceStartTime = Date.now();
+        const idleStartTime = Date.now();
         
-        // Wait for grace period to expire (add buffer for cleanup to complete)
-        const waitTime = MOCK_GRACE_PERIOD_MS + 4000;
-        console.log(`[TEST] Waiting ${waitTime}ms for grace period to expire`);
+        // Wait for idle timeout to expire (add buffer for cleanup to complete)
+        const waitTime = MOCK_IDLE_TIMEOUT_MS + 4000;
+        console.log(`[TEST] Waiting ${waitTime}ms for idle timeout to expire`);
         await new Promise(resolve => setTimeout(resolve, waitTime));
         
-        // Try to reconnect after grace period
-        console.log('[TEST] Reconnecting after grace period expiry');
-        const afterGraceStart = Date.now();
+        // Try to reconnect after idle timeout
+        console.log('[TEST] Reconnecting after idle timeout expiry');
+        const afterIdleStart = Date.now();
         
         try {
           bleDevice = await navigator.bluetooth.requestDevice({
             filters: [{ services: [config.service] }]
           });
           await bleDevice.gatt.connect();
-          const afterGraceTime = Date.now() - afterGraceStart;
+          const afterIdleTime = Date.now() - afterIdleStart;
           
-          results.reconnectAfterGraceTime = afterGraceTime;
+          results.reconnectAfterIdleTime = afterIdleTime;
           results.reconnectSucceeded = true;
           
           // This should require a new BLE connection (slower)
-          results.requiredNewConnection = afterGraceTime >= (initialConnectTime * 0.8);
+          results.requiredNewConnection = afterIdleTime >= (initialConnectTime * 0.8);
           
           await bleDevice.gatt.disconnect();
         } catch (error) {
@@ -267,12 +267,12 @@ test.describe('Session Pool Behavior - Verify Proper BLE Connection Pooling', ()
       return results;
     }, getBleConfig());
 
-    console.log('Grace period test results:', JSON.stringify(result, null, 2));
+    console.log('Idle timeout test results:', JSON.stringify(result, null, 2));
 
     // Verify test completed
     expect(result.error).toBeUndefined();
     
-    // After grace period, should either:
+    // After idle timeout, should either:
     // 1. Require new connection (slower) if pool was cleaned up
     // 2. Or fail if device was fully released
     if (result.reconnectSucceeded) {
