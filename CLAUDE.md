@@ -1,11 +1,27 @@
-# BLE Mock Bridge for CS108 Testing
+# BLE Mock Bridge for Device Testing
 
 ## Primary Purpose & Critical Understanding
 
 ### What This Tool Does
 **This tool enables browser-based E2E tests to control REAL BLE hardware.**
 
-The CS108 is a UHF RFID reader (https://www.convergence.com.hk/cs108/) in a sled form factor controlled via BLE. This bridge allows Playwright tests to interact with the actual device through a mocked Web Bluetooth API.
+This bridge allows Playwright tests to interact with any BLE device through a mocked Web Bluetooth API. Originally developed for CS108 UHF RFID readers, it is fully **device-agnostic** and works with any BLE device that supports GATT services and characteristics.
+
+### Device Compatibility
+**This tool works with ANY BLE device**, including but not limited to:
+- RFID readers (CS108, Nordic-based readers, etc.)
+- IoT sensors (temperature, humidity, motion, etc.)
+- Medical devices (glucose meters, blood pressure monitors, etc.)
+- Fitness trackers and heart rate monitors
+- Industrial equipment with BLE interfaces
+- Development boards (nRF52, ESP32, Arduino with BLE, etc.)
+
+**Requirements:** Your BLE device must support:
+- GATT services and characteristics
+- Read/write operations on characteristics
+- Optional: Notification capabilities (for real-time data)
+
+**Configuration:** Set your device's service and characteristic UUIDs in environment variables - no code changes needed.
 
 ### Architecture: Browser → Mock API → Bridge → Real Hardware
 
@@ -20,7 +36,7 @@ The CS108 is a UHF RFID reader (https://www.convergence.com.hk/cs108/) in a sled
          ↓
 [Noble Transport (noble-transport.ts)]
          ↓
-[REAL CS108 HARDWARE]
+[REAL BLE HARDWARE]
 ```
 
 **Critical Understanding:**
@@ -28,7 +44,7 @@ The CS108 is a UHF RFID reader (https://www.convergence.com.hk/cs108/) in a sled
 - The bridge connects to and controls REAL BLE devices
 - Commands flow: Browser → Mock → WebSocket → Bridge → Noble → Real Device
 - Responses flow back through the same path in reverse
-- If no real CS108 is available, connections will fail
+- If no real BLE hardware is available, connections will fail
 
 ### Success Metrics
 1. **Playwright E2E Compatibility** - Each test creates a fresh browser context; our session management must handle this
@@ -134,8 +150,9 @@ pnpm build && pnpm pm2:restart
 - `pnpm pm2:start` - Start the server
 - `pnpm pm2:monitor` - Interactive monitoring
 
-### Hardware Availability Check
-- `pnpm run check:device` - Scan for CS108 devices to verify hardware availability
+### Hardware Availability & Troubleshooting
+- `pnpm run check:device` - Scan for BLE devices to verify hardware availability
+- **Troubleshooting Hardware Issues:** If E2E tests fail with "hardware not found" or "device not available" errors, run `pnpm run check:device` first to verify your BLE device is discoverable and responsive
 
 ## Project Structure
 
@@ -153,7 +170,7 @@ tests/
 └── e2e/              # Playwright browser tests
 ```
 
-### Reference Sources (from ../noble-cs108-cruft/)
+### Reference Sources (from previous implementation)
 - `mock-bluetooth.ts` - Keep 90% as-is
 - `websocket-transport.ts` - Remove reconnection logic
 - `noble-transport.ts` - Extract core BLE only
