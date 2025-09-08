@@ -6,7 +6,7 @@ import { SharedState } from './shared-state.js';
 import { normalizeLogLevel } from './utils.js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
-import noble from '@stoprocent/noble';
+import { NobleTransport } from './noble-transport.js';
 
 // Load .env.local if it exists
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
@@ -53,24 +53,9 @@ if (process.env.BLE_MCP_HTTP_TOKEN) {
 
 console.log('\n   Press Ctrl+C to stop\n');
 
-// Initialize Noble early to avoid timeout issues
+// Initialize Bluetooth layer
 console.log('Initializing Bluetooth...');
-if (noble.state !== 'poweredOn') {
-  await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      console.warn('⚠️  Bluetooth initialization timeout - continuing anyway');
-      resolve();
-    }, 5000);
-    
-    noble.once('stateChange', (state) => {
-      clearTimeout(timeout);
-      console.log(`Bluetooth state: ${state}`);
-      if (state === 'poweredOn') {
-        resolve();
-      }
-    });
-  });
-}
+await NobleTransport.initialize(5000);
 console.log('✅ Bluetooth ready');
 
 // Create shared state for both services

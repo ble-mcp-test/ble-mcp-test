@@ -29,7 +29,6 @@ export interface ConnectionMetrics {
   // System health
   lastResourceCheck: Date;
   resourceLeakDetected: boolean;
-  zombieConnectionsDetected: number;
   bluetoothRestarts: number;
   
   // Uptime
@@ -54,7 +53,6 @@ export class MetricsTracker {
     lastConnectionTime: 0,
     lastResourceCheck: new Date(),
     resourceLeakDetected: false,
-    zombieConnectionsDetected: 0,
     bluetoothRestarts: 0,
     serviceStartTime: new Date(),
     uptimeMs: 0
@@ -93,12 +91,13 @@ export class MetricsTracker {
     this.connectionStartTime = null;
   }
   
-  // Reconnection tracking
-  recordReconnection(sessionId: string): void {
+  // Session reuse tracking
+  recordSessionReuse(sessionId: string): void {
     this.metrics.totalReconnections++;
     const count = this.metrics.reconnectionsPerSession.get(sessionId) || 0;
     this.metrics.reconnectionsPerSession.set(sessionId, count + 1);
   }
+  
   
   // Session tracking
   recordSessionStart(sessionId: string): void {
@@ -148,10 +147,7 @@ export class MetricsTracker {
     });
   }
   
-  // Zombie detection
-  recordZombieDetected(): void {
-    this.metrics.zombieConnectionsDetected++;
-  }
+  
   
   recordBluetoothRestart(): void {
     this.metrics.bluetoothRestarts++;
@@ -191,11 +187,6 @@ export class MetricsTracker {
       recommendations.push('Check for listener memory leaks');
     }
     
-    // Check zombie connections
-    if (this.metrics.zombieConnectionsDetected > 0) {
-      issues.push(`Zombie connections detected: ${this.metrics.zombieConnectionsDetected}`);
-      recommendations.push('Consider restarting Bluetooth service');
-    }
     
     // Check reconnection rates
     for (const [sessionId, count] of this.metrics.reconnectionsPerSession) {
@@ -221,11 +212,6 @@ export class MetricsTracker {
       return 100; // Default estimate
     }
     
-    // Based on when we've seen issues
-    if (this.metrics.zombieConnectionsDetected > 0) {
-      const connectionsPerZombie = Math.floor(this.metrics.totalConnections / this.metrics.zombieConnectionsDetected);
-      return Math.max(10, connectionsPerZombie - 5); // Conservative estimate
-    }
     
     // Based on listener growth
     if (this.metrics.maxListenerCount > 0) {
@@ -264,7 +250,6 @@ export class MetricsTracker {
       lastConnectionTime: 0,
       lastResourceCheck: new Date(),
       resourceLeakDetected: false,
-      zombieConnectionsDetected: 0,
       bluetoothRestarts: 0,
       serviceStartTime: new Date(),
       uptimeMs: 0

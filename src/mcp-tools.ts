@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { LogEntry, LogBuffer } from './log-buffer.js';
 import { getPackageMetadata } from './utils.js';
 import { MetricsTracker } from './connection-metrics.js';
-import { ZombieDetector } from './zombie-detector.js';
 
 // Interface for services that provide MCP tools
 interface McpToolProvider {
@@ -271,7 +270,6 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
             ? `${((metrics.failedConnections / metrics.totalConnections) * 100).toFixed(1)}%`
             : '0%',
           reconnections: metrics.totalReconnections,
-          zombies: metrics.zombieConnectionsDetected,
           resourceLeaks: metrics.resourceLeakDetected
         }
       };
@@ -324,38 +322,4 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
     }
   });
 
-  // Tool 7: check_zombie
-  registerToolWithRegistry(server, {
-    name: 'check_zombie',
-    title: 'Check for Zombie Connections',
-    description: 'Check for zombie BLE connection patterns and get recommendations',
-    inputSchema: {},
-    handler: async () => {
-      const detector = ZombieDetector.getInstance();
-      
-      // Get current WebSocket count - provider may not have getAllSessions
-      const totalWebSockets = 0; // Will be enhanced when provider interface is updated
-      
-      const result = detector.checkForZombie(totalWebSockets);
-      const recentErrors = detector.getRecentErrors();
-      
-      const response = {
-        zombie: result,
-        recentErrors: recentErrors.map(error => ({
-          timestamp: new Date(error.timestamp).toISOString(),
-          sessionId: error.sessionId,
-          error: error.errorMessage
-        })),
-        activeWebSockets: totalWebSockets,
-        checkTime: new Date().toISOString()
-      };
-      
-      return {
-        content: [{
-          type: 'text',
-          text: JSON.stringify(response, null, 2)
-        }]
-      };
-    }
-  });
 }

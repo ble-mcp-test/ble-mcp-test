@@ -40,6 +40,42 @@
 
 import { WebSocketTransport } from './ws-transport.js';
 
+// Testing API interfaces
+export interface TestCommandOptions {
+  device: any; // BluetoothDevice in browser context
+  writeCharacteristic: any; // BluetoothRemoteGATTCharacteristic in browser context
+  notifyCharacteristic: any; // BluetoothRemoteGATTCharacteristic in browser context
+  command: Uint8Array;
+  timeout?: number;
+  validateResponse?: (data: Uint8Array) => boolean;
+}
+
+export interface TestResult {
+  success: boolean;
+  response?: Uint8Array;
+  responseHex?: string;
+  error?: string;
+  timeout?: boolean;
+}
+
+export interface SimulateNotificationOptions {
+  characteristic: any; // BluetoothRemoteGATTCharacteristic in browser context
+  data: Uint8Array;
+  delay?: number;
+}
+
+export interface TestingUtils {
+  toHex(data: Uint8Array): string;
+  fromHex(hex: string): Uint8Array;
+  equals(a: Uint8Array, b: Uint8Array): boolean;
+}
+
+export interface BluetoothTesting {
+  testCommand(options: TestCommandOptions): Promise<TestResult>;
+  simulateNotification(options: SimulateNotificationOptions): Promise<void>;
+  utils: TestingUtils;
+}
+
 // Mock BluetoothRemoteGATTCharacteristic
 class MockBluetoothRemoteGATTCharacteristic {
   private notificationHandlers: Array<(event: any) => void> = [];
@@ -89,30 +125,6 @@ class MockBluetoothRemoteGATTCharacteristic {
     if (this.notificationHandlers.length > 0) {
       this.triggerNotification(data);
     }
-  }
-
-  /**
-   * Simulate a notification from the device (for testing)
-   * This allows tests to inject data as if it came from the real device
-   * 
-   * @example
-   * // Simulate button press event
-   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
-   * // Simulate button release event  
-   * characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
-   */
-  simulateNotification(data: Uint8Array): void {
-    if (!this.service.server.connected) {
-      throw new Error('GATT Server not connected');
-    }
-    
-    // Log for debugging if enabled
-    if (MOCK_CONFIG.logRetries) {
-      const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-      console.log(`[Mock] Simulating device notification: ${hex}`);
-    }
-    
-    this.triggerNotification(data);
   }
 
   private triggerNotification(data: Uint8Array): void {
@@ -394,6 +406,93 @@ export class MockBluetooth {
   }) {
     this.bleConfig = bleConfig;
   }
+
+  public readonly testing: BluetoothTesting = {
+    testCommand: async (options: TestCommandOptions): Promise<TestResult> => {
+      // Input validation first
+      if (!options.device || !options.writeCharacteristic || !options.notifyCharacteristic) {
+        throw new Error('Missing required options: device, writeCharacteristic, and notifyCharacteristic are required');
+      }
+      
+      // Promise-based timeout handling
+      return new Promise<TestResult>((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve({ success: false, timeout: true, error: 'Command timeout' });
+        }, options.timeout || 2000);
+        
+        // Event listener cleanup pattern
+        const handler = (event: any) => {
+          clearTimeout(timeout);
+          const data = new Uint8Array(event.target.value.buffer);
+          
+          // Custom validation function
+          const isValid = options.validateResponse ? 
+            options.validateResponse(data) : data.length > 0;
+            
+          resolve({
+            success: isValid,
+            response: data,
+            responseHex: this.testing.utils.toHex(data),
+            error: isValid ? undefined : 'Invalid response format'
+          });
+        };
+        
+        // Setup listener and send command
+        options.notifyCharacteristic.addEventListener('characteristicvaluechanged', handler, { once: true });
+        options.writeCharacteristic.writeValue(options.command).catch((error: any) => {
+          clearTimeout(timeout);
+          resolve({ success: false, error: error.message });
+        });
+      });
+    },
+    
+    simulateNotification: async (options: SimulateNotificationOptions): Promise<void> => {
+      // Delay handling
+      if (options.delay && options.delay > 0) {
+        await new Promise(resolve => setTimeout(resolve, options.delay));
+      }
+      
+      // Directly update the characteristic value and dispatch the event
+      const characteristic = options.characteristic as any;
+      
+      // Update the characteristic's value
+      characteristic.value = new DataView(options.data.buffer);
+      
+      // Create and dispatch the characteristicvaluechanged event
+      const event = new CustomEvent('characteristicvaluechanged', {
+        detail: { target: characteristic }
+      });
+      
+      // Set the target property on the event
+      Object.defineProperty(event, 'target', {
+        value: { value: characteristic.value },
+        writable: false
+      });
+      
+      // Dispatch the event
+      characteristic.dispatchEvent(event);
+    },
+    
+    utils: {
+      toHex: (data: Uint8Array): string => {
+        return Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ').toUpperCase();
+      },
+      
+      fromHex: (hex: string): Uint8Array => {
+        // Handle "A7 B3 02" format and "A7B302" format
+        const cleaned = hex.replace(/\s+/g, '');
+        const bytes = [];
+        for (let i = 0; i < cleaned.length; i += 2) {
+          bytes.push(parseInt(cleaned.substr(i, 2), 16));
+        }
+        return new Uint8Array(bytes);
+      },
+      
+      equals: (a: Uint8Array, b: Uint8Array): boolean => {
+        return a.length === b.length && a.every((val, i) => val === b[i]);
+      }
+    }
+  };
   
   
   private getClientIP(): string {

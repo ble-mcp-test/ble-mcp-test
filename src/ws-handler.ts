@@ -3,6 +3,7 @@ import type { WebSocket } from 'ws';
 import type { WSMessage } from './ws-transport.js';
 import type { BleSession } from './ble-session.js';
 import type { SharedState } from './shared-state.js';
+import type { SessionManager } from './session-manager.js';
 import { translateBluetoothError } from './bluetooth-errors.js';
 
 /**
@@ -24,7 +25,8 @@ export class WebSocketHandler extends EventEmitter {
   constructor(
     private ws: WebSocket,
     private session: BleSession,
-    private sharedState?: SharedState
+    private sharedState?: SharedState,
+    private sessionManager?: SessionManager
   ) {
     super();
     this.setupWebSocketHandlers();
@@ -39,21 +41,20 @@ export class WebSocketHandler extends EventEmitter {
       
       try {
         const msg: WSMessage = JSON.parse(message.toString());
-        console.log(`[WSHandler] Received message type: ${msg.type}`);
         
         // Handle data messages
         if (msg.type === 'data' && msg.data) {
           const data = new Uint8Array(msg.data);
-          const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-          const ms = new Date().getMilliseconds().toString().padStart(3, '0');
-          console.log(`[WSHandler] TX.${ms}: ${hex}`);
           this.sharedState?.logPacket('TX', data);
-          
           await this.session.write(data);
         } 
         // Handle force cleanup command
         else if (msg.type === 'force_cleanup') {
           await this.handleForceCleanup(msg);
+        }
+        // Handle session cleanup command (for tests)
+        else if (msg.type === 'cleanup_session') {
+          await this.handleSessionCleanup(msg);
         }
         // Handle admin cleanup command
         else if (msg.type === 'admin_cleanup') {
@@ -61,21 +62,18 @@ export class WebSocketHandler extends EventEmitter {
         }
       } catch (error) {
         const errorMessage = translateBluetoothError(error);
-        console.error('[WSHandler] Message error:', errorMessage);
         this.sendError(errorMessage);
       }
     });
 
     // Handle WebSocket close
-    this.ws.on('close', (code, reason) => {
-      console.log(`[WSHandler] WebSocket closed - code: ${code}, reason: ${reason || 'none'}, session: ${this.session.sessionId}`);
+    this.ws.on('close', () => {
       this.session.removeWebSocket(this.ws);
       this.emit('close');
     });
 
     // Handle WebSocket errors
     this.ws.on('error', (error) => {
-      console.log('[WSHandler] WebSocket error:', error.message);
       this.session.removeWebSocket(this.ws);
       this.emit('error', error);
     });
@@ -85,10 +83,6 @@ export class WebSocketHandler extends EventEmitter {
     // Forward BLE data to WebSocket
     const dataHandler = (data: Uint8Array) => {
       if (this.ws.readyState === this.ws.OPEN) {
-        const hex = Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' ');
-        const ms = new Date().getMilliseconds().toString().padStart(3, '0');
-        console.log(`[WSHandler] RX.${ms}: ${hex}`);
-        
         this.ws.send(JSON.stringify({ 
           type: 'data', 
           data: Array.from(data) 
@@ -111,29 +105,27 @@ export class WebSocketHandler extends EventEmitter {
     }
   }
 
-  private async handleForceCleanup(msg: WSMessage): Promise<void> {
-    console.log('[WSHandler] Force cleanup requested', msg.all_sessions ? '(all sessions)' : '(current session)');
-    console.warn('[WSHandler] WARNING: Force cleanup is broken and creates zombies - avoid using');
-    
+  private async handleSessionCleanup(_msg: WSMessage): Promise<void> {
     try {
-      // Send warning about broken force cleanup
-      if (this.ws.readyState === this.ws.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: 'warning',
-          warning: 'forceCleanup() is currently not working as expected - it creates zombie connections. Do not use it. If you are stuck, please open an issue at https://github.com/ble-mcp-test/ble-mcp-test/issues',
-          message: 'Using normal disconnect instead'
-        }));
+      // Clean up the current session (including transport)
+      await this.session.cleanup('session cleanup requested');
+      
+      // Clear from session manager
+      if (this.sessionManager) {
+        const allSessions = this.sessionManager.getAllSessions();
+        const thisSession = allSessions.find(s => s.sessionId === this.session.sessionId);
+        if (thisSession) {
+          // This will remove it from the map
+          this.sessionManager.clearSession(this.session.sessionId);
+        }
       }
       
-      // Use normal disconnect instead of force cleanup
-      console.log('[WSHandler] Using normal disconnect instead of broken force cleanup');
-      
-      // Just disconnect normally - don't use force cleanup
+      // Send confirmation
       if (this.ws.readyState === this.ws.OPEN) {
         this.ws.send(JSON.stringify({ 
-          type: 'force_cleanup_complete', 
-          message: 'Used normal disconnect instead',
-          warning: 'forceCleanup() is not working as expected. Please report issues at https://github.com/ble-mcp-test/ble-mcp-test/issues' 
+          type: 'session_cleanup_complete', 
+          sessionId: this.session.sessionId,
+          message: 'Session cleaned up successfully'
         }));
         
         // Give message time to send before closing
@@ -143,26 +135,52 @@ export class WebSocketHandler extends EventEmitter {
         this.ws.close();
       }
     } catch (error) {
-      console.error('[WSHandler] Force cleanup error:', error);
+      this.sendError(`Session cleanup failed: ${error}`);
+    }
+  }
+
+  private async handleForceCleanup(_msg: WSMessage): Promise<void> {
+    try {
+      // Send warning about broken force cleanup
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'warning',
+          warning: 'forceCleanup() is currently not working as expected - it creates zombie connections. Do not use it.',
+          message: 'Using normal disconnect instead'
+        }));
+      }
+      
+      // Just disconnect normally - don't use force cleanup
+      if (this.ws.readyState === this.ws.OPEN) {
+        this.ws.send(JSON.stringify({ 
+          type: 'force_cleanup_complete', 
+          message: 'Used normal disconnect instead',
+          warning: 'forceCleanup() is not working as expected.' 
+        }));
+        
+        // Give message time to send before closing
+        await new Promise(resolve => setTimeout(resolve, 50));
+        
+        // Now close the WebSocket
+        this.ws.close();
+      }
+    } catch {
+      // Ignore errors
     }
   }
 
   private async handleAdminCleanup(msg: WSMessage): Promise<void> {
-    console.log('[WSHandler] Admin cleanup requested');
-    
     // Check auth token
     const requiredAuth = process.env.BLE_ADMIN_AUTH_TOKEN;
     if (requiredAuth && msg.auth !== requiredAuth) {
-      console.log('[WSHandler] Admin cleanup rejected - invalid auth');
       this.sendError('Unauthorized');
       return;
     }
     
     try {
-      // Get session manager through session's config
-      const sessionManager = (this.session as any).sessionManager;
-      if (sessionManager && msg.action === 'cleanup_all') {
-        await sessionManager.forceCleanupAll('admin cleanup');
+      // Use properly injected SessionManager
+      if (this.sessionManager && msg.action === 'cleanup_all') {
+        await this.sessionManager.forceCleanupAll('admin cleanup');
         
         if (this.ws.readyState === this.ws.OPEN) {
           this.ws.send(JSON.stringify({ 
@@ -174,8 +192,7 @@ export class WebSocketHandler extends EventEmitter {
       } else {
         this.sendError('Invalid admin action');
       }
-    } catch (error) {
-      console.error('[WSHandler] Admin cleanup error:', error);
+    } catch {
       this.sendError('Admin cleanup failed');
     }
   }

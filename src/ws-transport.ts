@@ -1,7 +1,7 @@
 import { CLOSE_CODE_MESSAGES } from './constants.js';
 
 export interface WSMessage {
-  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'admin_cleanup';
+  type: 'data' | 'connected' | 'disconnected' | 'error' | 'eviction_warning' | 'keepalive_ack' | 'force_cleanup' | 'force_cleanup_complete' | 'cleanup_session' | 'session_cleanup_complete' | 'admin_cleanup';
   seq?: number;
   data?: number[];
   device?: string;

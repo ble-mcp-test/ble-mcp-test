@@ -65,12 +65,18 @@ export class ObservabilityServer {
     });
     
     // Metrics endpoint
-    app.get('/metrics', (req, res) => {
+    app.get('/metrics', async (req, res) => {
       const tracker = MetricsTracker.getInstance();
       const metrics = tracker.getMetrics();
+      
+      // Noble.js handles hardware connection recovery
+      
       const health = tracker.getHealthReport();
       
       const response = {
+        config: {
+          idleTimeoutSec: parseInt(process.env.BLE_MCP_IDLE_TIMEOUT || '600', 10)
+        },
         metrics: {
           connections: {
             total: metrics.totalConnections,
@@ -89,7 +95,6 @@ export class ObservabilityServer {
             maxPeripherals: metrics.maxPeripheralCount,
             listenerWarnings: metrics.listenerWarnings,
             leakDetected: metrics.resourceLeakDetected,
-            zombieConnections: metrics.zombieConnectionsDetected,
             bluetoothRestarts: metrics.bluetoothRestarts
           },
           sessions: {

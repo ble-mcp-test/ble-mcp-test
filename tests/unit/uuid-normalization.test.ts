@@ -1,5 +1,44 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeUuid } from '../../src/utils.js';
+
+// Legacy UUID normalization function - now only used for testing
+// Production code uses expandUuid() which creates multiple variants instead
+function normalizeUuid(uuid: string): string {
+  const isLinux = process.platform === 'linux';
+  
+  // Remove dashes and convert to lowercase
+  const cleaned = uuid.toLowerCase().replace(/-/g, '');
+  
+  if (isLinux) {
+    // Linux: Always convert to full 128-bit UUID without dashes
+    
+    // If already 32 chars (full UUID without dashes), return as-is
+    if (cleaned.length === 32) return cleaned;
+    
+    // If 4-char short UUID, expand to full 128-bit without dashes
+    if (cleaned.length === 4) {
+      return `0000${cleaned}00001000800000805f9b34fb`;
+    }
+    
+    // Handle other lengths by padding and taking last 4 chars
+    const shortId = cleaned.padStart(4, '0').slice(-4);
+    return `0000${shortId}00001000800000805f9b34fb`;
+  } else {
+    // macOS (and others): Always convert to short UUID
+    
+    // If it's a 4-char UUID already, return it
+    if (cleaned.length === 4) return cleaned;
+    
+    // If it's a full UUID (32 chars), extract the short UUID part
+    if (cleaned.length === 32) {
+      // Extract characters 4-8 (the short UUID portion)
+      return cleaned.substring(4, 8);
+    }
+    
+    // For other lengths, try to extract something sensible
+    // Take the last 4 chars, or pad if too short
+    return cleaned.padStart(4, '0').slice(-4);
+  }
+}
 
 describe('UUID Normalization', () => {
   describe('Short UUIDs (16-bit)', () => {

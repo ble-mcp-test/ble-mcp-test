@@ -70,14 +70,16 @@ export class BridgeServer {
       const rawNotify = url.searchParams.get('notify') || '';
       
       const config: BleConfig = {
-        devicePrefix: url.searchParams.get('device') || '',
-        serviceUuid: rawService,   // Pass through - noble transport will handle variants
-        writeUuid: rawWrite,       // Pass through - noble transport will normalize
-        notifyUuid: rawNotify      // Pass through - noble transport will normalize
+        service: rawService,       // Pass through - noble transport will handle variants
+        write: rawWrite,           // Pass through - noble transport will normalize
+        notify: rawNotify,         // Pass through - noble transport will normalize
+        deviceId: url.searchParams.get('deviceId') || undefined,
+        deviceName: url.searchParams.get('deviceName') || undefined,
+        timeout: url.searchParams.get('timeout') ? parseInt(url.searchParams.get('timeout')!, 10) : undefined
       };
       
       // Validate required parameters (device is now optional)
-      if (!config.serviceUuid || !config.writeUuid || !config.notifyUuid) {
+      if (!config.service || !config.write || !config.notify) {
         ws.send(JSON.stringify({ type: 'error', error: 'Missing required parameters: service, write, notify' }));
         ws.close();
         return;
@@ -86,11 +88,12 @@ export class BridgeServer {
       let session: any = null;
       
       try {
-        // Get or create session
-        session = this.sessionManager.getOrCreateSession(sessionId, config);
+        // Get or create session (now async - waits for cleanup if needed)
+        console.log(`[Bridge] Requesting session: ${sessionId}`);
+        session = await this.sessionManager.getOrCreateSession(sessionId, config);
         
         if (!session) {
-          // Session rejected - device is busy
+          // Session rejected - device is busy or cleanup timeout
           // Find the blocking session
           const blockingSession = this.sessionManager.getAllSessions()
             .find(s => s.getStatus().hasTransport);
@@ -101,7 +104,7 @@ export class BridgeServer {
             await blockingSession.forceCleanup('force takeover');
             
             // Try again to create session
-            const newSession = this.sessionManager.getOrCreateSession(sessionId, config);
+            const newSession = await this.sessionManager.getOrCreateSession(sessionId, config);
             if (newSession) {
               session = newSession;
             }
@@ -115,25 +118,36 @@ export class BridgeServer {
           }
         }
         
-        // ATOMIC VALIDATION: Connect BLE and validate complete stack BEFORE WebSocket acceptance
-        console.log(`[Bridge] Starting atomic BLE validation for session ${sessionId}`);
-        const deviceName = await session.connect();
+        // Check if session has existing transport or needs connection
+        let deviceName: string;
+        const status = session.getStatus();
         
-        // ONLY NOW - BLE validation successful - accept WebSocket connection
-        console.log(`[Bridge] BLE validation successful - accepting WebSocket connection`);
+        if (status.hasTransport) {
+          // Session has existing transport - reuse it
+          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'}`);
+          deviceName = status.deviceName || 'unnamed';
+        } else {
+          // Need to connect
+          console.log(`[Bridge] Starting BLE connection for session ${sessionId}`);
+          deviceName = await session.connect();
+          console.log(`[Bridge] Connected to device: ${deviceName}`);
+        }
+        
+        // BLE validation successful - accept WebSocket connection
+        console.log(`[Bridge] BLE validation successful for session ${sessionId} - accepting WebSocket connection`);
         ws.send(JSON.stringify({ type: 'connected', device: deviceName }));
         
         // Attach WebSocket to session
         this.sessionManager.attachWebSocket(session, ws);
         
       } catch (error: any) {
-        console.error(`[Bridge] Atomic connection validation failed:`, error);
+        console.error(`[Bridge] Connection validation failed for session ${sessionId}:`, error.message || error);
+        console.error(`[Bridge] Error stack:`, error.stack);
         
-        // CRITICAL: Clean up session immediately on connection failure
-        if (session) {
-          console.log(`[Bridge] Removing failed session ${sessionId} from SessionManager`);
-          await this.sessionManager.removeSession(sessionId, 'connection validation failed');
-        }
+        // Don't remove the session - it might be reused by the next test
+        // The session will clean itself up via grace period/idle timeout
+        // This allows tests to retry with the same session ID
+        console.log(`[Bridge] Keeping session ${sessionId} for potential reuse despite error`);
         
         // Map error to appropriate WebSocket close code
         const closeCode = mapErrorToCloseCode(error);

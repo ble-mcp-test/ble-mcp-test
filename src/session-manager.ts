@@ -3,7 +3,12 @@ import { BleSession } from './ble-session.js';
 import { WebSocketHandler } from './ws-handler.js';
 import type { BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
-import { ZombieDetector } from './zombie-detector.js';
+import { MetricsTracker } from './connection-metrics.js';
+
+// Constants
+const DEFAULT_INACTIVITY_TIMEOUT_SEC = 60;
+const CLEANUP_WAIT_TIMEOUT_MS = 6000;
+const CLEANUP_CHECK_INTERVAL_MS = 100;
 
 /**
  * SessionManager - Manages BLE session lifecycle and WebSocket routing
@@ -16,63 +21,83 @@ import { ZombieDetector } from './zombie-detector.js';
  */
 export class SessionManager {
   private sessions = new Map<string, BleSession>();
-  private cleanupInterval: NodeJS.Timeout | null = null;
+  private sessionTimers = new Map<string, NodeJS.Timeout>();
+  private inactivityTimeoutSec = parseInt(
+    process.env.BLE_MCP_IDLE_TIMEOUT || String(DEFAULT_INACTIVITY_TIMEOUT_SEC), 
+    10
+  );
+  private transportCleanupInProgress = false;
   
-  constructor(private sharedState?: SharedState) {
-    // Start periodic cleanup check
-    this.startCleanupTimer();
+  constructor(private sharedState?: SharedState) {}
+
+  /**
+   * Wait for transport cleanup to complete
+   */
+  private async waitForCleanup(): Promise<boolean> {
+    if (!this.transportCleanupInProgress) return true;
+    
+    const startTime = Date.now();
+    
+    while (this.transportCleanupInProgress && (Date.now() - startTime) < CLEANUP_WAIT_TIMEOUT_MS) {
+      await new Promise(resolve => setTimeout(resolve, CLEANUP_CHECK_INTERVAL_MS));
+    }
+    
+    return !this.transportCleanupInProgress;
+  }
+
+  /**
+   * Check if device is busy with another session
+   */
+  private findActiveSession(excludeSessionId: string): BleSession | undefined {
+    const activeSessions = Array.from(this.sessions.values());
+    return activeSessions.find(s => 
+      s.sessionId !== excludeSessionId && s.getStatus().hasTransport
+    );
   }
 
   /**
    * Get or create a BLE session
    */
-  getOrCreateSession(sessionId: string, config: BleConfig): BleSession | null {
+  async getOrCreateSession(sessionId: string, config: BleConfig): Promise<BleSession | null> {
+    // Wait for any ongoing transport cleanup
+    const cleanupCompleted = await this.waitForCleanup();
+    if (!cleanupCompleted) {
+      return null;
+    }
+    
     let session = this.sessions.get(sessionId);
     
     if (!session) {
-      // Check if any OTHER session has a BLE transport (connected or in grace period)
-      // Note: We only reject if a DIFFERENT session has the transport
-      const activeSessions = Array.from(this.sessions.values());
-      const sessionWithTransport = activeSessions.find(s => 
-        s.sessionId !== sessionId && s.getStatus().hasTransport
-      );
-      
-      if (sessionWithTransport) {
-        // Reject new session - device is busy with a different session
-        const status = sessionWithTransport.getStatus();
-        console.log(`[SessionManager] Rejecting new session ${sessionId} - device busy with session ${sessionWithTransport.sessionId} (grace period: ${status.hasGracePeriod})`);
-        
-        // Enhanced logging for debugging
-        console.log(`[SessionManager] Active sessions: ${activeSessions.length}`);
-        activeSessions.forEach(s => {
-          const st = s.getStatus();
-          console.log(`  - Session ${st.sessionId}: transport=${st.hasTransport}, grace=${st.hasGracePeriod}, websockets=${st.activeWebSockets}`);
-        });
-        
+      // Check if device is busy with another session
+      const activeSession = this.findActiveSession(sessionId);
+      if (activeSession) {
         return null;
       }
       
+      // Create new session
       console.log(`[SessionManager] Creating new session: ${sessionId}`);
       session = new BleSession(sessionId, config, this.sharedState);
-      session.sessionManager = this; // Set reference for cleanup commands
       this.sessions.set(sessionId, session);
       
+      // Set up activity tracking
+      session.on('activity', () => {
+        this.resetSessionTimer(sessionId);
+      });
+      
       // Auto-cleanup on session cleanup event
-      session.once('cleanup', (info) => {
-        console.log(`[SessionManager] Session ${info.sessionId} cleanup: ${info.reason}`);
+      session.once('cleanup', () => {
+        this.clearSessionTimer(sessionId);
         this.sessions.delete(sessionId);
         this.updateSharedState();
       });
       
+      // Start inactivity timer
+      this.resetSessionTimer(sessionId);
       this.updateSharedState();
     } else {
+      // Track session reuse in metrics
       console.log(`[SessionManager] Reusing existing session: ${sessionId}`);
-      
-      // If session is in grace period, log that we're reconnecting
-      const status = session.getStatus();
-      if (status.hasGracePeriod) {
-        console.log(`[SessionManager] Reconnecting to session ${sessionId} during grace period`);
-      }
+      MetricsTracker.getInstance().recordSessionReuse(sessionId);
     }
     
     return session;
@@ -82,7 +107,7 @@ export class SessionManager {
    * Attach a WebSocket to a session
    */
   attachWebSocket(session: BleSession, ws: WebSocket): WebSocketHandler {
-    const handler = new WebSocketHandler(ws, session, this.sharedState);
+    const handler = new WebSocketHandler(ws, session, this.sharedState, this);
     
     // Update shared state when WebSocket closes
     handler.once('close', () => {
@@ -108,32 +133,19 @@ export class SessionManager {
 
   /**
    * Remove session immediately with cleanup
-   * Used when BLE connection fails and session needs immediate removal
    */
   async removeSession(sessionId: string, reason: string = 'connection failed'): Promise<void> {
     const session = this.sessions.get(sessionId);
-    
-    if (!session) {
-      console.log(`[SessionManager] Cannot remove session ${sessionId} - not found`);
-      return;
-    }
-
-    console.log(`[SessionManager] Removing session ${sessionId}: ${reason}`);
+    if (!session) return;
     
     try {
-      // Clean up BLE resources first
       await session.cleanup(reason);
-    } catch (error) {
-      console.error(`[SessionManager] Error during session cleanup for ${sessionId}:`, error);
+    } catch {
+      // Ignore cleanup errors
     }
     
-    // Remove from sessions map
     this.sessions.delete(sessionId);
-    
-    // Update shared state to reflect the change
     this.updateSharedState();
-    
-    console.log(`[SessionManager] Session ${sessionId} removed successfully`);
   }
 
   /**
@@ -142,7 +154,6 @@ export class SessionManager {
   private updateSharedState(): void {
     if (!this.sharedState) return;
     
-    // Update connection state based on active sessions
     const activeSessions = Array.from(this.sessions.values());
     const connectedSession = activeSessions.find(s => s.getStatus().connected);
     
@@ -153,7 +164,6 @@ export class SessionManager {
         deviceName: status.deviceName 
       });
     } else {
-      // No connected sessions - update state to disconnected
       this.sharedState.setConnectionState({ 
         connected: false, 
         deviceName: null 
@@ -162,96 +172,66 @@ export class SessionManager {
   }
 
   /**
-   * Start periodic cleanup timer
+   * Reset session inactivity timer
    */
-  private startCleanupTimer(): void {
-    // Check for stale sessions every 30 seconds
-    this.cleanupInterval = setInterval(async () => {
-      try {
-        await this.checkStaleSessions();
-      } catch (e) {
-        console.error('[SessionManager] Error during stale session check:', e);
-      }
-    }, 30000);
-  }
-
-  /**
-   * Check for and clean up stale/zombie sessions
-   */
-  private async checkStaleSessions(): Promise<void> {
-    // First, run zombie detection across all sessions
-    const totalActiveWebSockets = Array.from(this.sessions.values())
-      .reduce((sum, session) => sum + session.getStatus().activeWebSockets, 0);
-    
-    const zombieResult = ZombieDetector.getInstance().checkForZombie(totalActiveWebSockets);
-    
-    if (zombieResult.isZombie) {
-      console.log(`[SessionManager] 🧟 ZOMBIE CONNECTION DETECTED!`);
-      console.log(`  Severity: ${zombieResult.severity}`);
-      console.log(`  Reason: ${zombieResult.reason}`);
-      console.log(`  Recommended Action: ${zombieResult.recommendedAction}`);
-      console.log(`  Evidence:`);
-      zombieResult.evidence.forEach(evidence => {
-        console.log(`    - ${evidence}`);
-      });
-      
-      // For critical zombies, force cleanup all sessions
-      if (zombieResult.severity === 'critical') {
-        console.log('[SessionManager] Critical zombie detected - forcing cleanup of all sessions');
-        await this.forceCleanupAll('critical zombie detected');
-        return;
-      }
+  private resetSessionTimer(sessionId: string): void {
+    // Clear existing timer
+    const existingTimer = this.sessionTimers.get(sessionId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
     }
     
-    // Then check individual sessions
-    for (const [sessionId, session] of this.sessions) {
-      const status = session.getStatus();
-      
-      // Log session status for monitoring
-      if (status.hasGracePeriod || status.idleTime > 60) {
-        console.log(`[SessionManager] Session ${sessionId} - ` +
-          `WebSockets: ${status.activeWebSockets}, ` +
-          `Idle: ${status.idleTime}s, ` +
-          `Grace: ${status.hasGracePeriod}, ` +
-          `Connected: ${status.connected}, ` +
-          `HasTransport: ${status.hasTransport}`);
-      }
-      
-      let shouldCleanup = false;
-      let reason = '';
-      
-      // Detect zombie sessions: has transport but not properly connected
-      // Give new connections at least 30 seconds to complete before considering them zombies
-      if (status.hasTransport && !status.connected && !status.hasGracePeriod && status.idleTime > 30) {
-        shouldCleanup = true;
-        reason = `zombie session - has transport but not connected after ${status.idleTime}s`;
-      }
-      
-      // Force cleanup sessions that are idle too long without grace period  
-      if (!status.hasGracePeriod && status.activeWebSockets === 0 && 
-          status.idleTime > status.idleTimeoutSec + 60) {
-        shouldCleanup = true;
-        reason = `stale session - idle for ${status.idleTime}s`;
-      }
-      
-      if (shouldCleanup) {
-        console.log(`[SessionManager] Cleaning up session ${sessionId}: ${reason}`);
+    // Set new timer
+    const timer = setTimeout(async () => {
+      const session = this.sessions.get(sessionId);
+      if (session) {
+        // Remove session from map BEFORE cleanup to prevent race condition
+        console.log(`[SessionManager] Session ${sessionId} inactivity timeout (${this.inactivityTimeoutSec}s) - cleaning up pooled connection`);
+        this.sessions.delete(sessionId);
+        this.clearSessionTimer(sessionId);
+        this.updateSharedState();
+        
+        // Mark that transport cleanup is in progress
+        this.transportCleanupInProgress = true;
+        
         try {
-          // Use force cleanup for zombie/stale sessions (includes resource verification)
-          await session.forceCleanup(reason);
-        } catch (e) {
-          console.error(`[SessionManager] Failed to clean up session ${sessionId}: ${e}`);
+          await session.cleanup('inactivity timeout');
+          console.log(`[SessionManager] Session ${sessionId} cleanup complete`);
+        } catch (error) {
+          console.error(`[SessionManager] Session ${sessionId} cleanup error:`, error);
+        } finally {
+          this.transportCleanupInProgress = false;
         }
       }
+    }, this.inactivityTimeoutSec * 1000);
+    
+    this.sessionTimers.set(sessionId, timer);
+  }
+  
+  /**
+   * Clear session timer
+   */
+  private clearSessionTimer(sessionId: string): void {
+    const timer = this.sessionTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.sessionTimers.delete(sessionId);
     }
   }
 
   /**
-   * Force cleanup all sessions (for admin/testing)
+   * Clear a specific session (for tests and cleanup commands)
+   */
+  clearSession(sessionId: string): void {
+    this.sessions.delete(sessionId);
+    this.clearSessionTimer(sessionId);
+    this.updateSharedState();
+  }
+
+  /**
+   * Force cleanup all sessions
    */
   async forceCleanupAll(reason: string = 'admin cleanup'): Promise<void> {
-    console.log(`[SessionManager] Force cleanup all sessions: ${reason}`);
-    
     const sessions = Array.from(this.sessions.values());
     const cleanupPromises = sessions.map(session => 
       session.forceCleanup(reason)
@@ -265,8 +245,6 @@ export class SessionManager {
    * Force cleanup sessions for a specific device
    */
   async forceCleanupDevice(deviceName: string, reason: string = 'device cleanup'): Promise<void> {
-    console.log(`[SessionManager] Force cleanup sessions for device ${deviceName}: ${reason}`);
-    
     const sessions = Array.from(this.sessions.values())
       .filter(s => s.getStatus().deviceName === deviceName);
     
@@ -282,13 +260,11 @@ export class SessionManager {
    * Stop the session manager
    */
   async stop(): Promise<void> {
-    console.log('[SessionManager] Stopping...');
-    
-    // Clear cleanup timer
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = null;
+    // Clear all timers
+    for (const timer of this.sessionTimers.values()) {
+      clearTimeout(timer);
     }
+    this.sessionTimers.clear();
     
     // Clean up all sessions
     await this.forceCleanupAll('manager stopping');

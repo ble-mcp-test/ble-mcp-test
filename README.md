@@ -2,7 +2,7 @@
 
 [![npm version](https://badge.fury.io/js/ble-mcp-test.svg)](https://www.npmjs.com/package/ble-mcp-test)
 
-**Test Web Bluetooth apps on any machine** - Bridge real BLE devices to your browser tests through WebSocket tunneling.
+**Test Web Bluetooth apps in headless environments** - Bridge real BLE devices to your browser tests through WebSocket tunneling.
 
 ## Quick Start
 
@@ -24,10 +24,14 @@ injectWebBluetoothMock({
 
 ## Why This Exists
 
-Web Bluetooth API only works in Chrome/Edge, requires user interaction, and can't be automated in headless browsers. This tool lets you:
-- Test on any OS/browser (not just Chrome on select platforms)
-- Use real BLE devices in CI/CD pipelines
-- Share BLE hardware across your team via network bridge
+Web Bluetooth API only works in Chrome/Edge, requires user interaction, and **can't be automated in headless browsers**. This is a critical limitation for automated testing and development.
+
+This tool solves that by letting you:
+- **Test BLE apps in headless environments** (CI/CD pipelines, development VMs, sandboxes)
+- **Use real BLE devices** instead of incomplete mocks  
+- **Share BLE hardware across your team** via network bridge (perfect for Claude Code instances)
+- **Test on any OS/browser** (not just Chrome on select platforms)
+- **Develop iteratively** with E2E tests against real hardware from isolated environments
 
 ## Architecture
 
