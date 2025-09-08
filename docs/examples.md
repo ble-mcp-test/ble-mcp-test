@@ -287,12 +287,21 @@ test('handles button press events', async ({ page }) => {
             });
         });
         
-        // Simulate button press
-        notifyChar.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+        // Use the testing API for simulation
+        const { simulateNotification } = navigator.bluetooth.testing;
         
-        // Simulate button release after 100ms
-        await new Promise(resolve => setTimeout(resolve, 100));
-        notifyChar.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+        // Simulate button press
+        await simulateNotification({
+            characteristic: notifyChar,
+            data: new Uint8Array([0xA7, 0xB3, 0x01, 0xFF])
+        });
+        
+        // Simulate button release after 100ms delay
+        await simulateNotification({
+            characteristic: notifyChar,
+            data: new Uint8Array([0xA7, 0xB3, 0x01, 0x00]),
+            delay: 100
+        });
         
         return events;
     });
@@ -330,7 +339,13 @@ test('handles malformed packets', async ({ page }) => {
         });
         
         // Inject malformed packet
-        notifyChar.simulateNotification(new Uint8Array([0xA7])); // Too short
+        // Use testing API for simulation
+        const { simulateNotification } = navigator.bluetooth.testing;
+        
+        await simulateNotification({
+            characteristic: notifyChar,
+            data: new Uint8Array([0xA7]) // Too short - will trigger validation error
+        });
         
         return errorHandled;
     });

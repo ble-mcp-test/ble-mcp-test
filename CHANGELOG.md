@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2025-01-08
+
+### Fixed
+- **simulateNotification API**: Fixed missing `dispatchEvent` method in `MockBluetoothRemoteGATTCharacteristic`
+  - App clients can now use `simulateNotification` API without workarounds
+  - Previously failed with "characteristic.dispatchEvent is not a function" error
+  - Added proper event dispatching that integrates with existing notification system
+- **TX/RX Logging Perspective**: Corrected logging to show device perspective consistently
+  - Fixed duplicate logging where device responses appeared as both RX and TX
+  - Now shows clear device viewpoint: RX = device receives commands, TX = device transmits responses
+  - Improved debugging clarity for real BLE communication
+- **End-to-End Testing**: Enhanced notification simulation testing to use real mock classes
+  - Replaced test doubles with actual `MockBluetoothRemoteGATTCharacteristic` instances
+  - Tests now validate the exact code path that app clients use
+  - Prevents future bugs from being masked by fake test implementations
+
+### Technical Improvements
+- True end-to-end test coverage for `simulateNotification` API
+- Single-responsibility logging eliminates duplicate packet entries
+- Comprehensive validation of real mock class behavior
+
 ## [0.7.0] - 2025-01-07
 
 ### Added

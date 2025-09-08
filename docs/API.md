@@ -150,14 +150,23 @@ The mock supports configuration via environment variables for retry behavior:
 The `simulateNotification()` method allows tests to inject device notifications without real hardware events:
 
 ```javascript
-// Get a characteristic
+// Use the testing API (available after mock injection)
+const { simulateNotification } = navigator.bluetooth.testing;
+
+// Get a characteristic through normal API
 const characteristic = await service.getCharacteristic('9901');
 
 // Simulate a button press event from the device
-characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+await simulateNotification({
+  characteristic: characteristic,
+  data: new Uint8Array([0xA7, 0xB3, 0x01, 0xFF])
+});
 
 // Simulate a button release event
-characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0x00]));
+await simulateNotification({
+  characteristic: characteristic,
+  data: new Uint8Array([0xA7, 0xB3, 0x01, 0x00])
+});
 ```
 
 This is useful for:
@@ -450,7 +459,7 @@ The mock implements the following Web Bluetooth API methods:
 - `writeValue(data)` - Write data to characteristic
 - `startNotifications()` - Enable notifications
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
-- `simulateNotification(data)` - Inject test notifications
+- Available via `navigator.bluetooth.testing.simulateNotification()` - Inject test notifications
 
 ## Mock Configuration API (v0.4.3+)
 
