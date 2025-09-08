@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Removed unsafe `refreshCharacteristics()` from noble-transport.ts that created new Noble objects
   - Removed session wrapper method from ble-session.ts that enabled problematic calls  
   - Updated bridge-server.ts to trust existing characteristic references during session reuse
-  - Added `recordSessionReuseWithoutRefresh()` metrics tracking for monitoring
-  - Session reuse now works safely without any refresh mechanism
+  - Added `recordSessionReuse()` metrics tracking for monitoring
+  - Session reuse now works safely
   - Follows CLAUDE.md "DELETE don't deprecate" principle - removed problematic pattern entirely
   - Prevents future zombie connections and resource exhaustion
 
@@ -22,9 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Shows detailed notification dispatch events with characteristic UUID, data length, and hex-formatted data
   - Confirms successful event dispatch completion
   - Provides essential visibility for test utilities and debugging scenarios
+  - Browser console will display: `ble-mcp-test: dispatching notify event` and `ble-mcp-test: notify event dispatched successfully`
 
 ### Technical Improvements  
-- Session reuse operates without characteristic refresh - trusts stable BLE connections
+- Session reuse operates with stable BLE connections
 - Enhanced metrics tracking for session reuse monitoring with staleness warnings
 - Clean codebase with fundamentally unsafe patterns eliminated
 

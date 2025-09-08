@@ -124,14 +124,14 @@ export class BridgeServer {
         const status = session.getStatus();
         
         if (status.hasTransport) {
-          // Session has existing transport - reuse it WITHOUT any refresh
-          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'} without refresh`);
+          // Session has existing transport - reuse it
+          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'}`);
           deviceName = status.deviceName || 'unnamed';
           
-          // Track session reuse without refresh for monitoring
-          MetricsTracker.getInstance().recordSessionReuseWithoutRefresh(sessionId);
+          // Track session reuse for monitoring
+          MetricsTracker.getInstance().recordSessionReuse(sessionId);
           
-          // Trust existing characteristic references - no refresh needed or possible
+          // Trust existing characteristic references
           console.log(`[Bridge] Trusting existing characteristics for session ${sessionId}`);
         } else {
           // Need to connect
