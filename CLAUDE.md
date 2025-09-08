@@ -170,11 +170,6 @@ tests/
 └── e2e/              # Playwright browser tests
 ```
 
-### Reference Sources (from previous implementation)
-- `mock-bluetooth.ts` - Keep 90% as-is
-- `websocket-transport.ts` - Remove reconnection logic
-- `noble-transport.ts` - Extract core BLE only
-
 ## Archive Warning
 **NEVER access prp/archive/ unless explicitly directed.**
 The archive contains outdated specifications that will introduce incorrect patterns.
