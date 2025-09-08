@@ -121,6 +121,7 @@ export class BleSession extends EventEmitter {
     await this.transport.write(data);
   }
 
+
   /**
    * Record activity timestamp
    */

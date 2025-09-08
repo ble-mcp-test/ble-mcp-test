@@ -169,6 +169,26 @@ await simulateNotification({
 });
 ```
 
+#### Debug Logging (v0.7.2+)
+
+The `simulateNotification()` method provides comprehensive console logging for debugging:
+
+```javascript
+// Each call to simulateNotification() will log:
+// 1. "ble-mcp-test: dispatching notify event" with details
+// 2. "ble-mcp-test: notify event dispatched successfully" on completion
+```
+
+Console output example:
+```
+ble-mcp-test: dispatching notify event {
+  characteristic: "0000-9901-0000-1000-8000-00805f9b34fb",
+  dataLength: 4,
+  data: "0xa7 0xb3 0x01 0xff"
+}
+ble-mcp-test: notify event dispatched successfully
+```
+
 This is useful for:
 - Testing notification handlers without real device events
 - Controlling exact timing of test events

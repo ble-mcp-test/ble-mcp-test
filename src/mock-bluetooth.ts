@@ -468,6 +468,13 @@ export class MockBluetooth {
         await new Promise(resolve => setTimeout(resolve, options.delay));
       }
       
+      // Log notification dispatch details
+      console.log('ble-mcp-test: dispatching notify event', {
+        characteristic: options.characteristic.uuid,
+        dataLength: options.data.length,
+        data: Array.from(options.data).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ')
+      });
+      
       // Directly update the characteristic value and dispatch the event
       const characteristic = options.characteristic as any;
       
@@ -487,6 +494,9 @@ export class MockBluetooth {
       
       // Dispatch the event
       characteristic.dispatchEvent(event);
+      
+      // Log successful dispatch
+      console.log('ble-mcp-test: notify event dispatched successfully');
     },
     
     utils: {
