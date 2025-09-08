@@ -3,7 +3,7 @@
 ## Primary Purpose & Critical Understanding
 
 ### What This Tool Does
-**This tool enables browser-based E2E tests to control REAL BLE hardware from headless environments.**
+**This tool enables browser-based E2E tests to control REAL BLE hardware from headless environments** (CI/CD, development VMs, sandboxes, Claude Code instances).
 
 This bridge allows Playwright tests to interact with any BLE device through a mocked Web Bluetooth API. Originally developed for CS108 UHF RFID readers, it is fully **device-agnostic** and works with any BLE device that supports GATT services and characteristics.
 
@@ -49,7 +49,7 @@ This bridge allows Playwright tests to interact with any BLE device through a mo
 ### Success Metrics
 1. **Playwright E2E Compatibility** - Each test creates a fresh browser context; our session management must handle this
 2. **Full Path Communication** - Must verify end-to-end: connect + send test request/response through complete chain
-3. **Test Reliability** - E2E tests pass consistently in CI/CD environments without BLE hardware
+3. **Test Reliability** - E2E tests pass consistently in headless environments without direct BLE hardware access
 
 ## Critical Technical Constraints
 
@@ -176,4 +176,4 @@ tests/
 The archive contains outdated specifications that will introduce incorrect patterns.
 
 ## Context & History
-This project has evolved from a simple bridge to a comprehensive BLE testing framework. The current implementation solves the core problem: enabling browser-based tests to control real BLE hardware from headless CI/CD environments, with robust session management and debugging capabilities.
+This project has evolved from a simple bridge to a comprehensive BLE testing framework. The current implementation solves the core problem: enabling browser-based tests to control real BLE hardware from headless environments (CI/CD, development VMs, Claude Code instances), with robust session management and debugging capabilities.
