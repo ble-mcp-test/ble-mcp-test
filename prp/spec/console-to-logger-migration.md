@@ -63,3 +63,16 @@ Logger usage example: `src/bridge-server.ts` (partially implemented)
 - Import log level from environment: `normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL)`
 - Preserve message formatting and parameters exactly
 - Consider adding structured logging for key events if beneficial
+
+**Logging Attribution Fix**:
+Current issue: BLE device TX/RX activity is incorrectly attributed to `[WSHandler]` instead of `[NobleTransport]`
+```
+// INCORRECT CURRENT OUTPUT
+[WSHandler] TX.453: A7 B3 02 D9 82 37 00 00 A0 01
+[WSHandler] RX.598: A7 B3 03 D9 82 9E 74 37 A0 01 00
+
+// CORRECT DESIRED OUTPUT  
+[NobleTransport] TX.453: A7 B3 02 D9 82 37 00 00 A0 01
+[NobleTransport] RX.598: A7 B3 03 D9 82 9E 74 37 A0 01 00
+```
+WSHandler should only log WebSocket routing, NobleTransport should log BLE device communication.
