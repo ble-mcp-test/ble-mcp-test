@@ -271,7 +271,6 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
             ? `${((metrics.failedConnections / metrics.totalConnections) * 100).toFixed(1)}%`
             : '0%',
           reconnections: metrics.totalReconnections,
-          zombies: metrics.zombieConnectionsDetected,
           resourceLeaks: metrics.resourceLeakDetected
         }
       };

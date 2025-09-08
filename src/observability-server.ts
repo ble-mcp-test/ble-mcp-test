@@ -71,8 +71,6 @@ export class ObservabilityServer {
       
       // In simplified version, we don't track hardware zombies
       // noble.reset() should handle them
-      tracker.setZombieCount(0);
-      metrics.zombieConnectionsDetected = 0;
       
       const health = tracker.getHealthReport();
       
@@ -98,7 +96,6 @@ export class ObservabilityServer {
             maxPeripherals: metrics.maxPeripheralCount,
             listenerWarnings: metrics.listenerWarnings,
             leakDetected: metrics.resourceLeakDetected,
-            zombieConnections: metrics.zombieConnectionsDetected,
             bluetoothRestarts: metrics.bluetoothRestarts
           },
           sessions: {
