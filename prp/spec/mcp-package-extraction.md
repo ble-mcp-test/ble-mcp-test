@@ -5,6 +5,8 @@ Extract the Model Context Protocol (MCP) observability tools into a separate npm
 
 Current implementation embeds 358 lines of MCP tools directly in the bridge, adding complexity to what should be a focused BLE tunneling solution.
 
+**Current Operational Pain Point**: Because MCP tools are embedded in the bridge service, every bridge restart (common during development and debugging) breaks the Claude Code MCP connection, requiring manual `/mcp reconnect ble-mcp-test` commands. This disrupts development workflow.
+
 ## EXAMPLES:
 Current architecture:
 ```
@@ -48,6 +50,8 @@ ble-mcp-test/                 # Core bridge package
 - Allows other BLE projects to use the same MCP debugging tools
 - Cleaner separation of concerns (bridge vs observability)
 - Independent versioning for MCP features
+- **Critical operational benefit**: MCP connection stays alive when bridge service restarts
+- Eliminates need to run `/mcp reconnect ble-mcp-test` after every bridge restart
 
 **Technical Challenges**:
 - Shared state management between packages
@@ -89,3 +93,5 @@ const mcpIntegration = createMcpIntegration(bridge);
 - MCP tools can evolve independently
 - Core bridge remains focused on tunneling
 - Easier contribution to MCP ecosystem
+- **Developer workflow improvement**: No more MCP reconnections during active development
+- **Service reliability**: Bridge restarts don't disrupt Claude Code debugging sessions
