@@ -8,6 +8,8 @@ Current code directly accesses private Noble.js internals in 3 locations:
 - `src/noble-transport.ts` lines 338-355: Manual clearing of internal state
 - Multiple instances of type casting `(noble as any)`
 
+**Background Context**: These internal state interventions were experimental attempts to reduce broken zombie connections that left BLE devices inaccessible. However, with much more comprehensive testing and knowledge of past failure patterns, we may be able to achieve the same reliability using only Noble's public API.
+
 This creates fragile dependencies that will break with Noble.js updates.
 
 ## EXAMPLES:
@@ -40,11 +42,18 @@ await noble.resetAsync(); // If this method exists
 
 **Technical Debt Severity**: Medium - won't break immediately but will fail on Noble updates
 
+**Implementation Strategy**:
+1. **Back to Basics Approach**: Start with clean public API implementation
+2. **Comprehensive Testing**: Use existing extensive test suite to validate reliability
+3. **Stress Testing**: Validate that public API alone can maintain device accessibility
+4. **Progressive Fallback**: Keep internal access as temporary fallback if public API proves insufficient
+
 **Implementation Options**:
 1. **Public API Migration**: Replace internal calls with public Noble methods where available
-2. **Upstream Contribution**: Contribute needed methods to Noble.js repository
-3. **Wrapper Layer**: Create abstraction layer that encapsulates Noble interactions
-4. **Fork Maintenance**: Fork Noble.js if upstream doesn't accept contributions
+2. **Stress Test Validation**: Extensively test device accessibility without internal interventions
+3. **Upstream Contribution**: Contribute needed methods to Noble.js repository if public API is insufficient
+4. **Wrapper Layer**: Create abstraction layer that encapsulates Noble interactions
+5. **Fork Maintenance**: Fork Noble.js if upstream doesn't accept contributions (last resort)
 
 **Validation Requirements**:
 - All existing E2E tests must continue to pass
@@ -56,6 +65,12 @@ await noble.resetAsync(); // If this method exists
 - High risk of breaking BLE cleanup if not done carefully
 - May require significant testing with real hardware
 - Could impact connection reliability if Noble behavior changes
+
+**Advantages of Current Context**:
+- **Comprehensive E2E Test Suite**: 22 passing E2E tests validate full connection lifecycle
+- **Known Failure Patterns**: Much better understanding of what historically caused zombie connections
+- **Session Management**: Robust session pooling may reduce need for aggressive cleanup
+- **Stress Testing Capability**: Existing test infrastructure can validate reliability at scale
 
 **Files Affected**:
 - `src/noble-transport.ts` (primary changes)
