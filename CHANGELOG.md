@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Follows CLAUDE.md "DELETE don't deprecate" principle - removed problematic pattern entirely
   - Prevents future zombie connections and resource exhaustion
 
+### Enhanced
+- **simulateNotification Logging**: Added comprehensive console logging for notification simulation debugging
+  - Shows detailed notification dispatch events with characteristic UUID, data length, and hex-formatted data
+  - Confirms successful event dispatch completion
+  - Provides essential visibility for test utilities and debugging scenarios
+
 ### Technical Improvements  
 - Session reuse operates without characteristic refresh - trusts stable BLE connections
 - Enhanced metrics tracking for session reuse monitoring with staleness warnings
