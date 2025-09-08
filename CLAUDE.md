@@ -3,7 +3,7 @@
 ## Primary Purpose & Critical Understanding
 
 ### What This Tool Does
-**This tool enables browser-based E2E tests to control REAL BLE hardware.**
+**This tool enables browser-based E2E tests to control REAL BLE hardware from headless environments.**
 
 This bridge allows Playwright tests to interact with any BLE device through a mocked Web Bluetooth API. Originally developed for CS108 UHF RFID readers, it is fully **device-agnostic** and works with any BLE device that supports GATT services and characteristics.
 
@@ -49,7 +49,7 @@ This bridge allows Playwright tests to interact with any BLE device through a mo
 ### Success Metrics
 1. **Playwright E2E Compatibility** - Each test creates a fresh browser context; our session management must handle this
 2. **Full Path Communication** - Must verify end-to-end: connect + send test request/response through complete chain
-3. **Simplicity** - Target ~500 LOC (guidance, not hard limit)
+3. **Test Reliability** - E2E tests pass consistently in CI/CD environments without BLE hardware
 
 ## Critical Technical Constraints
 
@@ -123,16 +123,17 @@ Never commit directly to main. Use feature branches:
 
 ### Clean Code Principles
 1. DELETE don't deprecate - no .old files or commented code
-2. Target ~100 lines per file (guidance for clarity)
-3. No abstraction layers, managers, or coordinators
+2. Separation of concerns between bridge and observability
+3. Session-based architecture for test reliability
 4. Node.js 24.x required for BLE compatibility
 
-### What NOT to Build
-- ❌ State machines (beyond connected/disconnected)
-- ❌ Reconnection logic in transport
-- ❌ Metrics, monitoring, battery keepalive
-- ❌ Device discovery protocol
-- ❌ Manual connect/disconnect commands
+### Architecture Notes
+The current implementation includes:
+- ✅ Session management for test reliability
+- ✅ Connection pooling to prevent Noble.js degradation
+- ✅ MCP integration for debugging
+- ✅ Connection metrics for health monitoring
+- ⚠️ Noble.js internal state dependencies (technical debt)
 
 ## Operations & Commands
 
@@ -175,4 +176,4 @@ tests/
 The archive contains outdated specifications that will introduce incorrect patterns.
 
 ## Context & History
-This is a complete rewrite. The previous implementation accumulated ~2000 lines of complexity through iterative development without clear architecture. This implementation solves one problem well: enabling browser-based tests to control real BLE hardware.
+This project has evolved from a simple bridge to a comprehensive BLE testing framework. The current implementation solves the core problem: enabling browser-based tests to control real BLE hardware from headless CI/CD environments, with robust session management and debugging capabilities.

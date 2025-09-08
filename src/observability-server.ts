@@ -69,8 +69,7 @@ export class ObservabilityServer {
       const tracker = MetricsTracker.getInstance();
       const metrics = tracker.getMetrics();
       
-      // In simplified version, we don't track hardware zombies
-      // noble.reset() should handle them
+      // Noble.js handles hardware connection recovery
       
       const health = tracker.getHealthReport();
       

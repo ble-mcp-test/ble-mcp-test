@@ -17,8 +17,8 @@ export const WEBSOCKET_CLOSE_CODES = {
 export type WebSocketCloseCode = typeof WEBSOCKET_CLOSE_CODES[keyof typeof WEBSOCKET_CLOSE_CODES];
 
 export const CLOSE_CODE_MESSAGES = {
-  [WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND]: "CS108 device not found - check hardware connection",
-  [WEBSOCKET_CLOSE_CODES.GATT_CONNECTION_FAILED]: "BLE zombie connection detected - restart ble-mcp-test service",
+  [WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND]: "BLE device not found - check hardware connection",
+  [WEBSOCKET_CLOSE_CODES.GATT_CONNECTION_FAILED]: "BLE hardware connection failed - restart ble-mcp-test service",
   [WEBSOCKET_CLOSE_CODES.SERVICE_NOT_FOUND]: "Required BLE service not available on device",
   [WEBSOCKET_CLOSE_CODES.CHARACTERISTICS_NOT_FOUND]: "Required BLE characteristics not found",
   [WEBSOCKET_CLOSE_CODES.BLE_DISCONNECTED]: "BLE device disconnected unexpectedly",
