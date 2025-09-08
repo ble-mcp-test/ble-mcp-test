@@ -120,6 +120,22 @@ class MockBluetoothRemoteGATTCharacteristic {
     }
   }
 
+  dispatchEvent(event: Event): boolean {
+    if (event.type === 'characteristicvaluechanged') {
+      // Extract data from the event structure created by simulateNotification
+      const target = (event as any).target;
+      if (target && target.value) {
+        // Convert DataView to Uint8Array
+        const dataView = target.value as DataView;
+        const data = new Uint8Array(dataView.buffer, dataView.byteOffset, dataView.byteLength);
+        
+        // Use existing notification mechanism
+        this.triggerNotification(data);
+      }
+    }
+    return true; // Event was dispatched
+  }
+
   // Called by the device when transport receives data
   handleTransportMessage(data: Uint8Array): void {
     if (this.notificationHandlers.length > 0) {
