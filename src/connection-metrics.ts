@@ -97,6 +97,18 @@ export class MetricsTracker {
     const count = this.metrics.reconnectionsPerSession.get(sessionId) || 0;
     this.metrics.reconnectionsPerSession.set(sessionId, count + 1);
   }
+
+  recordSessionReuseWithoutRefresh(sessionId: string): void {
+    this.metrics.totalReconnections++;
+    const count = this.metrics.reconnectionsPerSession.get(sessionId) || 0;
+    const newCount = count + 1;
+    this.metrics.reconnectionsPerSession.set(sessionId, newCount);
+    
+    // Log warning if session reused many times (potential staleness)
+    if (newCount > 10) {
+      console.warn(`[Metrics] Session ${sessionId} reused ${newCount} times - monitor for characteristic staleness`);
+    }
+  }
   
   
   // Session tracking

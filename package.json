@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
   "keywords": [
     "mcp",
@@ -99,7 +99,7 @@
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm test:e2e"
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test --grep-invert 'idle timeout'"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.4",

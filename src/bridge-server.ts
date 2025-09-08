@@ -4,6 +4,7 @@ import type { SharedState } from './shared-state.js';
 import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
 import { getPackageMetadata } from './utils.js';
+import { MetricsTracker } from './connection-metrics.js';
 import { 
   WEBSOCKET_CLOSE_CODES, 
   CLOSE_CODE_MESSAGES, 
@@ -123,9 +124,15 @@ export class BridgeServer {
         const status = session.getStatus();
         
         if (status.hasTransport) {
-          // Session has existing transport - reuse it
-          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'}`);
+          // Session has existing transport - reuse it WITHOUT any refresh
+          console.log(`[Bridge] Session ${sessionId} has existing transport, reusing connection to ${status.deviceName || 'unnamed'} without refresh`);
           deviceName = status.deviceName || 'unnamed';
+          
+          // Track session reuse without refresh for monitoring
+          MetricsTracker.getInstance().recordSessionReuseWithoutRefresh(sessionId);
+          
+          // Trust existing characteristic references - no refresh needed or possible
+          console.log(`[Bridge] Trusting existing characteristics for session ${sessionId}`);
         } else {
           // Need to connect
           console.log(`[Bridge] Starting BLE connection for session ${sessionId}`);

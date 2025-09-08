@@ -402,6 +402,7 @@ export class NobleTransport extends EventEmitter {
     }
   }
 
+
   /**
    * Check if connected
    */

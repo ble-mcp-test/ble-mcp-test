@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2025-01-08
+
+### Fixed
+- **Zombie Connection Prevention**: Completely removed `refreshCharacteristics()` method to eliminate subscription accumulation
+  - Removed unsafe `refreshCharacteristics()` from noble-transport.ts that created new Noble objects
+  - Removed session wrapper method from ble-session.ts that enabled problematic calls  
+  - Updated bridge-server.ts to trust existing characteristic references during session reuse
+  - Added `recordSessionReuseWithoutRefresh()` metrics tracking for monitoring
+  - Session reuse now works safely without any refresh mechanism
+  - Follows CLAUDE.md "DELETE don't deprecate" principle - removed problematic pattern entirely
+  - Prevents future zombie connections and resource exhaustion
+
+### Technical Improvements  
+- Session reuse operates without characteristic refresh - trusts stable BLE connections
+- Enhanced metrics tracking for session reuse monitoring with staleness warnings
+- Clean codebase with fundamentally unsafe patterns eliminated
+
 ## [0.7.1] - 2025-01-08
 
 ### Fixed
