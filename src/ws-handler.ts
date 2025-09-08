@@ -45,7 +45,7 @@ export class WebSocketHandler extends EventEmitter {
         // Handle data messages
         if (msg.type === 'data' && msg.data) {
           const data = new Uint8Array(msg.data);
-          this.sharedState?.logPacket('TX', data);
+          this.sharedState?.logPacket('RX', data);
           await this.session.write(data);
         } 
         // Handle force cleanup command
@@ -83,6 +83,7 @@ export class WebSocketHandler extends EventEmitter {
     // Forward BLE data to WebSocket
     const dataHandler = (data: Uint8Array) => {
       if (this.ws.readyState === this.ws.OPEN) {
+        this.sharedState?.logPacket('TX', data);
         this.ws.send(JSON.stringify({ 
           type: 'data', 
           data: Array.from(data) 

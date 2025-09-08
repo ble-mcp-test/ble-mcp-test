@@ -220,40 +220,33 @@ export async function testCommandHelper(page: Page): Promise<boolean> {
 }
 
 /**
- * Test notification simulation - verifies bytes in = bytes out
- * Uses the same connection pattern as testCommand() for consistency
+ * Test notification simulation using REAL mock classes - true end-to-end test
+ * This connects through the actual mock API and tests simulateNotification on real characteristics
  */
 export async function testSimulateNotification(page: Page, testBytes: number[] = [0x01, 0x02, 0x03]): Promise<boolean> {
   return page.evaluate(async ({ config, bytes }) => {
     try {
-      // Create a mock device that doesn't require WebSocket connection
-      // We'll create the characteristic directly and test simulation on it
-      
       const { simulateNotification } = (navigator.bluetooth as any).testing;
       
-      // Create a mock characteristic that implements the event system
-      const mockCharacteristic = {
-        uuid: config.notify,
-        value: new DataView(new ArrayBuffer(0)),
-        listeners: {},
-        addEventListener: function(type: string, listener: Function) {
-          if (!this.listeners[type]) this.listeners[type] = [];
-          this.listeners[type].push(listener);
-        },
-        dispatchEvent: function(event: Event) {
-          const listeners = this.listeners[event.type] || [];
-          listeners.forEach((listener: Function) => listener(event));
-        }
-      };
+      // Connect through the REAL mock API to get a real characteristic
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: [config.service] }]
+      });
       
+      const server = await device.gatt.connect();
+      const service = await server.getPrimaryService(config.service);
+      const notifyChar = await service.getCharacteristic(config.notify);
+      
+      // Set up notification listener on the REAL characteristic
       let receivedData: number[] = [];
-      mockCharacteristic.addEventListener('characteristicvaluechanged', (event: any) => {
+      notifyChar.addEventListener('characteristicvaluechanged', (event: any) => {
         const data = new Uint8Array(event.target.value.buffer);
         receivedData = Array.from(data);
       });
       
+      // Test simulateNotification on the REAL characteristic
       await simulateNotification({
-        characteristic: mockCharacteristic,
+        characteristic: notifyChar,  // Real MockBluetoothRemoteGATTCharacteristic!
         data: new Uint8Array(bytes)
       });
       
@@ -264,6 +257,7 @@ export async function testSimulateNotification(page: Page, testBytes: number[] =
       
       return success;
     } catch (error: any) {
+      console.error('testSimulateNotification error:', error);
       return false;
     }
   }, { config: getBleConfig(), bytes: testBytes });

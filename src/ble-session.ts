@@ -42,7 +42,6 @@ export class BleSession extends EventEmitter {
       
       // Set up transport event handlers
       this.transport.on('data', (data: Uint8Array) => {
-        this.sharedState?.logPacket('RX', data);
         this.emit('data', data);
       });
       

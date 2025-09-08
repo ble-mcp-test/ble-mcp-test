@@ -202,8 +202,13 @@ test('simulated device test', async ({ page }) => {
   // Get characteristic
   const characteristic = await service.getCharacteristic('9901');
   
-  // Simulate device notification
-  characteristic.simulateNotification(new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]));
+  // Use testing API for device notification simulation  
+  const { simulateNotification } = navigator.bluetooth.testing;
+  
+  await simulateNotification({
+    characteristic: characteristic,
+    data: new Uint8Array([0xA7, 0xB3, 0x01, 0xFF])
+  });
   
   // Your test assertions here
 });
