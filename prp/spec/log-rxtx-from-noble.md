@@ -1,7 +1,7 @@
 ## FEATURE:
-Add detailed logging to simulate-notification
-- Write out a console log that simulateNotification was called with characteristic and payload details at the beginning of the simulateNotification method
-- Confirm that the data was pushed and the notification event dispatched at the end of the simulateNotification method
+Move RX/TX logging back to noble-transport
+- Add access to shared logging facility to noble-transport
+- Move 
 
 ## EXAMPLES:
 Suggested Logging for simulateNotification:
