@@ -44,13 +44,12 @@ await device.gatt.connect();              // No-op facade
 ```javascript
 const client = new NodeBleClient({
   sessionId: 'test-session-' + process.env.USER, // REQUIRED
-  bridgeUrl: 'ws://localhost:8080',
-  service: '9800',  // Service UUID for discovery (primary method)
-  write: '9900',
-  notify: '9901',
+  bridgeUrl: process.env.BLE_MCP_WS_URL || 'ws://localhost:8080',
+  service: process.env.BLE_MCP_SERVICE_UUID || '9800',  // Service UUID for discovery (primary method)
+  write: process.env.BLE_MCP_WRITE_UUID || '9900',
+  notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
   // Optional device filtering for multi-device environments:
-  deviceId: process.env.BLE_DEVICE_ID,     // Exact device ID
-  deviceName: process.env.BLE_DEVICE_NAME, // Partial name match
+  deviceId: process.env.BLE_MCP_DEVICE_IDENTIFIER, // Exact device ID
   debug: true
 });
 
@@ -225,7 +224,7 @@ MODIFY examples/node-client-example.js:
   - REMOVE multi-step requestDevice() → gatt.connect() pattern
   - SHOW new single connect() call pattern  
   - ADD required sessionId parameter
-  - CHANGE device parameter to optional deviceId/deviceName
+  - USE correct env var names: BLE_MCP_WS_URL, BLE_MCP_SERVICE_UUID, BLE_MCP_WRITE_UUID, BLE_MCP_NOTIFY_UUID, BLE_MCP_DEVICE_IDENTIFIER
   - PRESERVE existing test command and notification handling
   - ADD error handling examples
 
@@ -300,10 +299,10 @@ describe('NodeBleClient integration', () => {
   it('should connect and execute test command', async () => {
     const client = new NodeBleClient({
       sessionId: 'test-session-' + Date.now(),
-      bridgeUrl: 'ws://localhost:8080',
-      service: '9800',
-      write: '9900',
-      notify: '9901'
+      bridgeUrl: process.env.BLE_MCP_WS_URL || 'ws://localhost:8080',
+      service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+      write: process.env.BLE_MCP_WRITE_UUID || '9900',
+      notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
     });
     
     await client.connect();
@@ -362,10 +361,10 @@ import { NodeBleClient } from '../../src/node/NodeBleClient';
 describe('NodeBleClient', () => {
   it('should require sessionId in constructor', () => {
     expect(() => new NodeBleClient({
-      bridgeUrl: 'ws://localhost:8080',
-      service: '9800',
-      write: '9900', 
-      notify: '9901'
+      bridgeUrl: process.env.BLE_MCP_WS_URL || 'ws://localhost:8080',
+      service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+      write: process.env.BLE_MCP_WRITE_UUID || '9900', 
+      notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
       // Missing sessionId
     })).toThrow('sessionId is required');
   });
@@ -373,7 +372,7 @@ describe('NodeBleClient', () => {
   it('should require service/write/notify parameters', () => {
     expect(() => new NodeBleClient({
       sessionId: 'test',
-      bridgeUrl: 'ws://localhost:8080'
+      bridgeUrl: process.env.BLE_MCP_WS_URL || 'ws://localhost:8080'
       // Missing service, write, notify
     })).toThrow('service, write, and notify parameters are required');
   });
@@ -381,12 +380,12 @@ describe('NodeBleClient', () => {
   it('should accept optional deviceId and deviceName', () => {
     expect(() => new NodeBleClient({
       sessionId: 'test',
-      bridgeUrl: 'ws://localhost:8080',
-      service: '9800',
-      write: '9900',
-      notify: '9901',
-      deviceId: 'AA:BB:CC:DD:EE:FF',
-      deviceName: 'CS108'
+      bridgeUrl: process.env.BLE_MCP_WS_URL || 'ws://localhost:8080',
+      service: process.env.BLE_MCP_SERVICE_UUID || '9800',
+      write: process.env.BLE_MCP_WRITE_UUID || '9900',
+      notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
+      deviceId: process.env.BLE_MCP_DEVICE_IDENTIFIER,
+      debug: true
     })).not.toThrow();
   });
 });
@@ -400,15 +399,12 @@ pnpm run test tests/unit/node-client.test.ts
 
 ### Level 3: Integration Test
 ```bash
-# Ensure bridge server is running
-pnpm run start &
-sleep 2
-
-# Run integration test with real bridge server  
+# Run integration test with real bridge server (should already be running via PM2)
 pnpm run test tests/integration/node-client.test.ts
 
 # Expected: Test connects to bridge and executes test command successfully
 # If error: Check bridge server logs and test output for specific failure
+# Note: If bridge server needs restart, use: pnpm pm2:restart
 ```
 
 ### Level 4: Example Verification
