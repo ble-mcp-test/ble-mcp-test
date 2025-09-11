@@ -9,11 +9,11 @@ export interface BridgeMessage {
 }
 
 export interface BridgeResponse {
-  type: 'connected' | 'disconnected' | 'scan_result' | 'notification' | 'error' | 'ack';
+  type: 'connected' | 'disconnected' | 'scan_result' | 'notification' | 'error' | 'ack' | 'data';
   id?: string;
   device?: string;
   characteristic?: string;
-  data?: string;
+  data?: string | number[];  // Hex string or byte array depending on context
   error?: string;
   devices?: DeviceInfo[];
 }
@@ -25,23 +25,19 @@ export interface DeviceInfo {
 }
 
 export interface NodeBleClientOptions {
-  bridgeUrl: string;
-  device?: string;
-  service?: string;
-  write?: string;
-  notify?: string;
-  sessionId?: string;
+  sessionId: string;              // REQUIRED - consistent with browser mock
+  bridgeUrl: string;             // WebSocket bridge URL
+  service: string;               // Service UUID for discovery (PRIMARY METHOD)
+  write: string;                 // Write characteristic UUID
+  notify: string;                // Notify characteristic UUID
+  deviceId?: string;             // Optional: Exact device ID for filtering
+  deviceName?: string;           // Optional: Partial device name for filtering
   debug?: boolean;
+  timeout?: number;              // Optional: Connection timeout
   reconnectAttempts?: number;
   reconnectDelay?: number;
 }
 
-export interface RequestDeviceOptions {
-  filters?: Array<{
-    namePrefix?: string;
-    services?: string[];
-  }>;
-}
 
 export interface CharacteristicEvent {
   target: {

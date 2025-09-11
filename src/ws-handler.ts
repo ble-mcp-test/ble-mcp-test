@@ -50,11 +50,11 @@ export class WebSocketHandler extends EventEmitter {
         } 
         // Handle force cleanup command
         else if (msg.type === 'force_cleanup') {
-          await this.handleForceCleanup(msg);
+          await this.handleForceCleanup();
         }
         // Handle session cleanup command (for tests)
         else if (msg.type === 'cleanup_session') {
-          await this.handleSessionCleanup(msg);
+          await this.handleSessionCleanup();
         }
         // Handle admin cleanup command
         else if (msg.type === 'admin_cleanup') {
@@ -106,7 +106,7 @@ export class WebSocketHandler extends EventEmitter {
     }
   }
 
-  private async handleSessionCleanup(_msg: WSMessage): Promise<void> {
+  private async handleSessionCleanup(): Promise<void> {
     try {
       // Clean up the current session (including transport)
       await this.session.cleanup('session cleanup requested');
@@ -140,7 +140,7 @@ export class WebSocketHandler extends EventEmitter {
     }
   }
 
-  private async handleForceCleanup(_msg: WSMessage): Promise<void> {
+  private async handleForceCleanup(): Promise<void> {
     try {
       // Send warning about broken force cleanup
       if (this.ws.readyState === this.ws.OPEN) {
