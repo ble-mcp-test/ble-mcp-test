@@ -24,8 +24,30 @@ Template optimized for AI agents to implement TypeScript/Node.js features with s
 ## What
 [User-visible behavior and technical requirements]
 
-### Success Criteria
-- [ ] [Specific measurable outcomes]
+### Validation Gates (MANDATORY SEQUENCE - NO EXCEPTIONS)
+
+> **ENFORCEMENT**: Each gate MUST pass before proceeding to the next. No bypassing, no "tech debt" deferrals, no excuses.
+> Gates must be completed sequentially - Gate N+1 cannot begin until Gate N passes completely.
+
+**🚪 Gate 1: [Name] - [Objective]**
+- **Validation Commands**: `command that must succeed`
+- **Pass Criteria**: [Specific, measurable outcome]
+- **Failure Action**: [What to do if gate fails]
+- **Blocker**: Cannot proceed to Gate 2 until this passes
+
+**🚪 Gate 2: [Name] - [Objective]**  
+- **Validation Commands**: `command that must succeed`
+- **Pass Criteria**: [Specific, measurable outcome]
+- **Failure Action**: [What to do if gate fails]
+- **Dependencies**: Gate 1 must pass first
+- **Blocker**: Cannot proceed to Gate 3 until this passes
+
+**🚪 Gate 3: [Name] - [Objective]**
+- **Validation Commands**: `command that must succeed`
+- **Pass Criteria**: [Specific, measurable outcome]  
+- **Failure Action**: [What to do if gate fails]
+- **Dependencies**: Gates 1 and 2 must pass first
+- **Blocker**: Cannot claim completion until this passes
 
 ## All Needed Context
 
@@ -146,33 +168,42 @@ ROUTES:
   - pattern: "router.use('/feature', featureRouter);"
 ```
 
-## Validation Loop
+## Gate Implementation Examples
 
-### Level 1: Syntax & Style
+### Standard TypeScript/Node.js Gate Patterns
+
+**🚪 Syntax and Type Safety Gate Template:**
 ```bash
-# Run these FIRST - fix any errors before proceeding
-pnpm run lint              # ESLint with auto-fix
-pnpm run typecheck         # TypeScript type checking
-
-# Expected: No errors. If errors, READ the error and fix.
+# MANDATORY - Must return exit code 0
+pnpm run typecheck && pnpm run lint
 ```
+**Pass Criteria**: Zero TypeScript errors, zero ESLint errors
+**Common Failures**: Missing imports, type mismatches, unused variables
+**Fix Strategy**: Address each error individually, never suppress warnings
 
-### Level 2: Unit Tests each new feature/file/function use existing test patterns
+**🚪 Unit Test Coverage Gate Template:**
+```bash
+# MANDATORY - All tests must pass
+pnpm run test [specific-test-file]
+```
+**Pass Criteria**: 100% test pass rate + specific validations confirmed
+**Test Pattern Example**:
 ```typescript
-// CREATE new_feature.test.ts with these test cases:
+// CREATE feature.test.ts following this pattern:
 import { describe, it, expect, vi } from 'vitest';
 
 describe('newFeature', () => {
-    it('should handle happy path', async () => {
+    it('should handle valid input', async () => {
         const result = await newFeature('valid_input');
         expect(result.status).toBe('success');
     });
 
-    it('should throw ValidationError for invalid input', async () => {
-        await expect(newFeature('')).rejects.toThrow(ValidationError);
+    it('should reject invalid input', async () => {
+        await expect(newFeature('')).rejects.toThrow('ValidationError');
     });
 
-    it('should handle external API timeout gracefully', async () => {
+    it('should handle timeout gracefully', async () => {
+        // Mock timeout scenario
         vi.mock('./external-api', () => ({
             call: vi.fn().mockRejectedValue(new Error('Timeout'))
         }));
@@ -184,36 +215,68 @@ describe('newFeature', () => {
 });
 ```
 
+**🚪 Integration Test Gate Template:**
 ```bash
-# Run and iterate until passing:
-pnpm run test new_feature.test.ts
-# If failing: Read error, understand root cause, fix code, re-run (never mock to pass)
-```
-
-### Level 3: Integration Test
-```bash
-# Build and start the service
-pnpm run build
-pnpm run start
-
-# Test the endpoint
+# MANDATORY - End-to-end functionality must work
+pnpm run build && pnpm run start
+# Test real functionality:
 curl -X POST http://localhost:3000/feature \
   -H "Content-Type: application/json" \
   -d '{"param": "test_value"}'
+```
+**Pass Criteria**: Real requests succeed with expected responses
+**Common Failures**: Port conflicts, missing environment variables, database connections
+**Fix Strategy**: Debug step-by-step, check logs, verify all dependencies
 
-# Expected: {"status": "success", "data": {...}}
-# If error: Check console output for stack trace
+## Gate Execution Rules
+
+1. **Sequential Execution**: Gates must be completed in numerical order
+2. **No Skipping**: Cannot proceed to Gate N+1 until Gate N passes completely  
+3. **No Deferrals**: Cannot mark gates as "tech debt" or "will fix later"
+4. **Evidence Required**: Each gate must produce verifiable pass/fail result
+5. **Iterative Fixing**: If gate fails, fix issues and re-run until it passes
+6. **No Bypass Mechanisms**: No "good enough" exceptions allowed
+
+## Regression Protection Guidelines
+
+### Gate Design Principles (Minimize Regression Risk)
+
+**Order Gates by Stability (Most Stable First):**
+1. **Syntax/Compilation**: Changes here rarely break other gates
+2. **Unit Tests**: Isolated, less likely to cause regressions  
+3. **Integration Tests**: Complex, changes here often break earlier gates
+4. **End-to-End Tests**: Most complex, highest regression risk
+
+**Stable Validation Commands:**
+- Use commands that test isolated behavior: `pnpm run typecheck`
+- Avoid commands dependent on external state: `curl localhost:3000` (port conflicts)
+- Prefer deterministic outputs: specific error messages, exit codes
+- Test single responsibility: one concept per gate
+
+**Unstable Validation Commands (Avoid):**
+- Commands requiring complex setup: database connections, external services
+- Time-dependent tests: race conditions, timeouts
+- Environment-dependent: hard-coded paths, system-specific behavior
+
+### Change Impact Assessment Template
+
+**Include this assessment for each gate:**
+```markdown
+**🚪 Gate N: [Name]**
+- **Files Tested**: [List specific files this gate validates]
+- **Regression Risk**: LOW/MEDIUM/HIGH 
+- **Dependencies**: [Which earlier gates could be affected by changes to fix this gate]
+- **Minimal Fix Strategy**: [How to fix failures with smallest possible change]
 ```
 
-## Final validation Checklist
-- [ ] All tests pass: `pnpm run test`
-- [ ] No linting errors: `pnpm run lint`
-- [ ] No type errors: `pnpm run typecheck`
-- [ ] Build succeeds: `pnpm run build`
-- [ ] Manual test successful: [specific curl/command]
-- [ ] Error cases handled gracefully
-- [ ] Logs are informative but not verbose
-- [ ] Documentation updated if needed
+**Example:**
+```markdown
+**🚪 Gate 2: Unit Test Coverage**
+- **Files Tested**: src/node/NodeBleClient.ts, src/node/types.ts
+- **Regression Risk**: MEDIUM (constructor changes could affect syntax)
+- **Dependencies**: Gate 1 (TypeScript compilation) could break if types change
+- **Minimal Fix Strategy**: Add tests for missing scenarios, fix one failing test at a time
+```
 
 ---
 
@@ -225,3 +288,10 @@ curl -X POST http://localhost:3000/feature \
 - ❌ Don't hardcode values that should be config
 - ❌ Don't catch all exceptions - be specific
 - ❌ Don't use npm/npx - always use pnpm
+
+### Regression-Specific Anti-Patterns
+- ❌ Don't skip regression runs after code changes - always re-run ALL gates
+- ❌ Don't make large changes to fix single gate failures - use minimal fixes
+- ❌ Don't continue past 3 regression cycles - escalate and reassess approach
+- ❌ Don't "refactor while you're there" during gate execution - focus only on gate requirements
+- ❌ Don't ignore git checkpoints - create commits after each gate passes

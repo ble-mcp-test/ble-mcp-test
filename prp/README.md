@@ -118,9 +118,11 @@ Once a feature is successfully implemented:
 A well-written PRP should:
 - Enable one-pass implementation (9/10 confidence)
 - Include all necessary context inline
-- Provide clear validation steps
+- Use **Validation Gates** instead of optional success criteria
+- Provide executable validation commands with objective pass/fail criteria
 - Reference existing patterns
 - Handle error cases explicitly
+- Enforce sequential gate completion with no bypass mechanisms
 
 ## Best Practices
 
@@ -220,7 +222,8 @@ pnpm run typecheck    # Check TypeScript types
 
 1. Read a few example PRPs in `prp/prompt/`
 2. Review the template at `prp/template/prp_base.md`
-3. Write your first spec using `prp/spec/template.md`
-4. Generate and execute your PRP
+3. **Read validation gates example** at `prp/example/validation-gates-example.md` to understand the enforcement approach
+4. Write your first spec using `prp/spec/template.md`
+5. Generate and execute your PRP with validation gates
 
-Remember: The goal is **one-pass implementation success** through comprehensive context!
+Remember: The goal is **one-pass implementation success** through comprehensive context and mandatory validation gates!
