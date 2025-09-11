@@ -39,7 +39,9 @@ export class NodeBleCharacteristic extends EventEmitter {
 
     // Convert hex data to DataView
     if (response.data) {
-      const bytes = this.hexToBytes(response.data);
+      const bytes = typeof response.data === 'string' 
+        ? this.hexToBytes(response.data)
+        : response.data;
       const buffer = new ArrayBuffer(bytes.length);
       const view = new DataView(buffer);
       bytes.forEach((byte, index) => {

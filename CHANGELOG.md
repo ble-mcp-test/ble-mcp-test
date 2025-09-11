@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2025-01-11
+
+### Added
+- **NodeBleClient API**: Clean, Node.js-appropriate BLE client implementation
+  - Direct `writeValue(data: Uint8Array)` method for command sending
+  - Direct `onNotification(handler)` method for response handling  
+  - **NEW: `sendCommandAsync(command, timeout)` method for request/response pattern**
+  - Single `connect()` call establishes full BLE connection
+  - Service-UUID based discovery (reliable, fast)
+  - Optional device filtering via `deviceId`/`deviceName`
+  - Required `sessionId` parameter for session management
+  - Comprehensive integration and unit test coverage
+
+### Usage
+```javascript
+const client = new NodeBleClient({
+  sessionId: 'my-session',
+  bridgeUrl: 'ws://localhost:8080',
+  service: '9800',
+  write: '9900',
+  notify: '9901'
+});
+
+await client.connect();
+
+// Simple request/response pattern (recommended)
+const response = await client.sendCommandAsync(commandBytes);
+
+// Or manual notification handling for ongoing device events
+client.onNotification((data) => console.log('Response:', data));
+await client.writeValue(commandBytes);
+```
+
+### Performance
+- Service-UUID discovery leverages Noble's native capabilities 
+- Natural device timing eliminates need for artificial delays
+- Validated: 1000+ consecutive commands at 23/second sustained rate
+
 ## [0.7.2] - 2025-01-08
 
 ### Fixed

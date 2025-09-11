@@ -195,6 +195,175 @@ This is useful for:
 - Simulating specific device states or error conditions
 - Testing while the real device is performing other operations
 
+## Node.js API
+
+### NodeBleClient
+
+A clean, Node.js BLE client that communicates with real BLE devices through the bridge server. 
+
+#### Constructor
+
+```typescript
+import { NodeBleClient } from 'ble-mcp-test/node';
+
+const client = new NodeBleClient(options: NodeBleClientOptions);
+```
+
+#### Options Interface
+
+```typescript
+interface NodeBleClientOptions {
+  sessionId: string;              // REQUIRED - unique session identifier
+  bridgeUrl: string;              // REQUIRED - WebSocket bridge URL
+  service: string;                // REQUIRED - Service UUID for discovery
+  write: string;                  // REQUIRED - Write characteristic UUID
+  notify: string;                 // REQUIRED - Notify characteristic UUID
+  deviceId?: string;              // OPTIONAL - Exact device ID for filtering
+  deviceName?: string;            // OPTIONAL - Partial device name for filtering
+  debug?: boolean;                // OPTIONAL - Enable debug logging
+  timeout?: number;               // OPTIONAL - Connection timeout
+  reconnectAttempts?: number;     // OPTIONAL - Number of reconnection attempts (default: 3)
+  reconnectDelay?: number;        // OPTIONAL - Initial reconnection delay in ms (default: 1000)
+}
+```
+
+#### Basic Usage
+
+```javascript
+import { NodeBleClient } from 'ble-mcp-test/node';
+import os from 'os';
+
+// Create client with required parameters
+const client = new NodeBleClient({
+  sessionId: `my-app-${os.hostname()}`,         // REQUIRED - prevents session conflicts
+  bridgeUrl: 'ws://localhost:8080',             // REQUIRED - bridge server URL
+  service: '9800',                              // REQUIRED - primary service UUID
+  write: '9900',                                // REQUIRED - write characteristic
+  notify: '9901',                               // REQUIRED - notify characteristic
+  debug: true
+});
+
+// Connect to bridge and BLE device in one call
+await client.connect();
+
+// Option 1: Simple request/response pattern (recommended)
+const command = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+const response = await client.sendCommandAsync(command);
+console.log('Response:', Array.from(response).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+// Option 2: Manual notification handling for ongoing device events
+client.onNotification((data) => {
+  console.log('Device notification:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+});
+await client.writeValue(command);
+
+// Cleanup
+await client.disconnect();
+```
+
+#### Device Filtering (Optional)
+
+For environments with multiple BLE devices:
+
+```javascript
+// Filter by exact device ID
+const client = new NodeBleClient({
+  sessionId: 'device-farm-session',
+  bridgeUrl: 'ws://device-farm:8080',
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  deviceId: '6c79b82603a7'  // Connect to specific device
+});
+
+// Filter by device name (partial match)
+const client = new NodeBleClient({
+  sessionId: 'lab-session',
+  bridgeUrl: 'ws://localhost:8080',
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  deviceName: 'Test Device'  // Matches any device containing "Test Device"
+});
+```
+
+#### Methods
+
+**`async connect(): Promise<void>`**
+- Establishes WebSocket connection to bridge and connects to BLE device
+- Single call replaces multi-step Web Bluetooth ceremony
+- Throws error if connection fails or times out
+
+**`async writeValue(data: Uint8Array): Promise<void>`**
+- Sends data directly to the BLE device's write characteristic
+- Throws error if not connected or write fails
+- No need to get characteristic objects
+
+**`onNotification(handler: (data: Uint8Array) => void): void`**
+- Sets up notification handler for incoming BLE data
+- Handler receives raw Uint8Array data from device
+- Replaces characteristic.addEventListener pattern
+
+**`async sendCommandAsync(command: Uint8Array, timeoutMs?: number): Promise<Uint8Array>`**
+- **NEW**: Combined send-command-and-wait-for-response method
+- Sends command to device and awaits single response notification
+- Returns device response as Uint8Array
+- Default timeout: 5000ms (configurable)
+- Ideal for request/response patterns (recommended approach)
+- Temporarily overrides notification handler during command execution
+
+**`async disconnect(): Promise<void>`**
+- Cleanly disconnects from BLE device and closes WebSocket
+- Safe to call multiple times
+
+**`async destroy(): Promise<void>`**
+- Performs disconnect and removes all event listeners
+- Call when permanently done with client
+
+**`isConnected(): boolean`**
+- Returns true if both WebSocket and BLE connections are active
+
+**`getSessionId(): string`**
+- Returns the session ID used for this client
+
+**`getAvailability(): Promise<boolean>`**
+- Always returns true (bridge makes BLE available)
+
+#### Error Handling
+
+The client throws descriptive errors for common issues:
+
+```javascript
+try {
+  const client = new NodeBleClient({
+    // Missing sessionId
+    bridgeUrl: 'ws://localhost:8080',
+    service: '9800',
+    write: '9900',
+    notify: '9901'
+  });
+} catch (error) {
+  // Error: sessionId is required - this prevents session conflicts and ensures predictable BLE connection management
+}
+
+try {
+  await client.writeValue(data);
+} catch (error) {
+  if (error.message.includes('Client not connected')) {
+    console.log('Need to call connect() first');
+  } else if (error.message.includes('Connection timeout')) {
+    console.log('Bridge server may not be running');
+  }
+}
+```
+
+#### API Features
+
+- **Service-UUID Discovery**: Fast, reliable device connection using service UUIDs
+- **Single Connect**: One call establishes complete WebSocket + BLE connection  
+- **Session Management**: Required `sessionId` prevents connection conflicts
+- **Optional Filtering**: Filter by exact `deviceId` or partial `deviceName` when needed
+
 ## MCP HTTP Endpoints
 
 When running with HTTP transport (`pnpm start:http` or `--mcp-http`), the following endpoints are available:

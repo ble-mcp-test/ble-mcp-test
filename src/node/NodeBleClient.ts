@@ -3,36 +3,36 @@ import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
 import type { 
   NodeBleClientOptions, 
-  BridgeResponse, 
-  RequestDeviceOptions 
+  BridgeResponse
 } from './types.js';
-import { NodeBleDevice } from './NodeBleDevice.js';
 import { getPackageMetadata } from '../utils.js';
 
 export class NodeBleClient extends EventEmitter {
   private ws: WebSocket | null = null;
-  private options: Required<NodeBleClientOptions>;
-  private devices: Map<string, NodeBleDevice> = new Map();
+  private options: NodeBleClientOptions;
   private connected: boolean = false;
   private reconnectCount: number = 0;
   private connectionToken?: string;
   private messageHandlers: Map<string, (response: BridgeResponse) => void> = new Map();
-  private currentDevice?: NodeBleDevice;
+  private notificationHandler?: (data: Uint8Array) => void;
 
   constructor(options: NodeBleClientOptions) {
     super();
     
-    // Set default options
+    // VALIDATION: Throw early for missing required parameters
+    if (!options.sessionId) {
+      throw new Error('sessionId is required - this prevents session conflicts and ensures predictable BLE connection management');
+    }
+    if (!options.service || !options.write || !options.notify) {
+      throw new Error('service, write, and notify parameters are required');
+    }
+    
+    // Set options with defaults
     this.options = {
-      bridgeUrl: options.bridgeUrl,
-      device: options.device || '',
-      service: options.service || '',
-      write: options.write || '',
-      notify: options.notify || '',
-      sessionId: options.sessionId || randomUUID(),
-      debug: options.debug || false,
-      reconnectAttempts: options.reconnectAttempts || 3,
-      reconnectDelay: options.reconnectDelay || 1000
+      ...options,
+      debug: options.debug ?? false,
+      reconnectAttempts: options.reconnectAttempts ?? 3,
+      reconnectDelay: options.reconnectDelay ?? 1000
     };
   }
 
@@ -41,49 +41,65 @@ export class NodeBleClient extends EventEmitter {
     return true;
   }
 
-  async requestDevice(options?: RequestDeviceOptions): Promise<NodeBleDevice> {
+  // NEW: Direct write method (no GATT ceremony) - uses same pattern as E2E tests
+  async writeValue(data: Uint8Array): Promise<void> {
     if (!this.connected) {
       throw new Error('Client not connected to bridge');
     }
 
-    // Extract device name from filters if provided
-    let deviceName = this.options.device;
-    if (options?.filters) {
-      for (const filter of options.filters) {
-        if (filter.namePrefix) {
-          deviceName = filter.namePrefix;
-          break;
-        }
-      }
-    }
-
-    // Create or get existing device
-    const deviceId = deviceName || 'default-device';
-    let device = this.devices.get(deviceId);
+    // Use the same 'data' message type as E2E tests (bridge only handles type: 'data')
+    this.sendData(data);
     
-    if (!device) {
-      device = new NodeBleDevice(
-        deviceId,
-        deviceName || null,
-        this
-      );
-      this.devices.set(deviceId, device);
-    }
-
-    this.currentDevice = device;
-    return device;
+    // For now, this is fire-and-forget like the E2E tests
+    // The bridge doesn't send ACKs for data messages
   }
 
-  async getDevices(): Promise<NodeBleDevice[]> {
-    // Return all known devices
-    return Array.from(this.devices.values());
+  // NEW: Direct notification setup (no characteristic object needed)
+  onNotification(handler: (data: Uint8Array) => void): void {
+    this.notificationHandler = handler;
+  }
+
+  // NEW: Async request/response pattern for command + wait for response
+  async sendCommandAsync(command: Uint8Array, timeoutMs: number = 5000): Promise<Uint8Array> {
+    if (!this.connected) {
+      throw new Error('Client not connected to bridge');
+    }
+
+    return new Promise((resolve, reject) => {
+      let responseReceived = false;
+      const timeout = setTimeout(() => {
+        if (!responseReceived) {
+          reject(new Error('Command timeout'));
+        }
+      }, timeoutMs);
+
+      // Set up one-time notification handler
+      const originalHandler = this.notificationHandler;
+      this.notificationHandler = (data: Uint8Array) => {
+        if (responseReceived) return; // Prevent multiple responses
+        responseReceived = true;
+        clearTimeout(timeout);
+        
+        // Restore original handler
+        this.notificationHandler = originalHandler;
+        
+        resolve(data);
+      };
+
+      // Send command
+      this.writeValue(command).catch((error) => {
+        clearTimeout(timeout);
+        this.notificationHandler = originalHandler; // Restore on error
+        reject(error);
+      });
+    });
   }
 
   async connect(): Promise<void> {
     let lastError: Error | null = null;
-    let retryDelay = this.options.reconnectDelay;
+    let retryDelay = this.options.reconnectDelay!; // Will always be set by constructor
 
-    for (let attempt = 1; attempt <= this.options.reconnectAttempts; attempt++) {
+    for (let attempt = 1; attempt <= this.options.reconnectAttempts!; attempt++) {
       try {
         await this.connectInternal();
         
@@ -107,9 +123,9 @@ export class NodeBleClient extends EventEmitter {
           error.message?.includes(msg)
         );
 
-        if (isRetryable && attempt < this.options.reconnectAttempts) {
+        if (isRetryable && attempt < this.options.reconnectAttempts!) {
           if (this.options.debug) {
-            console.log(`[NodeBleClient] Bridge busy (${error.message}), retry ${attempt}/${this.options.reconnectAttempts} in ${retryDelay}ms...`);
+            console.log(`[NodeBleClient] Bridge busy (${error.message}), retry ${attempt}/${this.options.reconnectAttempts!} in ${retryDelay}ms...`);
           }
 
           await new Promise(resolve => setTimeout(resolve, retryDelay));
@@ -137,10 +153,11 @@ export class NodeBleClient extends EventEmitter {
     const url = new URL(this.options.bridgeUrl);
     
     // Add BLE configuration parameters
-    if (this.options.device) url.searchParams.set('device', this.options.device);
-    if (this.options.service) url.searchParams.set('service', this.options.service);
-    if (this.options.write) url.searchParams.set('write', this.options.write);
-    if (this.options.notify) url.searchParams.set('notify', this.options.notify);
+    if (this.options.deviceId) url.searchParams.set('deviceId', this.options.deviceId);
+    if (this.options.deviceName) url.searchParams.set('deviceName', this.options.deviceName);
+    url.searchParams.set('service', this.options.service);
+    url.searchParams.set('write', this.options.write);
+    url.searchParams.set('notify', this.options.notify);
     
     // Map sessionId to session parameter (critical for bridge compatibility)
     url.searchParams.set('session', this.options.sessionId);
@@ -209,11 +226,6 @@ export class NodeBleClient extends EventEmitter {
         this.connected = false;
         this.ws = null;
         this.emit('disconnect');
-        
-        // Notify all devices of disconnection
-        this.devices.forEach(device => {
-          device.handleDisconnect();
-        });
       });
     });
   }
@@ -239,11 +251,15 @@ export class NodeBleClient extends EventEmitter {
           return;
         }
 
-        // Handle notifications
-        if (msg.type === 'notification' && msg.data) {
-          // Forward to current device
-          if (this.currentDevice) {
-            this.currentDevice.handleNotification(msg.characteristic || '', msg.data);
+        // Handle data messages (notifications from device) - same pattern as E2E tests
+        if (msg.type === 'data' && msg.data) {
+          // Forward to notification handler if set
+          if (this.notificationHandler && msg.data) {
+            // Convert data back to Uint8Array - handle both string and number[] formats
+            const data = Array.isArray(msg.data) 
+              ? new Uint8Array(msg.data)
+              : new Uint8Array([]); // Fallback for string format
+            this.notificationHandler(data);
           }
         } else if (msg.type === 'disconnected') {
           // Handle unexpected disconnection
@@ -315,18 +331,11 @@ export class NodeBleClient extends EventEmitter {
   async destroy(): Promise<void> {
     await this.disconnect();
     this.removeAllListeners();
-    this.devices.clear();
   }
 
   private handleDisconnect(): void {
     this.connected = false;
     this.ws = null;
-    
-    // Notify all devices
-    this.devices.forEach(device => {
-      device.handleDisconnect();
-    });
-    
     this.emit('disconnect');
   }
 

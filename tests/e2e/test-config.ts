@@ -1,27 +1,14 @@
 import * as dotenv from 'dotenv';
-import os from 'os';
+import { SHARED_TEST_CONFIG } from '../shared/test-config.js';
 
 // Load environment variables
 dotenv.config({ path: '.env.local' });
 
-// Shared E2E test configuration
+// E2E test configuration extends shared config
 export const E2E_TEST_CONFIG = {
-  // Fixed session ID for all E2E tests - ensures session reuse works across test runs
-  // Include hostname for better debugging
-  sessionId: `ble-mcp-e2e-${os.hostname()}`,  // e.g., "ble-mcp-e2e-macbook-pro"
-  
-  // BLE device configuration from environment
-  // Don't specify a device by default - let it connect to any device with the service
-  device: process.env.BLE_MCP_DEVICE_IDENTIFIER || undefined,
-  service: process.env.BLE_MCP_SERVICE_UUID || '9800',
-  write: process.env.BLE_MCP_WRITE_UUID || '9900',
-  notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
-  
-  // WebSocket server URL
-  wsUrl: process.env.BLE_WEBSOCKET_URL || 'ws://localhost:8080',
-  
-  // Test timeout
-  timeout: 30000
+  ...SHARED_TEST_CONFIG,
+  // E2E-specific: Optional device ID for filtering (shared config has this in DEVICE_FILTERS)
+  device: process.env.BLE_MCP_DEVICE_IDENTIFIER || undefined
 };
 
 // Helper to get BLE config object for navigator.bluetooth mock (NEW API)
@@ -155,15 +142,10 @@ export async function injectMockInPage(
 
 
 // ============================================================================
-// Device-Specific Test Commands - Isolated for Easy Device Swapping
+// Device-Specific Test Commands - Single Source of Truth
 // ============================================================================
 
-// Device-specific details isolated at the top
-const TEST_COMMAND_BYTES = [0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x01];
-const TEST_RESPONSE_VALIDATION = {
-  expectedLength: 11,
-  expectedBytes: { 8: 0xA0, 9: 0x01, 10: 0x00 }
-};
+import { TEST_COMMAND_BYTES, TEST_RESPONSE_VALIDATION } from '../shared/device-commands.js';
 
 // Test result interface for consistency
 export interface TestResult {
@@ -214,7 +196,7 @@ export async function testCommandHelper(page: Page): Promise<boolean> {
       return false;
     }
   }, { 
-    commandBytes: TEST_COMMAND_BYTES,
+    commandBytes: Array.from(TEST_COMMAND_BYTES),
     validation: TEST_RESPONSE_VALIDATION
   });
 }

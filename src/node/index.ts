@@ -6,7 +6,6 @@ export { NodeBleCharacteristic } from './NodeBleCharacteristic.js';
 
 export type { 
   NodeBleClientOptions,
-  RequestDeviceOptions,
   BridgeMessage,
   BridgeResponse,
   DeviceInfo,
