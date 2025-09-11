@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **NodeBleClient API**: Clean, Node.js-appropriate BLE client implementation
   - Direct `writeValue(data: Uint8Array)` method for command sending
   - Direct `onNotification(handler)` method for response handling  
+  - **NEW: `sendCommandAsync(command, timeout)` method for request/response pattern**
   - Single `connect()` call establishes full BLE connection
   - Service-UUID based discovery (reliable, fast)
   - Optional device filtering via `deviceId`/`deviceName`
@@ -28,6 +29,11 @@ const client = new NodeBleClient({
 });
 
 await client.connect();
+
+// Simple request/response pattern (recommended)
+const response = await client.sendCommandAsync(commandBytes);
+
+// Or manual notification handling for ongoing device events
 client.onNotification((data) => console.log('Response:', data));
 await client.writeValue(commandBytes);
 ```

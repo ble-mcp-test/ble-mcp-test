@@ -246,13 +246,15 @@ const client = new NodeBleClient({
 // Connect to bridge and BLE device in one call
 await client.connect();
 
-// Set up notification handler
-client.onNotification((data) => {
-  console.log('Received:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
-});
-
-// Send command to device
+// Option 1: Simple request/response pattern (recommended)
 const command = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+const response = await client.sendCommandAsync(command);
+console.log('Response:', Array.from(response).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+// Option 2: Manual notification handling for ongoing device events
+client.onNotification((data) => {
+  console.log('Device notification:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+});
 await client.writeValue(command);
 
 // Cleanup
@@ -301,6 +303,14 @@ const client = new NodeBleClient({
 - Sets up notification handler for incoming BLE data
 - Handler receives raw Uint8Array data from device
 - Replaces characteristic.addEventListener pattern
+
+**`async sendCommandAsync(command: Uint8Array, timeoutMs?: number): Promise<Uint8Array>`**
+- **NEW**: Combined send-command-and-wait-for-response method
+- Sends command to device and awaits single response notification
+- Returns device response as Uint8Array
+- Default timeout: 5000ms (configurable)
+- Ideal for request/response patterns (recommended approach)
+- Temporarily overrides notification handler during command execution
 
 **`async disconnect(): Promise<void>`**
 - Cleanly disconnects from BLE device and closes WebSocket

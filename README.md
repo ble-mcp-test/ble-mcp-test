@@ -276,44 +276,30 @@ import { NodeBleClient } from 'ble-mcp-test/node';
 
 // Create client instance
 const client = new NodeBleClient({
-  bridgeUrl: 'ws://localhost:8080',
-  device: 'CS108',        // Optional: specific device name
-  service: '9800',        // Required: service UUID
-  write: '9900',          // Required: write characteristic UUID
-  notify: '9901',         // Required: notify characteristic UUID
-  sessionId: `myapp-node-${os.hostname()}`,  // Include app name and hostname
-  debug: true             // Optional: enable debug logging
+  sessionId: `myapp-node-${os.hostname()}`,  // Required: prevents session conflicts
+  bridgeUrl: 'ws://localhost:8080',          // Required: bridge server URL
+  service: '9800',                           // Required: service UUID for discovery
+  write: '9900',                             // Required: write characteristic UUID
+  notify: '9901',                            // Required: notify characteristic UUID
+  deviceName: 'CS108',                       // Optional: device name filter
+  debug: true                                // Optional: enable debug logging
 });
 
-// Connect to bridge
+// Single connect() call establishes full BLE connection
 await client.connect();
 
-// Request device (Web Bluetooth API compatible)
-const device = await client.requestDevice({
-  filters: [{ namePrefix: 'CS108' }]
-});
-
-// Connect GATT
-await device.gatt.connect();
-
-// Get service and characteristics
-const service = await device.gatt.getPrimaryService('9800');
-const writeChar = await service.getCharacteristic('9900');
-const notifyChar = await service.getCharacteristic('9901');
-
-// Start notifications
-await notifyChar.startNotifications();
-notifyChar.addEventListener('characteristicvaluechanged', (event) => {
-  const value = event.target.value;
-  console.log('Received:', new Uint8Array(value.buffer));
-});
-
-// Write command
+// Option 1: Simple request/response pattern (recommended)
 const command = new Uint8Array([0xA7, 0xB3, 0xC2, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x00]);
-await writeChar.writeValue(command);
+const response = await client.sendCommandAsync(command);
+console.log('Device response:', Array.from(response).map(b => b.toString(16).padStart(2, '0')).join(' '));
+
+// Option 2: Persistent notification handler for ongoing device events
+client.onNotification((data) => {
+  console.log('Device notification:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+});
+await client.writeValue(command);
 
 // Cleanup
-await device.gatt.disconnect();
 await client.disconnect();
 ```
 
@@ -338,41 +324,26 @@ import { NodeBleClient } from 'ble-mcp-test/node';
 
 describe('BLE Device Integration', () => {
   let client;
-  let device;
 
   beforeAll(async () => {
     client = new NodeBleClient({
+      sessionId: `integration-test-${os.hostname()}`,
       bridgeUrl: 'ws://localhost:8080',
       service: '9800',
       write: '9900',
       notify: '9901'
     });
     await client.connect();
-    device = await client.requestDevice();
-    await device.gatt.connect();
   });
 
   afterAll(async () => {
-    await device?.gatt.disconnect();
     await client?.disconnect();
   });
 
   it('should read battery voltage', async () => {
-    const service = await device.gatt.getPrimaryService('9800');
-    const writeChar = await service.getCharacteristic('9900');
-    const notifyChar = await service.getCharacteristic('9901');
-
-    await notifyChar.startNotifications();
-    
-    const response = await new Promise((resolve) => {
-      notifyChar.once('characteristicvaluechanged', (event) => {
-        resolve(new Uint8Array(event.target.value.buffer));
-      });
-      
-      // Send battery voltage command
-      const cmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
-      writeChar.writeValue(cmd);
-    });
+    // Send battery voltage command using simplified API
+    const cmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
+    const response = await client.sendCommandAsync(cmd);
 
     // Verify response format
     expect(response[8]).toBe(0xA0);  // Command echo

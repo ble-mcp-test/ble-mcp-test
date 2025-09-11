@@ -59,6 +59,42 @@ export class NodeBleClient extends EventEmitter {
     this.notificationHandler = handler;
   }
 
+  // NEW: Async request/response pattern for command + wait for response
+  async sendCommandAsync(command: Uint8Array, timeoutMs: number = 5000): Promise<Uint8Array> {
+    if (!this.connected) {
+      throw new Error('Client not connected to bridge');
+    }
+
+    return new Promise((resolve, reject) => {
+      let responseReceived = false;
+      const timeout = setTimeout(() => {
+        if (!responseReceived) {
+          reject(new Error('Command timeout'));
+        }
+      }, timeoutMs);
+
+      // Set up one-time notification handler
+      const originalHandler = this.notificationHandler;
+      this.notificationHandler = (data: Uint8Array) => {
+        if (responseReceived) return; // Prevent multiple responses
+        responseReceived = true;
+        clearTimeout(timeout);
+        
+        // Restore original handler
+        this.notificationHandler = originalHandler;
+        
+        resolve(data);
+      };
+
+      // Send command
+      this.writeValue(command).catch((error) => {
+        clearTimeout(timeout);
+        this.notificationHandler = originalHandler; // Restore on error
+        reject(error);
+      });
+    });
+  }
+
   async connect(): Promise<void> {
     let lastError: Error | null = null;
     let retryDelay = this.options.reconnectDelay!; // Will always be set by constructor
