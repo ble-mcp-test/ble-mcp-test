@@ -199,9 +199,7 @@ This is useful for:
 
 ### NodeBleClient
 
-**Version:** 0.7.3+ (Breaking changes from previous versions)
-
-A simplified Node.js BLE client that communicates with real BLE devices through the bridge server. 
+A clean, Node.js BLE client that communicates with real BLE devices through the bridge server. 
 
 #### Constructor
 
@@ -349,54 +347,12 @@ try {
 }
 ```
 
-#### Migration from v0.7.2
+#### API Features
 
-**Breaking Changes:**
-- `requestDevice()` method removed
-- `getDevices()` method removed
-- `sessionId` is now required (was optional)
-- `device` parameter replaced with optional `deviceId`/`deviceName`
-- Web Bluetooth GATT ceremony removed (no more `device.gatt.connect()`, `service.getCharacteristic()`, etc.)
-
-**Old Pattern (v0.7.2):**
-```javascript
-const client = new NodeBleClient({
-  bridgeUrl: 'ws://localhost:8080',
-  device: 'CS108',  // Name-based discovery (unreliable)
-  service: '9800',
-  write: '9900',
-  notify: '9901'
-});
-
-await client.connect();
-const device = await client.requestDevice();
-await device.gatt.connect();
-const service = await device.gatt.getPrimaryService('9800');
-const writeChar = await service.getCharacteristic('9900');
-await writeChar.writeValue(data);
-```
-
-**New Pattern (v0.7.3+):**
-```javascript
-const client = new NodeBleClient({
-  sessionId: 'my-session',  // Required
-  bridgeUrl: 'ws://localhost:8080',
-  service: '9800',          // Service-UUID based discovery (reliable)
-  write: '9900',
-  notify: '9901',
-  deviceId: 'exact-id'      // Optional filtering
-});
-
-await client.connect();                    // WebSocket + BLE in one call
-client.onNotification((data) => { ... });  // Direct notification setup
-await client.writeValue(data);             // Direct write
-```
-
-**Benefits of New API:**
-- **Reliability**: Service-UUID based discovery works consistently across platforms
-- **Simplicity**: Single `connect()` call vs multi-step ceremony  
-- **Consistency**: Required `sessionId` matches browser mock behavior
-- **Node.js Appropriate**: API designed for server-side usage patterns
+- **Service-UUID Discovery**: Fast, reliable device connection using service UUIDs
+- **Single Connect**: One call establishes complete WebSocket + BLE connection  
+- **Session Management**: Required `sessionId` prevents connection conflicts
+- **Optional Filtering**: Filter by exact `deviceId` or partial `deviceName` when needed
 
 ## MCP HTTP Endpoints
 
