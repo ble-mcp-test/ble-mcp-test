@@ -90,7 +90,10 @@ class MockBluetoothRemoteGATTCharacteristic {
 
   async writeValue(value: BufferSource): Promise<void> {
     const data = new Uint8Array(value as ArrayBuffer);
-    await this.service.server.device.transport.send(data);
+    // Fire-and-forget - send returns void, no await needed
+    this.service.server.device.transport.send(data);
+    // Return immediately since BLE commands are fire-and-forget
+    // Responses come through notifications
   }
 
   async startNotifications(): Promise<MockBluetoothRemoteGATTCharacteristic> {

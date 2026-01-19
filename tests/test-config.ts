@@ -61,16 +61,13 @@ export function getDeviceConfig() {
 export const WS_URL = getTestConfig().wsUrl;
 
 // Shared test server setup helper
-// Returns: server instance if we started one (for cleanup), null if using external server
+// Returns: null - tests now use the PM2-managed Rust bridge on port 8080
 export async function setupTestServer() {
-  const { BridgeServer } = await import('../dist/bridge-server.js');
-  const { normalizeLogLevel } = await import('../dist/utils.js');
+  // NOTE: With new Rust bridge architecture, we no longer start our own BridgeServer
+  // The PM2-managed server handles both Rust (8080) and Node (8081) services
   const WebSocket = (await import('ws')).default;
   
-  // Parse the URL to get host and port
-  const url = new URL(WS_URL);
-  const isLocalhost = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-  const port = parseInt(url.port || '8080', 10);
+  // With new Rust bridge, we always connect to the PM2-managed server
   
   // First, try to connect to the configured URL
   const testWs = new WebSocket(WS_URL);
@@ -94,27 +91,14 @@ export async function setupTestServer() {
       };
     });
     
-    // Connection successful, use external server
-    console.log(`[Test] Using external bridge server at: ${WS_URL}`);
-    return null; // No local server needed
+    // Connection successful, use Rust bridge server
+    console.log(`[Test] Connected to Rust bridge server at: ${WS_URL}`);
+    return null; // No local server needed - PM2 handles everything
   } catch (error) {
-    // Connection failed
-    if (isLocalhost) {
-      // Local URL - start our own server on the port from WS_URL
-      console.log(`[Test] Starting local bridge server on port ${port}...`);
-      const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
-      const server = new BridgeServer(logLevel);
-      await server.start(port); // Use port from WS_URL, not WS_PORT
-      console.log(`[Test] Started local bridge server on port ${port}`);
-      
-      // Give server a moment to fully initialize
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      return server; // Return server instance for cleanup
-    } else {
-      // External URL - fail the test
-      throw new Error(`Cannot connect to external bridge server at ${WS_URL}. Please ensure the server is running.`);
-    }
+    // Connection failed - PM2 server should be running for new architecture
+    console.error(`[Test] Cannot connect to Rust bridge at ${WS_URL}`);
+    console.error(`[Test] Please ensure PM2 server is running: pnpm pm2:start`);
+    throw new Error(`Cannot connect to Rust bridge server at ${WS_URL}. Run 'pnpm pm2:start' to start the server.`);
   }
 }
 

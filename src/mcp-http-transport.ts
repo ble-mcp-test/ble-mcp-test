@@ -1,4 +1,5 @@
-import express, { Express, Request, Response } from 'express';
+import express from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -27,7 +28,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   }));
   
   // Optional authentication middleware
-  const authenticate = (req: Request, res: Response, next: () => void) => {
+  const authenticate = (req: Request, res: Response, next: NextFunction) => {
     // If no token configured, allow all requests
     if (!token) {
       return next();
@@ -43,7 +44,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   };
   
   // MCP INFO endpoint - public discovery
-  app.get('/mcp/info', (req, res) => {
+  app.get('/mcp/info', (req: Request, res: Response) => {
     logger.debug('GET /mcp/info accessed');
     try {
       // Validate server is initialized
@@ -76,7 +77,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   });
 
   // MCP REGISTER endpoint - requires authentication
-  app.post('/mcp/register', authenticate, async (req, res) => {
+  app.post('/mcp/register', authenticate, async (req: Request, res: Response) => {
     logger.info('POST /mcp/register - Client registration attempt');
     try {
       // Validate server is initialized
@@ -130,7 +131,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   });
   
   // MCP POST endpoint - main message handling
-  app.post('/mcp', authenticate, async (req, res) => {
+  app.post('/mcp', authenticate, async (req: Request, res: Response) => {
     // Debug: Log all headers from Claude client
     logger.info('Claude MCP request headers:', JSON.stringify(req.headers, null, 2));
     
@@ -172,7 +173,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
       }
       
       // handleRequest will handle the response internally
-      await transport.handleRequest(req, res, req.body);
+      // Express req/res extend from IncomingMessage/ServerResponse
+      await transport.handleRequest(req as any, res as any, req.body);
     } catch (error: any) {
       logger.error('Error handling request:', error);
       res.status(500).json({ 
@@ -183,7 +185,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   });
   
   // MCP GET endpoint - SSE streaming support
-  app.get('/mcp', authenticate, async (req, res) => {
+  app.get('/mcp', authenticate, async (req: Request, res: Response) => {
     try {
       const sessionId = req.headers['mcp-session-id'] as string;
       const transport = transports[sessionId];
@@ -193,7 +195,8 @@ export function createHttpApp(server: McpServer, token?: string): Express {
       }
       
       // For GET requests, handleRequest will set up SSE streaming
-      await transport.handleRequest(req, res);
+      // Express req/res extend from IncomingMessage/ServerResponse
+      await transport.handleRequest(req as any, res as any);
     } catch (error: any) {
       logger.error('Error handling SSE request:', error);
       res.status(500).json({ 
@@ -204,7 +207,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   });
   
   // MCP DELETE endpoint - session termination
-  app.delete('/mcp', authenticate, (req, res) => {
+  app.delete('/mcp', authenticate, (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string;
     const transport = transports[sessionId];
     
@@ -218,7 +221,7 @@ export function createHttpApp(server: McpServer, token?: string): Express {
   });
   
   // Health check endpoint
-  app.get('/health', (req, res) => {
+  app.get('/health', (req: Request, res: Response) => {
     const hasTty = process.stdin.isTTY && process.stdout.isTTY;
     const stdioDisabled = process.env.BLE_MCP_STDIO_DISABLED === 'true';
     const stdioEnabled = hasTty && !stdioDisabled;
