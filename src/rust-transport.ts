@@ -1,6 +1,11 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { LogBuffer } from './log-buffer.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export interface TransportInterface {
   readonly connected: boolean;
@@ -55,9 +60,15 @@ export class RustSubprocessTransport extends EventEmitter implements TransportIn
   async initialize(): Promise<void> {
     console.log('🦀 Starting Rust BLE subprocess...');
 
-    // Spawn Rust bridge process
-    this.rustProcess = spawn('cargo', ['run'], {
-      cwd: '/home/mike/ble-mcp-test/rust-ble-test',
+    // Spawn Rust bridge process (use pre-built release binary for performance)
+    // Binary path relative to project root (dist/ is one level down from root)
+    const projectRoot = path.resolve(__dirname, '..');
+    const rustBinaryPath = process.env.RUST_BLE_BINARY ||
+      path.join(projectRoot, 'rust-ble-test/target/release/rust-ble-test');
+    const rustCwd = path.join(projectRoot, 'rust-ble-test');
+
+    this.rustProcess = spawn(rustBinaryPath, [], {
+      cwd: rustCwd,
       stdio: ['pipe', 'pipe', 'pipe']
     });
 
