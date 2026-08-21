@@ -1,0 +1,115 @@
+# GL.iNet GL-S10 as an ESPHome Bluetooth Proxy — probe configuration.
+#
+# Based on the official esphome/bluetooth-proxies gl-inet/gl-s10.yaml, trimmed to
+# what the probe needs and pinned so a firmware bump can't silently change results.
+#
+# Flash (first time, over serial — hold the button while applying power; NEVER plug
+# USB and PoE at the same time):
+#   uvx esphome run scripts/esphome-probe/gl-s10.yaml
+# Later updates go OTA over ethernet with the same command.
+#
+# Hardware revision matters: v1.0 uses a LAN8720 PHY and is the one people report
+# as solid; v2.1+ uses IP101 and has packet-loss reports (esphome/bluetooth-proxies
+# issue #60). This file defaults to v2.1+. For v1.0 swap the `ethernet:` block for
+# the LAN8720 variant at the bottom.
+
+esphome:
+  name: gl-s10-probe
+  friendly_name: GL-S10 BLE Probe
+  min_version: 2026.5.1   # slot-leak fix (esphome/esphome PR #16588) — do not go older
+  on_boot:
+    then:
+      - output.turn_on: power_led
+
+esp32:
+  variant: esp32
+  framework:
+    type: esp-idf
+
+# v2.1+ (IP101). For v1.0 see the LAN8720 block at the bottom.
+# CLK_EXT_IN on GPIO0 is load-bearing: it takes the RMII clock from the board's
+# external crystal. Clocking the IP101 from the ESP32 internally is what caused the
+# widely reported v2.1 packet loss (bluetooth-proxies #79). Don't change it.
+ethernet:
+  type: IP101
+  mdc_pin: GPIO23
+  mdio_pin: GPIO18
+  clk:
+    pin: GPIO0
+    mode: CLK_EXT_IN
+  phy_addr: 1
+  power_pin: GPIO5
+
+# Plain (unencrypted) API for the probe. To encrypt, add
+#   encryption:
+#     key: "<base64 key>"
+# and pass the same key to probe.py --psk.
+api:
+
+logger:
+  level: INFO
+  # Surface the two proxy-side signals the probe can't see from the client:
+  #   "Failed to send notify data response"   — notify data dropped, TCP buffer full
+  #   "Connected reply deferred, TCP buffer full"
+  logs:
+    bluetooth_proxy: INFO
+    bluetooth_connection: INFO
+    esp32_ble_client: WARN
+
+ota:
+  - platform: esphome
+    id: ota_esphome
+
+esp32_ble:
+  max_connections: 4
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+  connection_slots: 4   # ethernet → 4 is the documented safe value; we use 1
+
+button:
+  - platform: safe_mode
+    id: button_safe_mode
+    name: Safe Mode Boot
+  - platform: factory_reset
+    id: factory_reset_btn
+    name: Factory reset
+
+status_led:
+  pin:
+    number: GPIO32
+    inverted: true
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO33
+      inverted: true
+    name: Reset Button
+    id: binary_sensor_reset_button
+
+output:
+  - platform: gpio
+    pin: GPIO14
+    inverted: true
+    id: power_led
+  - platform: gpio
+    pin: GPIO12
+    inverted: true
+    id: bluetooth_led
+
+# ---- v1.0 hardware (LAN8720) — replace the `ethernet:` block above with this ----
+# Pinout from devices.esphome.io: the ESP32 *drives* the RMII clock out on GPIO17
+# (IP101 boards take it *in* on GPIO0) and there is no PHY power pin.
+# ethernet:
+#   type: LAN8720
+#   mdc_pin: GPIO23
+#   mdio_pin: GPIO18
+#   clk:
+#     pin: GPIO17
+#     mode: CLK_OUT
+#   phy_addr: 1

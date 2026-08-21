@@ -1,0 +1,50 @@
+# Generic ESP32 dev kit as an ESPHome Bluetooth Proxy — WiFi fallback / control.
+#
+# Useful for two things: (1) a second data point if the GL-S10 turns out to be a
+# v2.1 with the IP101 packet-loss problem, and (2) measuring how much WiFi/BLE
+# radio contention costs versus the GL-S10's ethernet. Expect it to be worse than
+# ethernet — that is the point of measuring it.
+#
+#   cp scripts/esphome-probe/secrets.example.yaml scripts/esphome-probe/secrets.yaml   # fill in WiFi
+#   uvx esphome run scripts/esphome-probe/esp32-devkit.yaml
+#
+# `board:` covers the common 30/38-pin "ESP32-WROOM-32" dev kits. ESP32-C3/S3 boards
+# need a different `variant:` and board name — check https://devices.esphome.io.
+
+esphome:
+  name: esp32-ble-probe
+  friendly_name: ESP32 BLE Probe
+  min_version: 2026.5.1
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none   # BLE + WiFi coexistence is bad enough without power save
+
+api:
+
+logger:
+  level: INFO
+  logs:
+    bluetooth_proxy: INFO
+    bluetooth_connection: INFO
+    esp32_ble_client: WARN
+
+ota:
+  - platform: esphome
+
+esp32_ble:
+  max_connections: 3
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+
+bluetooth_proxy:
+  active: true
+  connection_slots: 3   # WiFi boards: documented ceiling is 3
