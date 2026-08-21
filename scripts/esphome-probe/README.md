@@ -17,7 +17,7 @@ the `esphome-native-api` crate.
 |---|---|
 | `poll` @ 1 s | 100 % (928/929 over 15 min; 72 min clean), p50 **40 ms**, p95 ~55 ms |
 | `recover` ×10 | **10/10** recovered, p50 **5.5 s**, max 7.3 s |
-| `inventory` | ~15–20 tags/s, ~23 B each (from production logs; not soaked locally) |
+| `inventory` (10 min) | **50.3 tags/s** (30,262 tags, 1.37 MB), `streamGaps: 0`, 0 drops — with the extra tags in the field; production logs peak at ~20/s |
 
 ## 1. Flash the proxy
 
