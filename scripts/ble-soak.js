@@ -57,8 +57,14 @@ const RFID_START_INVENTORY =
 const RFID_ABORT =
   [0xA7, 0xB3, 0x0A, 0xC2, 0x82, 0x37, 0x00, 0x00, 0x80, 0x02, 0x40, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
 
-/** Inventory tag notification carries event code 0x8100 at bytes 8-9. */
-const isInventoryTag = (d) => d.length >= 10 && d[8] === 0x81 && d[9] === 0x00;
+/**
+ * Inventory tag = RFID uplink (0x8100 at bytes 8-9) whose R2000 packet type
+ * (bytes 12-13, LE) is INVENTORY (0x0005). Cycle-end diagnostics (0x000E) and
+ * command begin/end packets share 0x8100 and must not count as tags.
+ */
+const isInventoryTag = (d) =>
+  d.length >= 14 && d[8] === 0x81 && d[9] === 0x00 &&
+  d[12] === 0x05 && (d[13] & 0x7f) === 0x00; // 0x0005 normal or 0x8005 compact (top bit)
 
 /**
  * Bring-up sequence for unfiltered INVENTORY (all tags in field).
