@@ -12,6 +12,12 @@ use uuid::Uuid;
 use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
 use tokio::net::{TcpListener, TcpStream};
 
+mod config;
+mod transport;
+mod ble_btleplug;
+mod ble_esphome;
+mod esphome_proto;
+
 // Your device UUIDs
 const SERVICE_UUID: Uuid = Uuid::from_u128(0x00009800_0000_1000_8000_00805f9b34fb);
 const WRITE_CHAR_UUID: Uuid = Uuid::from_u128(0x00009900_0000_1000_8000_00805f9b34fb);
