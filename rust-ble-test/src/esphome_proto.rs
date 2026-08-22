@@ -123,10 +123,57 @@ pub fn find_char_handle(services: &[BluetoothGattService], short_uuid: u16) -> O
     None
 }
 
+/// 16-bit UUID of the Client Characteristic Configuration Descriptor (CCCD).
+const CCCD_SHORT: u16 = 0x2902;
+
+/// Find the CCCD (0x2902) descriptor handle under the characteristic with `char_short` UUID.
+/// Writing `[0x01, 0x00]` to it is what actually enables notifications on the device.
+pub fn find_cccd_handle(services: &[BluetoothGattService], char_short: u16) -> Option<u32> {
+    let want_char_high: u64 = 0x0000_0000_0000_1000 | ((char_short as u64) << 32);
+    let want_cccd_high: u64 = 0x0000_0000_0000_1000 | ((CCCD_SHORT as u64) << 32);
+    for svc in services {
+        for ch in &svc.characteristics {
+            let is_target = ch.short_uuid == char_short as u32
+                || (ch.uuid.len() == 2 && ch.uuid[0] == want_char_high && ch.uuid[1] == BASE_UUID_LOW);
+            if !is_target {
+                continue;
+            }
+            for d in &ch.descriptors {
+                if d.short_uuid == CCCD_SHORT as u32
+                    || (d.uuid.len() == 2 && d.uuid[0] == want_cccd_high && d.uuid[1] == BASE_UUID_LOW)
+                {
+                    return Some(d.handle);
+                }
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod uuid_tests {
     use super::*;
-    use esphome_native_api::proto::{BluetoothGattCharacteristic, BluetoothGattService};
+    use esphome_native_api::proto::{
+        BluetoothGattCharacteristic, BluetoothGattDescriptor, BluetoothGattService,
+    };
+
+    #[test]
+    fn finds_cccd_handle_under_notify_char() {
+        let svc = BluetoothGattService {
+            characteristics: vec![BluetoothGattCharacteristic {
+                handle: 20,
+                short_uuid: 0x9901,
+                descriptors: vec![BluetoothGattDescriptor {
+                    handle: 21,
+                    short_uuid: 0x2902,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(find_cccd_handle(&[svc], 0x9901), Some(21));
+    }
 
     #[test]
     fn mac_packs_big_endian_low48() {

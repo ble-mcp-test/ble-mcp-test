@@ -16,8 +16,8 @@ use async_trait::async_trait;
 use esphome_native_api::parser::{self, ProtoMessage};
 use esphome_native_api::proto::{
     AuthenticationRequest, BluetoothDeviceRequest, BluetoothDeviceRequestType, BluetoothGattGetServicesRequest,
-    BluetoothGattNotifyRequest, BluetoothGattService, BluetoothGattWriteRequest, DisconnectRequest, HelloRequest,
-    PingRequest, PingResponse,
+    BluetoothGattNotifyRequest, BluetoothGattService, BluetoothGattWriteDescriptorRequest, BluetoothGattWriteRequest,
+    DisconnectRequest, HelloRequest, PingRequest, PingResponse, SubscribeBluetoothLeAdvertisementsRequest,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -54,9 +54,13 @@ fn frame_for(msg: &ProtoMessage) -> Vec<u8> {
 
 /// Send one message.
 async fn send<W: AsyncWriteExt + Unpin>(w: &mut W, msg: &ProtoMessage) -> Result<(), TransportError> {
-    w.write_all(&frame_for(msg))
+    let frame = frame_for(msg);
+    w.write_all(&frame)
         .await
-        .map_err(|e| TransportError::Write(format!("send: {e}")))
+        .map_err(|e| TransportError::Write(format!("send: {e}")))?;
+    // Flush is required: without it the small handshake frames sit in the TCP buffer and the
+    // proxy never responds (this cost hours to find).
+    w.flush().await.map_err(|e| TransportError::Write(format!("flush: {e}")))
 }
 
 /// Read the next decodable message, buffering across reads. Unknown message types are skipped.
@@ -97,6 +101,7 @@ impl Inner {
             .await
             .map_err(|e| TransportError::Connect(format!("tcp {}:{}: {e}", self.host, self.port)))?;
         let mut buf = Vec::new();
+        println!("(esphome) TCP connected to proxy {}:{}", self.host, self.port);
 
         // 1) Hello.
         send(
@@ -118,7 +123,11 @@ impl Inner {
             }
         }
 
-        // 2) Auth / connect (empty password for a plaintext, no-password proxy).
+        // 2) Connect/Auth, fire-and-forget. With no API password configured (our case) the proxy
+        // sends NO response to this — verified against ESPHome 2026.8.0: aioesphomeapi likewise
+        // sends AuthenticationRequest and treats the handshake as complete on HelloResponse alone.
+        // Waiting for a response here would hang. A wrong password surfaces as the server closing
+        // the link on the next exchange (recv → EOF error).
         send(
             &mut stream,
             &ProtoMessage::AuthenticationRequest(AuthenticationRequest {
@@ -126,49 +135,92 @@ impl Inner {
             }),
         )
         .await?;
-        loop {
-            match recv(&mut stream, &mut buf).await? {
-                ProtoMessage::AuthenticationResponse(r) => {
-                    if r.invalid_password {
-                        return Err(TransportError::Connect(
-                            "proxy rejected auth (API password required)".into(),
-                        ));
-                    }
-                    break;
-                }
-                ProtoMessage::PingRequest(_) => {
-                    send(&mut stream, &ProtoMessage::PingResponse(PingResponse {})).await?
-                }
-                _ => {}
-            }
-        }
 
-        // 3) BLE active connection by address.
+        println!("(esphome) native-API handshake complete");
+
+        // 2b) Subscribe to LE advertisements and wait to hear the target. The proxy's scanner must
+        // have seen the device before an active connection by address will complete (matches the
+        // aioesphomeapi scan-then-connect flow).
+        send(
+            &mut stream,
+            &ProtoMessage::SubscribeBluetoothLeAdvertisementsRequest(
+                SubscribeBluetoothLeAdvertisementsRequest { flags: 1 },
+            ),
+        )
+        .await?;
+        // Capture the device's advertised address_type — the proxy needs it to connect (the CS108
+        // uses a random address, type 1; omitting it makes the connect silently fail).
+        let dev_address_type: u32 = {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(TransportError::Connect(format!(
+                        "device {:012X} not heard advertising to the proxy within 30s",
+                        self.address
+                    )));
+                }
+                match tokio::time::timeout(Duration::from_secs(5), recv(&mut stream, &mut buf)).await {
+                    Ok(Ok(ProtoMessage::BluetoothLeRawAdvertisementsResponse(r))) => {
+                        if let Some(a) = r.advertisements.iter().find(|a| a.address == self.address) {
+                            break a.address_type;
+                        }
+                    }
+                    Ok(Ok(ProtoMessage::PingRequest(_))) => {
+                        send(&mut stream, &ProtoMessage::PingResponse(PingResponse {})).await?
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {} // recv timeout tick; re-check the deadline
+                }
+            }
+        };
+        println!(
+            "(esphome) heard target advertising (address_type={}); requesting BLE connection to {:012X}",
+            dev_address_type, self.address
+        );
+
+        // 3) BLE active connection by address, carrying the advertised address_type.
         send(
             &mut stream,
             &ProtoMessage::BluetoothDeviceRequest(BluetoothDeviceRequest {
                 address: self.address,
                 request_type: BluetoothDeviceRequestType::ConnectV3WithoutCache as i32,
-                ..Default::default()
+                has_address_type: true,
+                address_type: dev_address_type,
             }),
         )
         .await?;
-        loop {
-            match recv(&mut stream, &mut buf).await? {
-                ProtoMessage::BluetoothDeviceConnectionResponse(r) if r.address == self.address => {
-                    if !r.connected {
-                        return Err(TransportError::Connect(format!(
-                            "proxy failed to connect device (error={})",
-                            r.error
-                        )));
+        {
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+            loop {
+                if tokio::time::Instant::now() >= deadline {
+                    return Err(TransportError::Connect(format!(
+                        "device {:012X} connect timed out",
+                        self.address
+                    )));
+                }
+                match tokio::time::timeout(Duration::from_secs(5), recv(&mut stream, &mut buf)).await {
+                    Ok(Ok(ProtoMessage::BluetoothDeviceConnectionResponse(r)))
+                        if r.address == self.address =>
+                    {
+                        if r.connected {
+                            println!("(proxy) BLE device connected, mtu={}", r.mtu);
+                            break;
+                        } else if r.error != 0 {
+                            return Err(TransportError::Connect(format!(
+                                "proxy failed to connect device (error={})",
+                                r.error
+                            )));
+                        }
+                        // connected=false, error=0: transient/in-progress; keep waiting.
                     }
-                    println!("(proxy) BLE device connected, mtu={}", r.mtu);
-                    break;
+                    Ok(Ok(ProtoMessage::PingRequest(_))) => {
+                        send(&mut stream, &ProtoMessage::PingResponse(PingResponse {})).await?
+                    }
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => {}
                 }
-                ProtoMessage::PingRequest(_) => {
-                    send(&mut stream, &ProtoMessage::PingResponse(PingResponse {})).await?
-                }
-                _ => {}
             }
         }
 
@@ -208,8 +260,18 @@ impl Inner {
         let notify_handle = esphome_proto::find_char_handle(&services, self.notify_short).ok_or_else(|| {
             TransportError::Connect(format!("notify characteristic {:#06x} not found", self.notify_short))
         })?;
+        let cccd_handle = esphome_proto::find_cccd_handle(&services, self.notify_short);
+        println!(
+            "(esphome) discovered {} services; write=handle {} notify=handle {} cccd=handle {:?}",
+            services.len(),
+            write_handle,
+            notify_handle,
+            cccd_handle
+        );
 
-        // 5) Subscribe to notifications.
+        // 5) Enable notifications: tell the proxy to forward them (NotifyRequest), then write the
+        // CCCD (0x2902) descriptor = 0x0001 to actually turn them on at the device — both are
+        // required (verified against the aioesphomeapi flow).
         send(
             &mut stream,
             &ProtoMessage::BluetoothGattNotifyRequest(BluetoothGattNotifyRequest {
@@ -237,6 +299,41 @@ impl Inner {
                 }
                 _ => {}
             }
+        }
+        if let Some(cccd) = cccd_handle {
+            send(
+                &mut stream,
+                &ProtoMessage::BluetoothGattWriteDescriptorRequest(BluetoothGattWriteDescriptorRequest {
+                    address: self.address,
+                    handle: cccd,
+                    data: vec![0x01, 0x00],
+                }),
+            )
+            .await?;
+            loop {
+                match recv(&mut stream, &mut buf).await? {
+                    ProtoMessage::BluetoothGattWriteResponse(r)
+                        if r.address == self.address && r.handle == cccd =>
+                    {
+                        break
+                    }
+                    ProtoMessage::BluetoothGattErrorResponse(e) => {
+                        return Err(TransportError::Connect(format!(
+                            "gatt error writing CCCD: handle={} error={}",
+                            e.handle, e.error
+                        )));
+                    }
+                    ProtoMessage::PingRequest(_) => {
+                        send(&mut stream, &ProtoMessage::PingResponse(PingResponse {})).await?
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            println!(
+                "(esphome) WARNING: no CCCD (0x2902) under notify char {:#06x}; notifications may not flow",
+                self.notify_short
+            );
         }
 
         println!("✅ Connected on attempt 1");
