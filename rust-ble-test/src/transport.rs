@@ -37,8 +37,6 @@ pub trait BleTransport: Send + Sync {
     async fn write(&self, data: &[u8]) -> Result<(), TransportError>;
     /// Tear down the link.
     async fn disconnect(&self) -> Result<(), TransportError>;
-    /// Whether a live link currently exists.
-    async fn is_connected(&self) -> bool;
     /// A fresh receiver of raw notification payloads (one item per BLE notification).
     fn subscribe(&self) -> NotifyRx;
 }
@@ -86,9 +84,6 @@ mod tests {
         }
         async fn disconnect(&self) -> Result<(), TransportError> {
             Ok(())
-        }
-        async fn is_connected(&self) -> bool {
-            true
         }
         fn subscribe(&self) -> NotifyRx {
             self.tx.subscribe()

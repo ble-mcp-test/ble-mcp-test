@@ -8,7 +8,6 @@
 //! Adapter selection is env-driven (`BLE_ADAPTER`) instead of `adapters.nth(0)`, closing the
 //! STATE-OF-PLAY §11 "reboot roulette" risk where hci ordering changes across reboots.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -283,7 +282,6 @@ pub struct BtleplugTransport {
     tx: broadcast::Sender<Vec<u8>>,
     cmd_tx: mpsc::UnboundedSender<Vec<u8>>,
     cmd_rx: Mutex<Option<mpsc::UnboundedReceiver<Vec<u8>>>>,
-    connected: Arc<AtomicBool>,
 }
 
 impl BtleplugTransport {
@@ -299,7 +297,6 @@ impl BtleplugTransport {
             tx: broadcast::channel(256).0,
             cmd_tx,
             cmd_rx: Mutex::new(Some(cmd_rx)),
-            connected: Arc::new(AtomicBool::new(false)),
         })
     }
 }
@@ -399,7 +396,6 @@ impl BleTransport for BtleplugTransport {
 
         let health = Arc::new(Mutex::new(ConnectionHealth::new()));
         let notif_tx = self.tx.clone();
-        let connected = self.connected.clone();
         let mut cmd_rx = self
             .cmd_rx
             .lock()
@@ -418,7 +414,6 @@ impl BleTransport for BtleplugTransport {
             };
             let mut write_char = write_char;
             let mut notify_char = notify_char;
-            connected.store(true, Ordering::SeqCst);
 
             loop {
                 tokio::select! {
@@ -436,7 +431,6 @@ impl BleTransport for BtleplugTransport {
                     }
                     else => {
                         println!("🔌 BLE operation handler shutting down");
-                        connected.store(false, Ordering::SeqCst);
                         break;
                     }
                 }
@@ -455,12 +449,7 @@ impl BleTransport for BtleplugTransport {
 
     async fn disconnect(&self) -> Result<(), TransportError> {
         // Dropping the command sender ends the serialized task, which drops the peripheral.
-        self.connected.store(false, Ordering::SeqCst);
         Ok(())
-    }
-
-    async fn is_connected(&self) -> bool {
-        self.connected.load(Ordering::SeqCst)
     }
 
     fn subscribe(&self) -> NotifyRx {

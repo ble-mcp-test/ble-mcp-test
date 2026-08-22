@@ -38,9 +38,6 @@ impl BleTransport for EsphomeTransport {
     async fn disconnect(&self) -> Result<(), TransportError> {
         Ok(())
     }
-    async fn is_connected(&self) -> bool {
-        false
-    }
     fn subscribe(&self) -> NotifyRx {
         self.tx.subscribe()
     }
