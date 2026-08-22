@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Request, Response } from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { registerMcpTools } from './mcp-tools.js';
@@ -24,6 +25,7 @@ export class ObservabilityServer {
   private sharedState: SharedState;
   private bridgeServer: BridgeServer | null = null;
   private httpServer?: any;
+  private rustTransport?: any;
   
   constructor(sharedState: SharedState) {
     // Use shared state for log buffer
@@ -46,15 +48,32 @@ export class ObservabilityServer {
   connectToBridge(bridgeServer: BridgeServer) {
     this.bridgeServer = bridgeServer;
   }
+
+  /**
+   * Set the Rust transport for restart operations
+   */
+  setRustTransport(rustTransport: any) {
+    this.rustTransport = rustTransport;
+  }
+
+  /**
+   * Get the Rust transport for MCP tools
+   */
+  getRustTransport() {
+    return this.rustTransport;
+  }
   
   /**
    * Start HTTP server for health checks and MCP
    */
   async startHttp(port: number = 8081): Promise<void> {
     const app = express();
-    
+
+    // JSON middleware for log ingestion
+    app.use(express.json());
+
     // Health check endpoint
-    app.get('/health', (req, res) => {
+    app.get('/health', (req: Request, res: Response) => {
       const health = {
         status: 'ok',
         timestamp: new Date().toISOString(),
@@ -65,7 +84,7 @@ export class ObservabilityServer {
     });
     
     // Metrics endpoint
-    app.get('/metrics', async (req, res) => {
+    app.get('/metrics', async (req: Request, res: Response) => {
       const tracker = MetricsTracker.getInstance();
       const metrics = tracker.getMetrics();
       

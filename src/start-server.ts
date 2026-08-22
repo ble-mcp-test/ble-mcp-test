@@ -6,7 +6,7 @@ import { SharedState } from './shared-state.js';
 import { normalizeLogLevel } from './utils.js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
-import { NobleTransport } from './noble-transport.js';
+import { RustSubprocessTransport } from './rust-transport.js';
 
 // Load .env.local if it exists
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
@@ -53,24 +53,23 @@ if (process.env.BLE_MCP_HTTP_TOKEN) {
 
 console.log('\n   Press Ctrl+C to stop\n');
 
-// Initialize Bluetooth layer
-console.log('Initializing Bluetooth...');
-await NobleTransport.initialize(5000);
-console.log('✅ Bluetooth ready');
-
 // Create shared state for both services
 const sharedState = new SharedState();
 
-// Start Service 1: WebSocket Bridge
-const bridgeServer = new BridgeServer(logLevel, sharedState);
-bridgeServer.start(wsPort).catch(error => {
-  console.error('Failed to start bridge server:', error);
-  process.exit(1);
-});
+// Initialize Rust Bluetooth layer
+console.log('🦀 Initializing Rust BLE subprocess...');
+const rustTransport = new RustSubprocessTransport(sharedState.getLogBuffer());
+await rustTransport.initialize();
+console.log('✅ Rust BLE subprocess ready');
+
+// Rust now handles WebSocket server directly - Node.js only handles MCP
+console.log('🚀 Rust process handles WebSocket server on port', wsPort);
+console.log('📊 Node.js handles MCP observability on port', httpPort);
 
 // Start Service 2: Observability Server
 const observabilityServer = new ObservabilityServer(sharedState);
-observabilityServer.connectToBridge(bridgeServer);
+observabilityServer.setRustTransport(rustTransport);
+// observabilityServer.connectToBridge(bridgeServer); // Simple bridge doesn't need this
 
 // Start HTTP server for health checks and MCP
 observabilityServer.startHttp(httpPort).catch(error => {
@@ -99,13 +98,13 @@ process.on('unhandledRejection', (reason, promise) => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('\n👋 Shutting down...');
-  bridgeServer.stop();
+  rustTransport.cleanup();
   sharedState.restoreConsole();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  bridgeServer.stop();
+  rustTransport.cleanup();
   sharedState.restoreConsole();
   process.exit(0);
 });
