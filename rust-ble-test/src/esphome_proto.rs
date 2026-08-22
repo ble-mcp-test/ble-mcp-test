@@ -81,6 +81,113 @@ pub fn decode_frame(buf: &[u8]) -> Result<Option<(u32, Vec<u8>, usize)>, FrameDe
     Ok(Some((msg_type as u32, buf[header..total].to_vec(), total)))
 }
 
+use esphome_native_api::proto::BluetoothGattService;
+
+/// Low 64 bits of the Bluetooth base UUID `...-8000-00805f9b34fb`.
+const BASE_UUID_LOW: u64 = 0x8000_0080_5f9b_34fb;
+
+/// Pack a `"6C:79:B8:26:03:A7"` MAC into the `u64` address the ESPHome proxy uses (big-endian, low 48 bits).
+pub fn mac_to_u64(mac: &str) -> Result<u64, String> {
+    let parts: Vec<&str> = mac.split(':').collect();
+    if parts.len() != 6 {
+        return Err(format!("expected 6 colon-separated octets, got '{mac}'"));
+    }
+    let mut out: u64 = 0;
+    for p in parts {
+        let byte = u8::from_str_radix(p, 16).map_err(|_| format!("bad octet '{p}' in '{mac}'"))?;
+        out = (out << 8) | byte as u64;
+    }
+    Ok(out)
+}
+
+/// Find the GATT `handle` for a 16-bit characteristic UUID across the proxy's service list.
+///
+/// The proxy may report a characteristic's UUID either as `short_uuid: u32` (16/32-bit) or as a
+/// 128-bit `uuid: Vec<u64>` (`[high, low]`). For a 16-bit UUID `xxxx` in the Bluetooth base UUID,
+/// `high = 0x0000_xxxx_0000_1000`, `low = 0x8000_0080_5f9b_34fb`.
+///
+/// NOTE: the 128-bit `[high, low]` byte order is verified against a live `GetServicesResponse` in
+/// Task 8; if the proxy differs, adjust this and the matching test together.
+pub fn find_char_handle(services: &[BluetoothGattService], short_uuid: u16) -> Option<u32> {
+    let want_high: u64 = 0x0000_0000_0000_1000 | ((short_uuid as u64) << 32);
+    for svc in services {
+        for ch in &svc.characteristics {
+            if ch.short_uuid == short_uuid as u32 {
+                return Some(ch.handle);
+            }
+            if ch.uuid.len() == 2 && ch.uuid[0] == want_high && ch.uuid[1] == BASE_UUID_LOW {
+                return Some(ch.handle);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod uuid_tests {
+    use super::*;
+    use esphome_native_api::proto::{BluetoothGattCharacteristic, BluetoothGattService};
+
+    #[test]
+    fn mac_packs_big_endian_low48() {
+        assert_eq!(mac_to_u64("6C:79:B8:26:03:A7").unwrap(), 0x6C79B82603A7);
+    }
+    #[test]
+    fn mac_rejects_garbage() {
+        assert!(mac_to_u64("nope").is_err());
+    }
+    #[test]
+    fn mac_rejects_bad_octet() {
+        assert!(mac_to_u64("6C:79:B8:26:03:ZZ").is_err());
+    }
+
+    #[test]
+    fn finds_handle_by_short_uuid() {
+        let svc = BluetoothGattService {
+            characteristics: vec![
+                BluetoothGattCharacteristic {
+                    handle: 42,
+                    short_uuid: 0x9900,
+                    ..Default::default()
+                },
+                BluetoothGattCharacteristic {
+                    handle: 43,
+                    short_uuid: 0x9901,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(find_char_handle(&[svc], 0x9900), Some(42));
+    }
+
+    #[test]
+    fn finds_handle_by_128bit_pair() {
+        let svc = BluetoothGattService {
+            characteristics: vec![BluetoothGattCharacteristic {
+                handle: 99,
+                uuid: vec![0x0000_9901_0000_1000, 0x8000_0080_5f9b_34fb],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(find_char_handle(&[svc], 0x9901), Some(99));
+    }
+
+    #[test]
+    fn no_match_returns_none() {
+        let svc = BluetoothGattService {
+            characteristics: vec![BluetoothGattCharacteristic {
+                handle: 1,
+                short_uuid: 0x2a00,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(find_char_handle(&[svc], 0x9900), None);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
