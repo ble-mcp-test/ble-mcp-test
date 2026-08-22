@@ -57,13 +57,13 @@ impl Config {
             }
         };
 
-        let device_mac = get("BLE_DEVICE_MAC")
+        let device_mac = get("BLE_MCP_DEVICE_MAC")
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| DEFAULT_MAC.to_string());
 
-        let service_uuid = parse_uuid_env(&get, "BLE_SERVICE_UUID", 0x9800)?;
-        let write_uuid = parse_uuid_env(&get, "BLE_WRITE_UUID", 0x9900)?;
-        let notify_uuid = parse_uuid_env(&get, "BLE_NOTIFY_UUID", 0x9901)?;
+        let service_uuid = parse_uuid_env(&get, "BLE_MCP_SERVICE_UUID", 0x9800)?;
+        let write_uuid = parse_uuid_env(&get, "BLE_MCP_WRITE_UUID", 0x9900)?;
+        let notify_uuid = parse_uuid_env(&get, "BLE_MCP_NOTIFY_UUID", 0x9901)?;
 
         let ws_host = get("BLE_MCP_WS_HOST")
             .filter(|s| !s.is_empty())
@@ -76,7 +76,7 @@ impl Config {
         };
         let ws_bind = format!("{ws_host}:{ws_port}");
 
-        let adapter_selector = get("BLE_ADAPTER").filter(|s| !s.is_empty());
+        let adapter_selector = get("BLE_MCP_ADAPTER").filter(|s| !s.is_empty());
 
         // ESPHome host may carry an inline ":port"; otherwise ESPHOME_PROXY_PORT or the default.
         let raw_host = get("ESPHOME_PROXY_HOST").filter(|s| !s.is_empty());
@@ -122,7 +122,7 @@ impl Config {
 
     /// Expand a 16-bit UUID into the Bluetooth base UUID `0000xxxx-0000-1000-8000-00805f9b34fb`.
     pub fn parse_16bit_uuid(short: u16) -> Uuid {
-        Uuid::from_u128(0x0000_0000_0000_1000_8000_00805f9b34fb_u128 | ((short as u128) << 96))
+        Uuid::from_u128(0x0000_0000_0000_1000_8000_0080_5f9b_34fb_u128 | ((short as u128) << 96))
     }
 }
 
@@ -181,7 +181,7 @@ mod tests {
     fn short_uuid_expands_to_base() {
         assert_eq!(
             Config::parse_16bit_uuid(0x9800),
-            uuid::Uuid::from_u128(0x00009800_0000_1000_8000_00805f9b34fb)
+            uuid::Uuid::from_u128(0x0000_9800_0000_1000_8000_0080_5f9b_34fb)
         );
     }
 
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn adapter_selector_passthrough() {
-        let env = |k: &str| (k == "BLE_ADAPTER").then(|| "hci1".to_string());
+        let env = |k: &str| (k == "BLE_MCP_ADAPTER").then(|| "hci1".to_string());
         let c = Config::from_env_with(env).unwrap();
         assert_eq!(c.adapter_selector.as_deref(), Some("hci1"));
     }
