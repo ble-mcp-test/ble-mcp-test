@@ -1,0 +1,13 @@
+[package]
+name = "rust-ble-test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+btleplug = "0.11"
+tokio = { version = "1.0", features = ["full"] }
+tokio-tungstenite = { version = "0.20", default-features = false, features = ["connect", "handshake"] }
+serde_json = "1.0"
+uuid = "1.0"
+futures = "0.3"
+rand = "0.8"

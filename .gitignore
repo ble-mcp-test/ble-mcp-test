@@ -116,3 +116,9 @@ tests/level-3/test-results/
 
 # Serena configuration
 .serena/
+
+# Rust build output
+**/target/
+
+# Syncthing conflict files
+*.sync-conflict-*

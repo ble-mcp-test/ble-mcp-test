@@ -35,6 +35,18 @@ function killPort(port) {
     // Find process using the port
     const pid = execSync(`lsof -t -i:${port}`, { encoding: 'utf8' }).trim();
     if (pid) {
+      // Be nice! Check if it's a production process we shouldn't kill
+      try {
+        const cmdline = execSync(`ps -p ${pid} -o args=`, { encoding: 'utf8' }).trim();
+        // Don't kill production Rust bridge (port 8080) or Node observability server
+        if (cmdline.includes('rust-ble-test') || cmdline.includes('dist/start-server.js') || cmdline.includes('PM2')) {
+          console.log(`  Port ${port}: Production process detected (pid ${pid}) - being nice and leaving it alone! 🤝`);
+          return false;
+        }
+      } catch (e) {
+        // Couldn't check, proceed with cleanup
+      }
+
       console.log(`  Killing process ${pid} on port ${port}`);
       execSync(`kill -9 ${pid}`);
       return true;

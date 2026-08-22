@@ -10,6 +10,7 @@ interface McpToolProvider {
   scanDevices(): Promise<any[]>;
   getLogBuffer(): LogBuffer;
   getMcpServer(): McpServer;
+  getRustTransport?(): any;
 }
 
 // Tool registry for dynamic tool listing
@@ -318,6 +319,55 @@ export function registerMcpTools(server: McpServer, provider: McpToolProvider): 
         }
         
         throw error;
+      }
+    }
+  });
+
+  // Tool 7: restart_rust_bridge
+  console.log('[MCP Tools] Registering restart_rust_bridge tool...');
+  registerToolWithRegistry(server, {
+    name: 'restart_rust_bridge',
+    title: 'Restart Rust BLE Bridge',
+    description: 'Force restart the Rust BLE bridge subprocess',
+    inputSchema: {},
+    handler: async () => {
+      try {
+        const rustTransport = provider.getRustTransport?.();
+        if (!rustTransport) {
+          return {
+            content: [{
+              type: 'text',
+              text: JSON.stringify({
+                error: 'Rust transport not available',
+                code: 'TRANSPORT_NOT_AVAILABLE'
+              }, null, 2)
+            }]
+          };
+        }
+
+        console.log('[MCP Tool] Force restarting Rust bridge...');
+        await rustTransport.forceRestart();
+
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              success: true,
+              message: 'Rust bridge restart initiated',
+              timestamp: new Date().toISOString()
+            }, null, 2)
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: error.message,
+              code: 'RESTART_FAILED'
+            }, null, 2)
+          }]
+        };
       }
     }
   });
