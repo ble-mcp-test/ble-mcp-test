@@ -1,0 +1,11 @@
+{
+  "ticketPrefix": "TRA",
+  "tracker": "linear",
+  "baseBranch": "main",
+  "defaultType": "feat",
+  "validate": "pnpm exec tsc --noEmit",
+  "worktreeDir": ".worktrees",
+  "branchPattern": "<type>/<ticket>-<slug>",
+  "adrDir": "",
+  "gates": []
+}

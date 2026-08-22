@@ -122,3 +122,10 @@ tests/level-3/test-results/
 
 # Syncthing conflict files
 *.sync-conflict-*
+
+# ESPHome probe credentials and build output
+scripts/esphome-probe/secrets.yaml
+scripts/esphome-probe/.esphome/
+
+# Hand-written ambient declarations — the **/*.d.ts rule above targets build output
+!src/global.d.ts
