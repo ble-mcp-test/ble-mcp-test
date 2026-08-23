@@ -14,6 +14,14 @@ export interface FirehoseRunOptions {
   memorySampleMs?: number;
   /** Quiet period after generation stops, for in-flight messages to arrive. */
   drainMs?: number;
+  /**
+   * Self-test only: discard every Nth received notification in the CONSUMER.
+   *
+   * A harness that always reports zero loss is indistinguishable from one that
+   * cannot detect loss at all. This lets a test break the subject deliberately
+   * and confirm the accounting notices. Never set it for a real measurement.
+   */
+  dropEveryNth?: number;
 }
 
 export interface FirehoseResult {
@@ -72,11 +80,16 @@ export async function runFirehose(opts: FirehoseRunOptions): Promise<FirehoseRes
 
   let warmupEndsAt = Number.POSITIVE_INFINITY;
 
+  const dropEveryNth = opts.dropEveryNth ?? 0;
+  let arrived = 0;
+
   ws.on('message', (raw: Buffer) => {
     const msg = JSON.parse(raw.toString());
     if (msg.type !== 'data') return;
     const tRecvMs = performance.now();
     const { seq, tInjectMs } = decodeFirehosePayload(Uint8Array.from(msg.data as number[]));
+    arrived++;
+    if (dropEveryNth > 0 && arrived % dropEveryNth === 0) return;
     sequence.observe(seq);
     if (tInjectMs >= warmupEndsAt) latency.record(tRecvMs - tInjectMs);
   });

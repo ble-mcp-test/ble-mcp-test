@@ -34,3 +34,19 @@ describe('firehose harness', () => {
     expect(result.memory.peakRssMB).toBeGreaterThan(0);
   }, 30000);
 });
+
+// Negative control. A harness that always reports zero loss is
+// indistinguishable from one that cannot detect loss at all, so break the
+// subject deliberately and confirm the accounting notices.
+describe('firehose harness self-test', () => {
+  it('reports loss when notifications are deliberately discarded', async () => {
+    const result = await runFirehose({ ratePerSec: 50, durationMs: 2000, dropEveryNth: 10 });
+
+    expect(result.injected).toBeGreaterThan(50);
+    expect(result.lost).toBeGreaterThan(0);
+    expect(result.missing).toBeGreaterThan(0);
+    // One in ten discarded, within a generous tolerance for drain timing.
+    expect(result.lost).toBeGreaterThanOrEqual(Math.floor(result.injected / 20));
+    expect(result.lost).toBeLessThanOrEqual(Math.ceil(result.injected / 5));
+  }, 30000);
+});
