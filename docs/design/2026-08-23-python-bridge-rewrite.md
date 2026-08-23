@@ -13,6 +13,32 @@ premise change that makes this decision correct.
 
 ---
 
+## The decisive argument: the current server cannot run in our own environment
+
+Placed first because it is a **capability** claim rather than a preference, it survives every
+preference argument on either side, and anyone who doubts this ADR can check it in ten seconds.
+
+- mssb (this container) has **no usable Bluetooth stack**. `/sys/class/bluetooth/hci0` exists, but
+  opening an HCI socket fails with *"Address family not supported by protocol"*, and
+  `systemctl is-active bluetooth` returns `failed`. Normal incus behaviour — no `AF_BLUETOOTH`.
+- The TypeScript bridge is **Noble-only**: `src/ble-session.ts:41` does `new NobleTransport(...)`
+  unconditionally, and `grep -rli esphome src/` returns **nothing**. There is no ESPHome path
+  anywhere in the TypeScript product.
+- knuckles — the machine that had a working radio — is powered off as of today.
+
+**Therefore no host in the estate can currently execute this repo's hardware e2e suite.** The
+existing TS server is not merely inconvenient here; it is unrunnable. A Python bridge on
+`bleak-esphome` runs on mssb, in a container, with no radio — restoring hardware testability that
+Noble structurally cannot provide in the environment we now develop in.
+
+This also subsumes the CI-rig argument rather than competing with it: with a local-radio bridge you
+buy a machine *and* colocate hardware next to it. With an ESPHome bridge the runner needs only a TCP
+route, RF proximity moves to a ~$10 ESP32, and the runner may be a container with no Bluetooth stack
+at all. **ESPHome-only is a prerequisite for unattended hardware CI** — necessary, not sufficient;
+see Hazard 4.
+
+---
+
 ## The voided-premise table
 
 This is the load-bearing part of the document. Four decisions were each individually reasonable and
@@ -92,27 +118,45 @@ strongest single argument against the "just consolidate on Node" position.
 
 ---
 
-## An argument neither side raised: the current server cannot run in our own environment
+## MCP: a generation change, not drift — and a timing argument
 
-This is a **capability** argument, not a preference, and it is verified rather than asserted:
+**Attribution and confidence:** the spec facts in this section come from platform's research, dated
+2026-07-28, and are **past this author's knowledge cutoff — not independently verified here.** The
+repo-local facts below them *are* verified. Treat the spec claims as needing one confirmation before
+anything is built on them.
 
-- mssb (this container) has **no usable Bluetooth stack**. `/sys/class/bluetooth/hci0` exists, but
-  opening an HCI socket fails with *"Address family not supported by protocol"*, and
-  `systemctl is-active bluetooth` returns `failed`. Normal incus behaviour — no `AF_BLUETOOTH`.
-- The TypeScript bridge is **Noble-only**: `src/ble-session.ts:41` does `new NobleTransport(...)`
-  unconditionally, and `grep -rli esphome src/` returns **nothing**. There is no ESPHome path
-  anywhere in the TypeScript product.
-- knuckles — the machine that had a working radio — is powered off as of today.
+Per that research, MCP was re-architected on **2026-07-28**, and it is a generation change rather
+than drift: a stateless core (no `initialize` handshake, no `Mcp-Session-Id`, no GET/SSE stream, no
+server-initiated requests), `server/discover` as a mandatory RPC, a required `resultType` on all
+results, mandatory `Mcp-Method` / `Mcp-Name` headers, required `ttlMs` / `cacheScope` on list
+endpoints, MRTR replacing server-initiated flows, and Roots / Sampling / Logging deprecated. Both
+SDKs went 2.0 in the same week (TypeScript 2026-07-27 under new package names; Python `mcp` 2.0.0 on
+spec day, Tier 1, LF-Projects-maintained).
 
-**Therefore no host in the estate can currently execute this repo's hardware e2e suite.** The
-existing TS server is not merely inconvenient here; it is unrunnable. A Python bridge on
-`bleak-esphome` runs on mssb, in a container, with no radio — restoring hardware testability that
-Noble structurally cannot provide in the environment we now develop in.
+**The consequence for this repo is sharp:** `StreamableHTTPServerTransport` in SDK v1 implements the
+session-based 2025 shape that 2026-07-28 *removed*. Being on "the modern transport" was true last
+month and is not true now.
 
-This also subsumes the CI-rig argument: with a local-radio bridge you buy a machine *and* colocate
-hardware next to it. With an ESPHome bridge the runner needs only a TCP route, RF proximity moves to
-a ~$10 ESP32, and the runner may be a container with no Bluetooth stack at all. **ESPHome-only is a
-prerequisite for unattended hardware CI** — necessary, not sufficient; see Hazard 4.
+**Therefore the MCP surface needs a protocol rewrite in either language.** That is a timing
+argument, and it is the reason the language question is unusually cheap to ask right now: the work
+that would be thrown away by switching languages is work that has to be redone anyway.
+
+Three repo-local items, all verified today, all of which the rewrite should fix rather than port:
+
+1. **Binds `0.0.0.0`.** `src/mcp-http-transport.ts:251` and `src/start-server.ts:19`. Local servers
+   SHOULD bind `127.0.0.1`, and now that the bridge is co-located with the runner, the wide bind is
+   gratuitous rather than necessary.
+2. **No Origin validation, and CORS is wide open.** `src/mcp-http-transport.ts:23` sets
+   `origin: '*'` with the comment *"Allow all origins on local network"*. Origin validation is a
+   MUST for Streamable HTTP. A static bearer token is explicitly fine (authorization is OPTIONAL;
+   for local servers the spec RECOMMENDS a token or unix sockets) — the missing Origin check is the
+   actual defect, not the token.
+3. **Tools return prose.** No `outputSchema` or `structuredContent` anywhere in `src/mcp-tools.ts`;
+   every tool returns `type: 'text'`. `structuredContent` / `outputSchema` is the highest-value
+   addition for `get_logs` and `get_connection_state`.
+
+Note item 2 is largely *deleted* rather than fixed by the stdio split — a unix socket has no Origin
+and no CORS.
 
 ---
 
@@ -214,12 +258,18 @@ example, and it is an in-repo one.
    workload, and high-rate notification delivery is exactly where abstractions leak. This is the one
    finding that could still upset the decision. **Do not treat the choice as settled until this is
    read.**
-2. **MCP spec drift** — research in flight. Note a defect that exists *today*, independent of the
-   rewrite: `package.json` declares `"@modelcontextprotocol/sdk": "^1.0.4"` while the lockfile
-   resolves **1.17.0**, and `StreamableHTTPServerTransport` (imported at
-   `src/mcp-http-transport.ts:4`) **did not exist at 1.0.4**. The declared floor is not merely
-   stale — it is *false*, and a clean install honouring it could not work. The stdio split may moot
-   most of the auth-drift question regardless.
+2. **Confirm the 2026-07-28 MCP re-architecture independently** before building on it. See the MCP
+   section — those claims are second-hand and past this author's cutoff. The decision does not rest
+   on them (the ESPHome client comparison and the unrunnable-server argument stand alone), but the
+   *sequencing* does: if MCP genuinely needs a protocol rewrite in either language, MCP-last is
+   correct and switching languages costs nothing there.
+
+   Separately, a defect that exists **today**, independent of the rewrite and of that research:
+   `package.json` declares `"@modelcontextprotocol/sdk": "^1.0.4"` while the lockfile resolves
+   **1.17.0**, and `StreamableHTTPServerTransport` (imported at `src/mcp-http-transport.ts:4`) **did
+   not exist at 1.0.4**. The declared floor is not merely stale — it is *false*, and a clean install
+   honouring it could not work. The manifest lies about what the code needs. One-line fix, worth
+   doing now rather than waiting for the rewrite.
 3. **Does the Node client (`src/node/`) still earn its place?** Kept in TypeScript by this ADR, but
    it has no known consumer. Worth a separate look rather than a silent port or a silent deletion.
 
