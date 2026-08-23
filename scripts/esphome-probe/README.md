@@ -5,7 +5,7 @@ ESP32) replace the local BlueZ/btleplug radio as the transport under ble-mcp-tes
 
 It is the Python twin of `scripts/ble-soak.js` — same CS108 commands, same four
 modes, same summary JSON written to `tmp/soak/<label>.json` — so the results line up
-column-for-column with the adapter evaluation in `STATE-OF-PLAY.md` §11.
+column-for-column with `scripts/ble-soak.js`.
 
 No Home Assistant, no BlueZ, no local radio. The probe talks the ESPHome native API
 over TCP via `bleak-esphome`, which is the same path a Rust bridge would take with
