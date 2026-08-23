@@ -14,12 +14,14 @@ Derived from `2026-08-23-python-bridge-rewrite.md`, `2026-08-23-ws-protocol-spec
   T0 (MCP floor fix) ────── independent, do now
   T1 (node/ decision) ───── independent, unblocks T5 scope
 
-  T2 (firehose harness) ─┬─> T3 (bridge core: connected/data)
-                         │      └─> T4 (error/warning + single-writer)
-                         │             └─> T6 (cleanup family)
-                         └─> validates the notify audit's one unmeasured claim
+  T2 (firehose harness) ─┬─> T3a (BLE transport)   NEEDS HARDWARE ─┐
+                         │                                          ├─> T4 (error/warning
+                         ├─> T3b (WS relay)        no hardware ─────┘      + single-writer)
+                         │                                                    ├─> T6 (cleanup)
+                         └─> validates the notify audit's one unmeasured      └─> T7 (cutover
+                             claim                                                 + comparison soak)
 
-  T5 (MCP on FastMCP) ─── last; depends on T3 only for the unix socket
+  T5 (MCP on FastMCP) ─── last; depends on T3b only for the unix socket
 ```
 
 ---
@@ -60,22 +62,40 @@ Derived from `2026-08-23-python-bridge-rewrite.md`, `2026-08-23-ws-protocol-spec
 - **Acceptance:** sustained run at a stated multiple of 45 msg/s with no message loss, no unbounded
   memory growth, and recorded p50/p99 per-notification latency. Runs against the *current* stack so
   it produces a baseline to compare the Python bridge against.
-- **Blocks:** T3. **Blocked by:** nothing.
+- **Blocks:** T3a, T3b. **Blocked by:** nothing.
 
-## T3 — Python bridge core: `connected` + `data`
+## T3a — BLE transport on `bleak-esphome` *(needs hardware)*
 
-- **Scope:** `aioesphomeapi` / `bleak-esphome` connection, WS server, and the two message types that
-  carry all real traffic. To the spec in `2026-08-23-ws-protocol-spec.md`, including the nine URL
-  query parameters.
+- **Scope:** connect, GATT discovery, notify subscription, write. The only genuinely novel code in
+  the project.
 - **Acceptance:**
-  - the soak harness runs against the Python bridge with results comparable to the Rust bridge;
+  - connects to the reader through the ESPHome proxy and sustains a session;
   - **non-trivial per-notification work happens behind the bridge's own queue** — the notify callback
     runs synchronously on the event loop and must not block it;
   - **notify-path errors are surfaced deliberately from inside the callback** (`aioesphomeapi` routes
     handler exceptions to its own logger; nothing propagates them for us);
-  - every task is awaited or given an explicit done-callback;
+  - every task is awaited or given an explicit done-callback.
+- **Blocks:** T4, T7. **Blocked by:** T2.
+- **Scheduling:** queues behind reader availability. The reader is a **single contended device**
+  shared between sessions and people.
+
+## T3b — WS relay serving `connected` + `data` *(needs NO hardware)*
+
+- **Scope:** the WS server and the two message types carrying all real traffic, to
+  `2026-08-23-ws-protocol-spec.md` including the nine URL query parameters. Testable end to end
+  against a **stub transport**.
+- **Acceptance:**
+  - `connected` and `data` conform to the spec in both directions;
+  - the nine URL parameters parse, and missing `service`/`write`/`notify` yields the documented
+    `error`;
+  - T2's firehose drives it to target rate **with no reader involved**;
   - `_mv` handled as telemetry only, matching current behaviour.
 - **Blocks:** T4, T5. **Blocked by:** T2.
+
+**Why T3 is split.** Not tidiness — **scheduling**. Bundled, the whole ticket would block on hardware
+access that most of its surface does not need, while the reader is contended. T3b can proceed at any
+time; only T3a queues. This is also what lets T2's injected firehose exercise the relay with no
+reader at all, which is the entire point of injecting.
 
 ## T4 — `error` + `warning`, and single-writer / multi-observer ownership
 
@@ -92,7 +112,7 @@ Derived from `2026-08-23-python-bridge-rewrite.md`, `2026-08-23-ws-protocol-spec
   - `warning` is interstitial — the client keeps waiting — and does not terminate a handshake;
   - **every request/response pair has its wait condition checked against its emitter mechanically**
     (a test or a shared constant), never by eye.
-- **Blocks:** T6. **Blocked by:** T3.
+- **Blocks:** T6, T7. **Blocked by:** T3a, T3b.
 
 ## T5 — MCP on FastMCP, split over a unix socket
 
@@ -106,7 +126,7 @@ Derived from `2026-08-23-python-bridge-rewrite.md`, `2026-08-23-ws-protocol-spec
 - **Acceptance:** tools reachable over stdio; unix socket contract documented; no HTTP surface
   remains; `structuredContent`/`outputSchema` on at least `get_logs` and `get_connection_state`,
   which currently return prose.
-- **Blocked by:** T3 (needs the socket). **Note:** confirm the 2026-07-28 MCP re-architecture
+- **Blocked by:** T3b (needs the socket). **Note:** confirm the 2026-07-28 MCP re-architecture
   independently first — those claims are second-hand and unverified here. If they hold, the MCP
   surface needs a protocol rewrite in *either* language, which is why this sequences last.
 
@@ -125,22 +145,45 @@ Derived from `2026-08-23-python-bridge-rewrite.md`, `2026-08-23-ws-protocol-spec
   `admin_cleanup`/`admin_cleanup_complete` — dead on both ends, safe to remove as units. Also the
   phantom union members (`eviction_warning`, `keepalive_ack`, `scan_result`, `notification`).
 
+## T7 — Cut over the soak harness and run the comparison soak
+
+- **Scope:** point platform's soak harness at the Python bridge and run the comparison. This is the
+  step Mike's plan named — *"then we revisit 1150 with a post-replatform soak."*
+- **Acceptance:**
+  - platform's `inventory.spec.ts` runs green against the Python bridge;
+  - a full soak at **n ≥ 407 on mssb**;
+  - results compared against **CELL A specifically — not the knuckles baseline.**
+- **⚠ Why cell A and not knuckles, stated because it will not be obvious and getting it wrong
+  silently produces an uninterpretable number:** cell A is the **mssb + Rust** reference point.
+  Comparing mssb+Python against it isolates *the bridge implementation* as the single variable.
+  Comparing against the knuckles baseline would vary **host and bridge together** — which is exactly
+  the unmatched-comparison mistake TRA-1150 has already made three times (machine, mock, and tag
+  density each moved while only one was named). This is also the whole reason cell A is worth
+  finishing rather than abandoning.
+- **Blocked by:** T3a, T4.
+
 ---
 
 ## Deliberately not tickets
 
 - **Identifier masking and the `HARDWARE_REMINDER.md` self-contradiction** — belongs to TRA-1155,
   already recorded there.
-- **The CORS / `0.0.0.0` exposure** — live today (`origin: '*'` at `mcp-http-transport.ts:23` plus a
-  wide bind, with `BLE_MCP_HTTP_TOKEN` consulted only if set). Largely *deleted* by T5 rather than
-  fixed, but T5 is months out. **Flagged for Mike as a standalone decision:** fix now, or accept the
-  exposure until T5.
+- **The CORS / `0.0.0.0` exposure — two separate things, and neither needs a decision.**
+  - The `origin: '*'` grant and the fail-open `BLE_MCP_HTTP_TOKEN` are in the **TS MCP server, which
+    cannot run on mssb at all** (no Bluetooth stack, Noble-only transport, knuckles off). A real
+    defect in code nobody can execute. **Not live anywhere** — defer to T5.
+  - What **is** live is the **Rust bridge's WebSocket on `0.0.0.0:8080` with no authentication of
+    any kind** — anyone on the LAN can drive the reader. One-line fix
+    (`BLE_MCP_WS_HOST` → `127.0.0.1`) needing a bridge restart, so it is scheduled for cell A's
+    completion rather than killing a 3-hour experiment over a low-risk LAN exposure.
 - **A dedicated always-on reader rig** — a hardware-spend question for Mike, and its value accrues
   mainly to platform's application-level e2e, not to this repo.
 
 ## Open
 
-- Should T2's harness live in this repo or platform's? It drives the bridge, so this repo — but it
-  exercises the mock, which platform consumes. **[inferred]** here.
+- ~~Should T2's harness live in this repo or platform's?~~ **RESOLVED: this repo.** It measures
+  bridge transport throughput, which is transport fidelity, which is this side of the boundary.
+  Exercising the mock is not a claim on ownership — platform exercises the mock too, and the mock
+  lives here.
 - T6 may reveal the zombie is a Noble-specific artifact that does not exist in Python at all, which
   would collapse it to a deletion.
