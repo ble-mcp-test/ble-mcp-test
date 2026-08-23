@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type { WebSocket } from 'ws';
 import { NobleTransport, type BleConfig } from './noble-transport.js';
+import type { BleTransport, TransportFactory } from './ble-transport.js';
 import type { SharedState } from './shared-state.js';
 import { MetricsTracker } from './connection-metrics.js';
 import { BLEConnectionError } from './constants.js';
@@ -14,7 +15,7 @@ import { BLEConnectionError } from './constants.js';
  * - Clean state management
  */
 export class BleSession extends EventEmitter {
-  private transport: NobleTransport | null = null;
+  private transport: BleTransport | null = null;
   private activeWebSockets = new Set<WebSocket>();
   private deviceName: string | null = null;
   private deviceId: string | null = null;
@@ -23,7 +24,8 @@ export class BleSession extends EventEmitter {
   constructor(
     public readonly sessionId: string,
     private config: BleConfig,
-    private sharedState: SharedState | null = null
+    private sharedState: SharedState | null = null,
+    private transportFactory: TransportFactory = (cfg: BleConfig) => new NobleTransport(cfg)
   ) {
     super();
   }
@@ -38,7 +40,7 @@ export class BleSession extends EventEmitter {
     
     try {
       // Create transport and let it handle all BLE operations
-      this.transport = new NobleTransport(this.config);
+      this.transport = this.transportFactory(this.config);
       
       // Set up transport event handlers
       this.transport.on('data', (data: Uint8Array) => {

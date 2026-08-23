@@ -1,8 +1,10 @@
 import { WebSocketServer } from 'ws';
 import { randomUUID } from 'crypto';
+import type { AddressInfo } from 'net';
 import type { SharedState } from './shared-state.js';
 import { SessionManager } from './session-manager.js';
 import type { BleConfig } from './noble-transport.js';
+import type { TransportFactory } from './ble-transport.js';
 import { getPackageMetadata } from './utils.js';
 import { MetricsTracker } from './connection-metrics.js';
 import { 
@@ -23,14 +25,32 @@ export class BridgeServer {
   private wss: WebSocketServer | null = null;
   private sessionManager: SessionManager;
   
-  constructor(logLevel?: string, sharedState?: SharedState) {
-    this.sessionManager = new SessionManager(sharedState);
+  constructor(logLevel?: string, sharedState?: SharedState, transportFactory?: TransportFactory) {
+    this.sessionManager = new SessionManager(sharedState, transportFactory);
     console.log(`[Bridge] Session-based architecture initialized`);
   }
 
-  async start(port = 8080) {
-    this.wss = new WebSocketServer({ port });
-    console.log(`🚀 Session-based bridge listening on port ${port}`);
+  async start(port = 8080, host?: string): Promise<number> {
+    this.wss = new WebSocketServer(host ? { port, host } : { port });
+
+    // Await the bind so callers can learn the actually-assigned port. Passing 0
+    // requests an ephemeral port, which is how tests avoid colliding with a
+    // bridge someone else is running on 8080.
+    const wss = this.wss;
+    const boundPort = await new Promise<number>((resolve, reject) => {
+      const onListening = () => {
+        wss.off('error', onError);
+        resolve((wss.address() as AddressInfo).port);
+      };
+      const onError = (err: Error) => {
+        wss.off('listening', onListening);
+        reject(err);
+      };
+      wss.once('listening', onListening);
+      wss.once('error', onError);
+    });
+
+    console.log(`🚀 Session-based bridge listening on port ${boundPort}`);
     
     this.wss.on('connection', async (ws, req) => {
       // Parse BLE config from URL
@@ -164,6 +184,8 @@ export class BridgeServer {
         ws.close(closeCode, message);
       }
     });
+
+    return boundPort;
   }
   
   async stop() {
