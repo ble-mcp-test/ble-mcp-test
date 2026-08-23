@@ -517,6 +517,47 @@ The mock handles all WebSocket communication internally. Direct WebSocket connec
 
 See [CHANGELOG](CHANGELOG.md) for version history.
 
+## BLE Backends (Rust bridge)
+
+The bridge server's BLE layer (`rust-ble-test`) supports two interchangeable backends, selected at
+startup by the `BLE_BACKEND` environment variable. Both expose the identical WebSocket protocol to
+test clients — switching backends requires no client changes.
+
+| `BLE_BACKEND` | Transport | Needs a local BT radio? | Use when |
+|---|---|---|---|
+| `btleplug` (default) | Local BLE radio via BlueZ/D-Bus | Yes | A Bluetooth adapter is attached to the bridge host |
+| `esphome` | ESPHome **Bluetooth Proxy** over the network (native API, TCP/6053, protobuf) | No | You want a pure network service — containerizable, no privileged radio access |
+
+The `esphome` backend speaks the ESPHome native API directly (**no Home Assistant required**) and
+selects the target device by MAC. This turns the bridge into a pure TCP↔WebSocket service with no
+BlueZ/D-Bus dependency.
+
+### Configuration
+
+Variables are read from the environment (e.g. `.env.local`); device vars are shared by both
+backends. See `.env.local.example` for the complete list.
+
+- `BLE_BACKEND` — `btleplug` (default) or `esphome`.
+- `BLE_MCP_SERVICE_UUID` / `BLE_MCP_WRITE_UUID` / `BLE_MCP_NOTIFY_UUID` — 16-bit short (`9800`) or full UUID. CS108 defaults: `9800` / `9900` / `9901`.
+- `BLE_MCP_DEVICE_MAC` — target MAC (used to select the device on the `esphome` backend). Default `6C:79:B8:26:03:A7`.
+- `BLE_MCP_WS_HOST` / `BLE_MCP_WS_PORT` — WebSocket bind (default `0.0.0.0:8080`).
+
+**btleplug backend:**
+- `BLE_MCP_ADAPTER` — pin the local adapter by name / `hciN` / MAC substring instead of "first found". Recommended on multi-radio hosts, where hci ordering can change across reboots.
+
+**esphome backend:**
+- `ESPHOME_PROXY_HOST` — proxy host, or `host:port`.
+- `ESPHOME_PROXY_PORT` — native-API port (default `6053`).
+- `ESPHOME_NOISE_PSK` — *accepted but not yet implemented.* Noise encryption is a follow-up; use a plaintext proxy (a set PSK currently produces a clear startup error).
+
+```bash
+# Local radio (default)
+BLE_BACKEND=btleplug BLE_MCP_ADAPTER=hci0 pnpm pm2:restart
+
+# ESPHome proxy over the network — no local Bluetooth needed
+BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 pnpm pm2:restart
+```
+
 ## Requirements
 
 - **Bridge Server**: Node.js 24+ (for Noble.js BLE support)

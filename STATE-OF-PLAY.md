@@ -7,6 +7,28 @@ Assessed from branch `feature/rust-ble-bridge` @ `850d3c6`.
 
 ---
 
+## 🔄 Update — 2026-08-22 (TRA-1149: BleTransport + ESPHome backend)
+
+The Rust bridge (`rust-ble-test`) was refactored behind a `BleTransport` trait with two backends:
+
+- **`btleplug` (default)** — the existing local-radio path, now behind the trait.
+- **`esphome`** — a new network backend speaking the ESPHome Bluetooth Proxy native API
+  (TCP/6053, protobuf), with no local BlueZ/D-Bus. Selected by `BLE_BACKEND=esphome` +
+  `ESPHOME_PROXY_HOST`. Turns the bridge into a pure TCP↔WebSocket service.
+
+**§8 / §11 reboot-roulette is addressed:** `adapters.nth(0)` (`main.rs:343`) is replaced by
+env-driven adapter selection — `BLE_MCP_ADAPTER` (name / `hciN` / MAC substring). Pin the ASUS
+dongle explicitly (e.g. `BLE_MCP_ADAPTER=hci0`, after checking `select-adapter.sh status`) instead
+of relying on hci ordering. The `select-adapter.sh` bind trick remains a useful separate mitigation,
+but adapter selection is no longer arbitrary.
+
+Crate note: `esphome-native-api` 3.0.0 supplies the protobuf message types + codec but is
+responder-only (no client role), so the initiator handshake + plaintext framing are hand-written in
+`src/esphome_proto.rs` / `src/ble_esphome.rs`. Noise/PSK encryption and containerization are tracked
+as follow-ups. Full design: `docs/superpowers/plans/2026-08-22-esphome-native-api-backend.md`.
+
+---
+
 ## 📋 HANDOFF — read this first
 
 Written at the end of the assessment/eval session, before a model switch to Fable
