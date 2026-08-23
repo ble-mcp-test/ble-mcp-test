@@ -118,7 +118,7 @@ export async function setupTestServer() {
 //    pnpm test
 //
 // 4. Run tests with CS108 RFID reader:
-//    BLE_MCP_DEVICE_IDENTIFIER=6c79b82603a7 \
+//    BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx \
 //    BLE_MCP_SERVICE_UUID=9800 \
 //    BLE_MCP_WRITE_UUID=9900 \
 //    BLE_MCP_NOTIFY_UUID=9901 \

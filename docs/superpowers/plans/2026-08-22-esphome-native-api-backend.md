@@ -23,7 +23,7 @@
 - **CS108 settling delays live in the client app, not the bridge.** The bridge must not add reordering/coalescing/artificial batching. Keep the write path a straight pass-through (see memory `cs108-settling-delays`).
 - **No PSK on the bench proxy.** `waveshare-esp32-s3-eth.yaml` `api:` has no `encryption:` ⇒ plaintext. Implement plaintext fully. `ESPHOME_NOISE_PSK` is accepted in config but Noise encryption is a documented follow-up (crate's encrypted framing is private); if set, fail fast with a clear "Noise PSK not yet supported" error rather than silently connecting plaintext.
 - **Containerization is descoped** to a follow-up ticket (owner decision, 2026-08-22). Keep the *architectural guarantee* in scope: when `BLE_BACKEND=esphome`, the process must not initialize btleplug/BlueZ/D-Bus at all (verified by a code path that never constructs a btleplug `Manager` in the esphome branch).
-- **CS108 identity (defaults):** MAC `6C:79:B8:26:03:A7`; service `0x9800`, write char `0x9900`, notify char `0x9901` (16-bit UUIDs in the `0000xxxx-0000-1000-8000-00805f9b34fb` base). Bench proxy: host `192.168.50.170`, native API port `6053`, no PSK.
+- **CS108 identity (defaults):** MAC `6C:79:B8:XX:XX:XX`; service `0x9800`, write char `0x9900`, notify char `0x9901` (16-bit UUIDs in the `0000xxxx-0000-1000-8000-00805f9b34fb` base). Bench proxy: host `192.168.50.170`, native API port `6053`, no PSK.
 
 ---
 
@@ -117,7 +117,7 @@ Parses all runtime configuration from environment variables. Pure logic, fully u
   pub enum Backend { Btleplug, Esphome }
   pub struct Config {
       pub backend: Backend,
-      pub device_mac: String,        // "6C:79:B8:26:03:A7"
+      pub device_mac: String,        // "6C:79:B8:XX:XX:XX"
       pub service_uuid: uuid::Uuid,
       pub write_uuid: uuid::Uuid,
       pub notify_uuid: uuid::Uuid,
@@ -132,7 +132,7 @@ Parses all runtime configuration from environment variables. Pure logic, fully u
       pub fn parse_16bit_uuid(short: u16) -> uuid::Uuid; // 0x9800 -> 00009800-0000-1000-8000-00805f9b34fb
   }
   ```
-- Env vars: `BLE_BACKEND` (default `btleplug`), `BLE_DEVICE_MAC` (default `6C:79:B8:26:03:A7`), `BLE_SERVICE_UUID`/`BLE_WRITE_UUID`/`BLE_NOTIFY_UUID` (default 9800/9900/9901, accept either 4-hex short or full UUID), `BLE_MCP_WS_PORT` (default 8080), `BLE_MCP_WS_HOST` (default 0.0.0.0), `BLE_ADAPTER` (optional), `ESPHOME_PROXY_HOST` (host, or `host:port`), `ESPHOME_PROXY_PORT` (default 6053), `ESPHOME_NOISE_PSK` (optional).
+- Env vars: `BLE_BACKEND` (default `btleplug`), `BLE_DEVICE_MAC` (default `6C:79:B8:XX:XX:XX`), `BLE_SERVICE_UUID`/`BLE_WRITE_UUID`/`BLE_NOTIFY_UUID` (default 9800/9900/9901, accept either 4-hex short or full UUID), `BLE_MCP_WS_PORT` (default 8080), `BLE_MCP_WS_HOST` (default 0.0.0.0), `BLE_ADAPTER` (optional), `ESPHOME_PROXY_HOST` (host, or `host:port`), `ESPHOME_PROXY_PORT` (default 6053), `ESPHOME_NOISE_PSK` (optional).
 
 - [ ] **Step 1: Write failing tests**
 
@@ -145,7 +145,7 @@ mod tests {
     fn defaults_to_btleplug() {
         let c = Config::from_env_with(|_| None).unwrap();
         assert!(matches!(c.backend, Backend::Btleplug));
-        assert_eq!(c.device_mac, "6C:79:B8:26:03:A7");
+        assert_eq!(c.device_mac, "6C:79:B8:XX:XX:XX");
         assert_eq!(c.ws_bind, "0.0.0.0:8080");
         assert_eq!(c.esphome_port, 6053);
     }
@@ -573,7 +573,7 @@ Helpers the ESPHome transport needs: pack a MAC string into the `u64` address th
 **Interfaces:**
 - Produces:
   ```rust
-  pub fn mac_to_u64(mac: &str) -> Result<u64, String>;       // "6C:79:B8:26:03:A7" -> 0x6C79B82603A7
+  pub fn mac_to_u64(mac: &str) -> Result<u64, String>;       // "AA:BB:CC:DD:EE:FF" -> 0xAABBCCDDEEFF
   /// Find the GATT handle for a 16-bit characteristic UUID across the proxy's service list.
   /// The proxy encodes a 128-bit UUID as two u64 (`uuid: Vec<u64>`) or a `short_uuid: u32`.
   pub fn find_char_handle(
@@ -592,7 +592,7 @@ mod uuid_tests {
 
     #[test]
     fn mac_packs_big_endian_low48() {
-        assert_eq!(mac_to_u64("6C:79:B8:26:03:A7").unwrap(), 0x6C79B82603A7);
+        assert_eq!(mac_to_u64("AA:BB:CC:DD:EE:FF").unwrap(), 0xAABBCCDDEEFF);
     }
     #[test]
     fn mac_rejects_garbage() { assert!(mac_to_u64("nope").is_err()); }
@@ -713,7 +713,7 @@ git commit -m "feat(tra-1149): ESPHome native-API client transport (handshake, B
 
 - [ ] **Step 4: Hardware integration — one-shot proxy round-trip** (coordinated; see Task 10)
 
-Free the reader (announce in `/tmp/BRIDGE-TEST.md`, `pnpm pm2:stop`, `bluetoothctl disconnect 6C:79:B8:26:03:A7`). Run `BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 ./target/release/rust-ble-test`, connect a WS client (a tiny node/wscat sending the battery command `A7 B3 02 D9 82 37 00 00 A0 00`), confirm a `📥 BLE notification:` reply. Fix any handle/UUID-order discrepancies found (Task 7 note). Record result in `/tmp/BRIDGE-TEST.md` + STATE-OF-PLAY.
+Free the reader (announce in `/tmp/BRIDGE-TEST.md`, `pnpm pm2:stop`, `bluetoothctl disconnect 6C:79:B8:XX:XX:XX`). Run `BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 ./target/release/rust-ble-test`, connect a WS client (a tiny node/wscat sending the battery command `A7 B3 02 D9 82 37 00 00 A0 00`), confirm a `📥 BLE notification:` reply. Fix any handle/UUID-order discrepancies found (Task 7 note). Record result in `/tmp/BRIDGE-TEST.md` + STATE-OF-PLAY.
 
 ---
 

@@ -42,7 +42,7 @@ from bleak_esphome import APIConnectionManager, ESPHomeDeviceConfig
 
 # ---------------------------------------------------------------- device
 
-DEVICE_MAC = "6C:79:B8:26:03:A7"
+DEVICE_MAC = "6C:79:B8:XX:XX:XX"
 SERVICE_UUID = "00009800-0000-1000-8000-00805f9b34fb"
 WRITE_UUID = "00009900-0000-1000-8000-00805f9b34fb"
 NOTIFY_UUID = "00009901-0000-1000-8000-00805f9b34fb"
