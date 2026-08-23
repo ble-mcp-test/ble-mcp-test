@@ -3,7 +3,7 @@
   "tracker": "linear",
   "baseBranch": "main",
   "defaultType": "feat",
-  "validate": "pnpm exec tsc --noEmit",
+  "validate": "just validate",
   "worktreeDir": ".claude/worktrees",
   "branchPattern": "<type>/<ticket>-<slug>",
   "adrDir": "docs/design",

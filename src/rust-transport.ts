@@ -262,7 +262,8 @@ export class RustSubprocessTransport extends EventEmitter implements TransportIn
 
     // Also try to clean up any lingering processes (fire and forget)
     try {
-      const { spawn } = require('child_process');
+      // `spawn` is already imported at the top of this file; the local
+      // require() that used to sit here shadowed it for no reason.
       spawn('pkill', ['-f', 'rust-ble-test'], { stdio: 'ignore' });
     } catch {
       // Ignore cleanup errors
