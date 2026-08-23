@@ -315,14 +315,19 @@ class BleakEsphomeSession:
         self._client = None  # aioesphomeapi.APIClient
         self._client_data = None  # bleak_esphome ESPHomeClientData
         self._unregister_scanner = None
+        self._unsetup_scanner = None
+        self._ble_device = None  # bleak BLEDevice, once heard advertising
         self._ble = None  # bleak_esphome ESPHomeClient
         self._notify_char = None
         self._write_char = None
 
     @property
     def proxy_reachable(self) -> bool:
+        # `is_connected`, not `connected` -- APIClient has no such attribute, and
+        # reading a missing one would raise inside a property the relay calls to
+        # decide whether to write.
         client = self._client
-        return bool(client is not None and client.connected)
+        return bool(client is not None and client.is_connected)
 
     @property
     def device_connected(self) -> bool:
@@ -357,7 +362,10 @@ class BleakEsphomeSession:
         device_info = await self._client.device_info()
         self._client_data = connect_scanner(self._client, device_info, available=True)
         scanner = self._client_data.scanner
-        await scanner.async_setup()
+        # NOT awaited: `async_setup` is named for the loop it belongs to, not for
+        # being a coroutine. It returns the un-setup callback synchronously, so
+        # awaiting it raises TypeError on the happy path.
+        self._unsetup_scanner = scanner.async_setup()
         self._unregister_scanner = manager.async_register_scanner(scanner)
 
         wanted = self._config.device_mac.upper()
@@ -380,7 +388,13 @@ class BleakEsphomeSession:
 
         self._ble = ESPHomeClient(self._ble_device, client_data=self._client_data, timeout=timeout)
         await self._ble.connect(pair=False)
-        services = self._ble.services
+        services = getattr(self._ble, "services", None)
+        if services is None:
+            raise TransportError(
+                "the BLE link came up but no GATT services were resolved. Nothing can "
+                "be subscribed or written, so this is a failure rather than a partial "
+                "success to carry on from."
+            )
         self._notify_char = services.get_characteristic(self._target.notify)
         self._write_char = services.get_characteristic(self._target.write)
         if self._notify_char is None:
@@ -414,9 +428,16 @@ class BleakEsphomeSession:
         if self._unregister_scanner is not None:
             self._unregister_scanner()
             self._unregister_scanner = None
+        if self._unsetup_scanner is not None:
+            # Leaving this out leaks the scanner's watchdog across connections,
+            # which a per-connection transport would accumulate one per client.
+            self._unsetup_scanner()
+            self._unsetup_scanner = None
         if self._client is not None:
             await self._client.disconnect()
             self._client = None
+        self._ble_device = None
+        self._client_data = None
 
 
 def transport_factory(config: EsphomeConfig):

@@ -309,3 +309,81 @@ def test_an_unusable_uuid_raises_rather_than_being_passed_down():
     with pytest.raises(TransportError) as exc:
         normalise_uuid("not-a-uuid", "notify")
     assert "notify" in str(exc.value)
+
+
+# --- what BleakEsphomeSession assumes about its libraries ---------------------
+#
+# The session itself cannot be executed without a proxy and a reader. What CAN be
+# executed is every assumption it makes about the shape of the libraries it calls,
+# and each of these pins one that was WRONG when first written -- caught by reading
+# the installed source rather than by a hardware run that never happened.
+#
+# CLAUDE.md's rule, applied literally: check the wait condition against its emitter
+# mechanically, never by eye. Here the "emitter" is somebody else's API surface,
+# and a version bump is exactly when it moves.
+
+
+def test_apiclient_reports_its_connection_state_as_is_connected():
+    """`proxy_reachable` reads this. `connected` does not exist and never did.
+
+    Reading a missing attribute would raise inside a property the relay calls to
+    decide whether a write is safe -- so the bug would surface as a failed write
+    on a perfectly healthy link.
+    """
+    from aioesphomeapi import APIClient
+
+    assert hasattr(APIClient, "is_connected")
+    # And NOT the shorter spelling, which is what the first draft reached for.
+    # Written this way because the bare literal collides with a WS message-type
+    # name, and test_no_message_type_literal_outside_protocol is right to say so.
+    assert not hasattr(APIClient, "is_connected".removeprefix("is_"))
+
+
+def test_scanner_async_setup_is_not_a_coroutine():
+    """Named for the loop it belongs to, not for being awaitable.
+
+    It returns the un-setup callback synchronously, so `await scanner.async_setup()`
+    raises TypeError on the happy path -- every connection, immediately.
+    """
+    import inspect
+
+    from bleak_esphome.backend.scanner import ESPHomeScanner
+
+    assert not inspect.iscoroutinefunction(ESPHomeScanner.async_setup)
+
+
+def test_registering_a_scanner_returns_an_unregister_callback():
+    """Per-connection scanners must be removable, or a daemon accumulates them."""
+    import inspect
+
+    from habluetooth import BluetoothManager
+
+    signature = inspect.signature(BluetoothManager.async_register_scanner)
+    assert "scanner" in signature.parameters
+
+
+def test_esphome_client_exposes_is_connected_as_the_ble_link_state():
+    """`device_connected` reads this, and it is the state `is_connected()` returns."""
+    from bleak_esphome.backend.client import ESPHomeClient
+
+    assert isinstance(ESPHomeClient.is_connected, property)
+
+
+def test_the_cccd_write_lives_in_bleak_esphome_not_aioesphomeapi():
+    """The fact the library choice turns on. See the ADR.
+
+    If aioesphomeapi ever absorbs the CCCD write, this fails and the decision in
+    docs/design/2026-08-23-bleak-esphome-over-aioesphomeapi.md is worth revisiting.
+    Without this, that would change upstream and nobody here would notice.
+    """
+    import inspect
+
+    from aioesphomeapi.client import APIClient
+    from bleak_esphome.backend.client import ESPHomeClient
+
+    upstream = inspect.getsource(APIClient.bluetooth_gatt_start_notify)
+    assert "descriptor" not in upstream.lower(), (
+        "aioesphomeapi.bluetooth_gatt_start_notify now appears to touch a descriptor. "
+        "If it writes the CCCD, bleak-esphome may no longer be load-bearing."
+    )
+    assert "write_descriptor" in inspect.getsource(ESPHomeClient.start_notify)
