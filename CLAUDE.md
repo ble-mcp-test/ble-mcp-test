@@ -72,5 +72,5 @@ Two bug classes recur in this codebase. Design against both.
 
 ## Notes
 
-- Node.js 24.x required
 - `prp/archive/` is dead historical spec — do not treat it as current
+- **Node version:** `package.json` declares `engines: {node: ">=24.0.0"}`, but nothing in the dependency tree justifies it — `@stoprocent/noble@2.3.5` declares `>=14`, no package in the lockfile requires `>=22` or above, and `@types/node` is pinned to `^20`. The 24 floor is a leftover from an older Noble; treat `engines` as the source of truth until it is revisited, not this file.
