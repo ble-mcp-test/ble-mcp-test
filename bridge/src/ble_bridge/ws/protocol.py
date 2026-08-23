@@ -21,10 +21,10 @@ they collide. `MSG_DATA` and `FIELD_DATA` are both "data" today; treating one as
 the other would work by coincidence and break the moment either moves.
 
 Membership follows docs/design/2026-08-23-ws-protocol-spec.md section 5. TRA-1157
-implements the two types that carry all real traffic, plus the parameter
-validation error. `error`/`warning` beyond validation and the `force_cleanup`
-pair are TRA-1159; the cleanup and admin families are dropped as dead on both
-ends, and the phantom types were never protocol at all.
+implemented the two types that carry all real traffic plus the parameter
+validation error; TRA-1159 adds `warning` and the ownership errors. The
+`force_cleanup` pair is TRA-1162's, the cleanup and admin families are dropped as
+dead on both ends, and the phantom types were never protocol at all.
 """
 
 from __future__ import annotations
@@ -35,16 +35,25 @@ from typing import Any, Final
 MSG_CONNECTED: Final = "connected"
 MSG_DATA: Final = "data"
 MSG_ERROR: Final = "error"
+MSG_WARNING: Final = "warning"
 
-#: What this server may emit. Extended by TRA-1159, never by a caller.
-SERVER_MESSAGE_TYPES: Final = (MSG_CONNECTED, MSG_DATA, MSG_ERROR)
-#: What this server accepts. `force_cleanup` joins this in TRA-1159.
+#: What this server may emit. Never extended by a caller.
+SERVER_MESSAGE_TYPES: Final = (MSG_CONNECTED, MSG_DATA, MSG_ERROR, MSG_WARNING)
+#: What this server accepts. `force_cleanup` joins this in TRA-1162, or does not.
 CLIENT_MESSAGE_TYPES: Final = (MSG_DATA,)
+
+#: The types that END the client's connect handshake, per ws-transport.ts:75-85.
+#: `warning` is deliberately absent: ws-transport.ts:176-178 keeps waiting on one,
+#: so treating it as terminal would break the handshake. This tuple is not
+#: decoration -- test_handshake_terminal_types_match_the_typescript_waiter reads
+#: the waiter out of the TypeScript and compares it against exactly this.
+HANDSHAKE_TERMINAL_TYPES: Final = (MSG_CONNECTED, MSG_ERROR)
 
 FIELD_TYPE: Final = "type"
 FIELD_DEVICE: Final = "device"
 FIELD_DATA: Final = "data"
 FIELD_ERROR: Final = "error"
+FIELD_WARNING: Final = "warning"
 
 #: Verbatim from src/bridge-server.ts:84. A client may match on this string.
 MISSING_PARAMS_ERROR: Final = "Missing required parameters: service, write, notify"
@@ -77,6 +86,15 @@ def encode_error(message: str) -> str:
     return json.dumps({FIELD_TYPE: MSG_ERROR, FIELD_ERROR: message})
 
 
+def encode_warning(message: str) -> str:
+    """src/ws-handler.ts:148 -- non-fatal, and the client keeps waiting on one.
+
+    Interstitial by contract: a warning may travel mid-handshake and must not
+    settle it. See HANDSHAKE_TERMINAL_TYPES.
+    """
+    return json.dumps({FIELD_TYPE: MSG_WARNING, FIELD_WARNING: message})
+
+
 def decode(raw: str | bytes) -> dict[str, Any]:
     try:
         msg = json.loads(raw)
@@ -93,9 +111,7 @@ def data_payload(msg: dict[str, Any]) -> bytes:
     if raw is None:
         raise ProtocolError(f"{MSG_DATA} frame has no {FIELD_DATA!r} field")
     if not isinstance(raw, list):
-        raise ProtocolError(
-            f"{MSG_DATA} {FIELD_DATA!r} must be an array, got {type(raw).__name__}"
-        )
+        raise ProtocolError(f"{MSG_DATA} {FIELD_DATA!r} must be an array, got {type(raw).__name__}")
     try:
         return bytes(raw)
     except (ValueError, TypeError) as exc:

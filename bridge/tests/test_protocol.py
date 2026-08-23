@@ -27,6 +27,52 @@ def test_data_is_a_json_int_array_not_base64():
     }
 
 
+def test_warning_shape_matches_ws_handler_ts():
+    """src/ws-handler.ts:148 -- {type, warning}."""
+    assert json.loads(p.encode_warning("careful")) == {"type": "warning", "warning": "careful"}
+
+
+def test_warning_is_not_a_handshake_terminal_type():
+    """Spec section 2: the client's handling is explicitly "Continue waiting for
+    completion". A port that treated it as terminal would break the handshake."""
+    assert p.MSG_WARNING not in p.HANDSHAKE_TERMINAL_TYPES
+
+
+def test_handshake_terminal_types_match_the_typescript_waiter():
+    """CLAUDE.md failure class 1, checked mechanically rather than by eye.
+
+    The connect() promise in src/ws-transport.ts settles on a fixed set of message
+    types. If this server emits a type expecting it to end a handshake, or stops
+    emitting one the client waits for, the mismatch surfaces as a TIMEOUT -- which
+    reads as slowness rather than as a defect, and eyeballing missed exactly that
+    four separate times here. Reading the waiter out of the client source and
+    comparing it against this module is what makes the mismatch impossible.
+    """
+    body = _ws_transport_connect_body()
+    waited_on = set(re.findall(r"""msg\.type === ['"]([a-z_]+)['"]""", body))
+    assert waited_on, "found no message-type comparison in connect(); the check would be vacuous"
+    assert waited_on == set(p.HANDSHAKE_TERMINAL_TYPES)
+
+
+def _ws_transport_connect_body() -> str:
+    """The body of WebSocketTransport.connect(), read from the TypeScript client.
+
+    Deliberately a hard failure rather than a skip when the file is gone. The TS
+    bridge is frozen and slated for retirement; when it is deleted this must make
+    somebody decide what replaces the check, rather than passing silently.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    source = root / "src" / "ws-transport.ts"
+    assert source.is_file(), (
+        f"{source} is missing. It is the client-side waiter this server's handshake "
+        "is checked against. If the TypeScript bridge has been retired, point this "
+        "check at its successor -- do not delete it."
+    )
+    text = source.read_text()
+    start = text.index("async connect(")
+    return text[start : text.index("\n  send(", start)]
+
+
 def test_error_shape():
     assert json.loads(p.encode_error("boom")) == {"type": "error", "error": "boom"}
 
