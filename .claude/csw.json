@@ -4,8 +4,8 @@
   "baseBranch": "main",
   "defaultType": "feat",
   "validate": "pnpm exec tsc --noEmit",
-  "worktreeDir": ".worktrees",
+  "worktreeDir": ".claude/worktrees",
   "branchPattern": "<type>/<ticket>-<slug>",
-  "adrDir": "",
+  "adrDir": "docs/design",
   "gates": []
 }
