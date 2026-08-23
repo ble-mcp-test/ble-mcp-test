@@ -73,4 +73,4 @@ Two bug classes recur in this codebase. Design against both.
 ## Notes
 
 - `prp/archive/` is dead historical spec — do not treat it as current
-- **Node version:** `package.json` declares `engines: {node: ">=24.0.0"}`, but nothing in the dependency tree justifies it — `@stoprocent/noble@2.3.5` declares `>=14`, no package in the lockfile requires `>=22` or above, and `@types/node` is pinned to `^20`. The 24 floor is a leftover from an older Noble; treat `engines` as the source of truth until it is revisited, not this file.
+- **Node version:** `.nvmrc` pins 24 and `package.json` sets `engines: {node: ">=24.0.0"}`. Nothing in the dependency tree requires it — `@stoprocent/noble@2.3.5` declares `>=14` and no package in the lockfile needs `>=22` — so the floor is not a technical constraint. It is kept deliberately because **platform pins 24 too**, and matching the primary consumer's runtime is the reason to pin. Do not lower it to match a dependency floor without testing on that version.
