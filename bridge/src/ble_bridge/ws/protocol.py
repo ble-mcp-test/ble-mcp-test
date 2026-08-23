@@ -97,6 +97,15 @@ EVICTED_ERROR_PREFIX: Final = (
 TAKEOVER_WARNING_PREFIX: Final = (
     "Took the command path over with force=true, evicting the connection that held it"
 )
+TAKEOVER_WARNING_ADVICE: Final = (
+    "That connection's run is now invalid; say so wherever it is being watched."
+)
+#: The displaced connection would not let go, so the takeover was abandoned rather
+#: than completed on top of a transport in an unknown state.
+TAKEOVER_STALLED_ERROR: Final = (
+    "Takeover abandoned: the connection holding the command path did not release "
+    "its transport in time. The device link was left alone. Retry."
+)
 
 
 class ProtocolError(ValueError):

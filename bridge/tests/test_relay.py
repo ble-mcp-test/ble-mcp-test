@@ -169,19 +169,6 @@ async def test_matching_mv_produces_no_warning(relay, caplog):
     assert [r.message for r in caplog.records if "mismatch" in r.message.lower()] == []
 
 
-async def test_two_clients_get_independent_transports(relay):
-    """Ownership between them is TRA-1159; this only pins that each gets its own."""
-    url, transports = relay
-    async with websockets.connect(f"{url}/?{REQUIRED}&session=a") as one:
-        await one.recv()
-        async with websockets.connect(f"{url}/?{REQUIRED}&session=b") as two:
-            await two.recv()
-            transports[0].inject(bytes([0x11]))
-            transports[1].inject(bytes([0x22]))
-            assert p.data_payload(p.decode(await one.recv())) == bytes([0x11])
-            assert p.data_payload(p.decode(await two.recv())) == bytes([0x22])
-
-
 async def test_a_daemon_with_no_clients_holds_no_transport(relay):
     """The lifecycle property: process lifetime is not a resource claim here."""
     _, transports = relay

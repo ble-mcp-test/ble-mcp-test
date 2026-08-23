@@ -100,6 +100,14 @@ class Claim:
     session: str
     path: CommandPath
     evicted: Claim | None = None
+    #: Set on the DISPLACED claim, naming who displaced it, so its own handler can
+    #: tell the client why its stream ended rather than just dropping the socket.
+    evicted_by: str | None = None
+    #: Set by this claim's own handler once its transport is cleaned up -- never by
+    #: release(), which runs first and would make the flag lie. A displacing
+    #: connection waits on this before building its transport, so two transports
+    #: never hold the one radio at the same time.
+    torn_down: asyncio.Event = field(default_factory=asyncio.Event)
     own_subscription: Subscription = field(init=False)
     device: DeviceInfo | None = None
     _observers: list[Subscription] = field(default_factory=list)
@@ -208,6 +216,7 @@ class CommandPath:
             # the alternative offers.
             raise CommandPathNotReady
 
+        current.evicted_by = session
         self._held = Claim(session=session, path=self, evicted=current)
         return self._held
 
