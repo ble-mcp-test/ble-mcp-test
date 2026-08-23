@@ -306,3 +306,126 @@ async def test_the_owners_transport_is_released_when_it_leaves(relay):
     async with websockets.connect(f"{url}/?{REQUIRED}") as owner:
         await recv(owner)
     assert await eventually(lambda: not transports[0].is_connected())
+
+
+# --- force=true takeover ------------------------------------------------------
+
+
+async def test_force_takes_over_and_warns_without_ending_the_handshake(relay):
+    """The acceptance criterion for `warning`, over a real socket.
+
+    The ORDER is the contract: warning, then connected. A client that treated the
+    warning as terminal would fail the handshake here; one that ignored it would
+    still connect. Interstitial means exactly this.
+    """
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}&session=a") as first:
+        await recv(first)
+        async with websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true") as second:
+            warning = await recv(second)
+            assert warning[p.FIELD_TYPE] == p.MSG_WARNING
+            assert warning[p.FIELD_WARNING].startswith(p.TAKEOVER_WARNING_PREFIX)
+            assert "a" in warning[p.FIELD_WARNING]
+            assert (await recv(second))[p.FIELD_TYPE] == p.MSG_CONNECTED
+
+
+async def test_the_evicted_owner_is_told_why_rather_than_just_dropped(relay):
+    """A socket that stops is indistinguishable from a network fault. The whole
+    incident turned on a run being contaminated with nothing saying so."""
+    url, _ = relay
+    first = await websockets.connect(f"{url}/?{REQUIRED}&session=a")
+    await recv(first)
+    second = await websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true")
+    frame = await recv(first)
+    assert frame[p.FIELD_TYPE] == p.MSG_ERROR
+    assert frame[p.FIELD_ERROR].startswith(p.EVICTED_ERROR_PREFIX)
+    assert "b" in frame[p.FIELD_ERROR]
+    with pytest.raises(websockets.exceptions.ConnectionClosed):
+        await recv(first)
+    await second.close()
+
+
+async def test_the_takeover_warning_says_the_evicted_run_is_now_invalid(relay):
+    """The warning exists to be acted on, not merely logged: whoever forced the
+    takeover is the one who can say so wherever the other run is being watched."""
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}&session=a") as first:
+        await recv(first)
+        async with websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true") as second:
+            assert p.TAKEOVER_WARNING_ADVICE in (await recv(second))[p.FIELD_WARNING]
+
+
+async def test_the_evicted_owners_transport_is_released_before_the_new_one_connects(relay):
+    """Two transports must never hold the one radio, so the takeover waits."""
+    url, transports = relay
+    first = await websockets.connect(f"{url}/?{REQUIRED}&session=a")
+    await recv(first)
+    second = await websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true")
+    await recv(second)  # warning -- sent only after the displaced transport let go
+    assert transports[0].is_connected() is False
+    assert (await recv(second))[p.FIELD_TYPE] == p.MSG_CONNECTED
+    assert transports[1].is_connected() is True
+    await first.close()
+    await second.close()
+
+
+async def test_the_new_owner_really_owns_it(relay):
+    url, transports = relay
+    first = await websockets.connect(f"{url}/?{REQUIRED}&session=a")
+    await recv(first)
+    second = await websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true")
+    await recv(second)
+    await recv(second)
+    transports[1].inject(bytes([0x33]))
+    assert p.data_payload(p.decode(await asyncio.wait_for(second.recv(), 2.0))) == bytes([0x33])
+    await second.send(p.encode_data(bytes([0x44])))
+    assert await eventually(lambda: transports[1].writes == [bytes([0x44])])
+    await first.close()
+    await second.close()
+
+
+async def test_force_on_a_free_path_warns_about_nothing(relay):
+    """A takeover notice that fires when nothing was taken is one nobody reads."""
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}&force=true") as ws:
+        assert (await recv(ws))[p.FIELD_TYPE] == p.MSG_CONNECTED
+
+
+async def test_a_non_true_force_value_is_falsy_and_still_rejected(relay):
+    """bridge-server.ts:59 -- `=== 'true'`. force=1 is not a takeover."""
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as owner:
+        await recv(owner)
+        async with websockets.connect(f"{url}/?{REQUIRED}&force=1") as second:
+            assert (await recv(second))[p.FIELD_ERROR].startswith(p.BUSY_ERROR_PREFIX)
+
+
+async def test_an_observer_of_the_evicted_owner_is_ended_too(relay):
+    """The stream it was watching no longer exists; a new owner's is a different
+    stream from a different device link."""
+    url, _ = relay
+    first = await websockets.connect(f"{url}/?{REQUIRED}&session=a")
+    await recv(first)
+    watcher = await websockets.connect(f"{url}/?{OBSERVER}")
+    await recv(watcher)
+    second = await websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true")
+    assert (await recv(watcher))[p.FIELD_ERROR] == p.STREAM_ENDED_ERROR
+    await first.close()
+    await watcher.close()
+    await second.close()
+
+
+async def test_the_slot_is_reclaimable_after_a_takeover(relay):
+    """The evicted connection's finally runs after the new owner claimed. If it
+    freed the slot, this observer would be told nobody owns the path."""
+    url, _ = relay
+    first = await websockets.connect(f"{url}/?{REQUIRED}&session=a")
+    await recv(first)
+    second = await websockets.connect(f"{url}/?{REQUIRED}&session=b&force=true")
+    await recv(second)
+    await recv(second)
+    await first.close()
+    await asyncio.sleep(0.1)
+    async with websockets.connect(f"{url}/?{OBSERVER}") as watcher:
+        assert (await recv(watcher))[p.FIELD_TYPE] == p.MSG_CONNECTED
+    await second.close()
