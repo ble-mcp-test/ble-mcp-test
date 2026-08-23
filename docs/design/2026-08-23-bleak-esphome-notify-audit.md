@@ -79,9 +79,19 @@ comparisons; one `bytearray(msg.data)` **copy**; one lambda hop.
 So one allocation per notification (the `bytearray`), and no parsing beyond protobuf decode. The
 wheels are Cython-compiled (`cp312` manylinux, not pure Python).
 
-At our ~45 msg/s this is comfortably irrelevant. **[inferred]** it should survive 10-100×, but that
-is reasoning, not measurement — and the firehose stress test is sequenced first precisely so this
-gets settled by data instead. Do not treat this paragraph as clearance.
+At our ~45 msg/s this is comfortably irrelevant, and it survives 10-100× — **measured 2026-08-23,
+no longer inferred.** The firehose ladder (TRA-1156, `2026-08-23-firehose-baseline.md`) ran the
+current TypeScript relay at 450/900/2250/4500 msg/s for 60 s each: 487,994 notifications, **zero
+loss at every rate**, p50 rising only 0.010 → 0.020 ms across a tenfold rate increase, flat p99, and
+no heap growth.
+
+**Read that for exactly what it covers.** It is a measurement of the *relay* — notifications are
+injected at the transport, so no radio, no proxy and no protobuf decode are in the path — and of the
+*TypeScript* stack, not `bleak-esphome`. It establishes that per-notification relay cost is
+sublinear in rate and that the surrounding architecture does not collapse at 100×, which is what
+this section's concern was really about. It does **not** measure the `bytearray` copy, the dict
+lookup or the Cython dispatch described above; those are on the Python transport path and become
+measurable at TRA-1158, against this baseline.
 
 ### 4. `stop_notify` teardown — **clean, and stale subscriptions are structurally prevented**
 
@@ -130,7 +140,9 @@ deliberately from inside the callback.
 
 ## What was NOT determined
 
-- Real throughput ceiling. Not measured; the firehose test settles it.
+- Real throughput ceiling. **Still not determined** — the firehose ladder found no ceiling at 100×
+  (zero loss at 4500 msg/s, zero saturated ticks), so it established a floor, not a limit. Finding
+  the actual ceiling needs rates past the point where something breaks.
 - Behaviour under a genuinely slow consumer at rate — reasoned from the synchronous dispatch, not
   observed.
 - Whether the CCCD-write path on v3/`REMOTE_CACHING` connections
