@@ -58,6 +58,46 @@ FIELD_WARNING: Final = "warning"
 #: Verbatim from src/bridge-server.ts:84. A client may match on this string.
 MISSING_PARAMS_ERROR: Final = "Missing required parameters: service, write, notify"
 
+# --- Ownership, TRA-1159 ------------------------------------------------------
+#
+# These are the texts a client sees when the command path refuses it. Every one is
+# a complete sentence naming what happened and what to do about it, because the
+# whole point of the ticket is that the alternative -- a timeout, or a success
+# against the wrong state -- reads as slowness or as correctness rather than as a
+# refusal.
+
+#: Prefix of the second-writer rejection; the holder's session is appended, because
+#: "who has it" is the first question an operator asks. A client may match on this.
+#: test_the_busy_error_is_not_one_the_mock_silently_retries is what keeps this text
+#: from being quietly converted back into a retry loop by mock-bluetooth.ts.
+BUSY_ERROR_PREFIX: Final = "Device is busy: the command path is owned by another connection"
+BUSY_ERROR_ADVICE: Final = (
+    "Connect with role=observer to read the notification stream without writing, "
+    "or with force=true to take the command path over."
+)
+NOTHING_TO_OBSERVE_ERROR: Final = "Nothing to observe: no connection owns the command path"
+NOT_READY_ERROR: Final = (
+    "The command path is claimed but its device link is not up yet. This resolves "
+    "in a moment; retry."
+)
+OBSERVER_MAY_NOT_WRITE_ERROR: Final = (
+    "This connection attached with role=observer and may not write to the device. "
+    "The frame was discarded and the stream is still open."
+)
+STREAM_ENDED_ERROR: Final = (
+    "The connection that owned the command path has gone; this stream has ended"
+)
+#: Sent to the connection being displaced, then its socket is closed.
+EVICTED_ERROR_PREFIX: Final = (
+    "Evicted: another connection took the command path over with force=true"
+)
+#: Sent to the connection doing the displacing, BEFORE `connected`. Interstitial:
+#: it announces a destructive act to the side that caused it, without ending the
+#: handshake. See HANDSHAKE_TERMINAL_TYPES.
+TAKEOVER_WARNING_PREFIX: Final = (
+    "Took the command path over with force=true, evicting the connection that held it"
+)
+
 
 class ProtocolError(ValueError):
     """A frame could not be understood as this protocol."""
