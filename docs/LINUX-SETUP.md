@@ -60,7 +60,7 @@ The bridge now supports matching devices by their MAC address (device ID) when n
 devicePrefix: "CS108"
 
 // Works on Linux (using MAC address)
-devicePrefix: "6c79b82603a7"
+devicePrefix: "6c79b8xxxxxx"
 ```
 
 ## Running as a System Service

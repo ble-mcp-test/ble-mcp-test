@@ -157,7 +157,7 @@ export class RustSubprocessTransport extends EventEmitter implements TransportIn
       if (line.includes('✅ Connected on attempt')) {
         this.isConnected = true;
         this._connectedAt = new Date().toISOString();
-        this._deviceName = 'CS108Reader2603A7'; // Extract from logs if needed
+        this._deviceName = 'CS108ReaderXXXXXX'; // Extract from logs if needed
         this.emit('connected');
 
         // Log connection event (as INFO - we'll add a system log method later)
@@ -242,7 +242,7 @@ export class RustSubprocessTransport extends EventEmitter implements TransportIn
   async scanDevices(): Promise<any[]> {
     // Rust bridge handles scanning automatically during startup
     return [
-      { id: 'cs108', name: 'CS108Reader2603A7', rssi: -50 }
+      { id: 'cs108', name: 'CS108ReaderXXXXXX', rssi: -50 }
     ];
   }
 

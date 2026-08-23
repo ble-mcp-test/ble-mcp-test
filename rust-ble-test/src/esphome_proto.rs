@@ -86,7 +86,7 @@ use esphome_native_api::proto::BluetoothGattService;
 /// Low 64 bits of the Bluetooth base UUID `...-8000-00805f9b34fb`.
 const BASE_UUID_LOW: u64 = 0x8000_0080_5f9b_34fb;
 
-/// Pack a `"6C:79:B8:26:03:A7"` MAC into the `u64` address the ESPHome proxy uses (big-endian, low 48 bits).
+/// Pack a `"6C:79:B8:XX:XX:XX"` MAC into the `u64` address the ESPHome proxy uses (big-endian, low 48 bits).
 pub fn mac_to_u64(mac: &str) -> Result<u64, String> {
     let parts: Vec<&str> = mac.split(':').collect();
     if parts.len() != 6 {
@@ -177,7 +177,7 @@ mod uuid_tests {
 
     #[test]
     fn mac_packs_big_endian_low48() {
-        assert_eq!(mac_to_u64("6C:79:B8:26:03:A7").unwrap(), 0x6C79B82603A7);
+        assert_eq!(mac_to_u64("AA:BB:CC:DD:EE:FF").unwrap(), 0xAABBCCDDEEFF);
     }
     #[test]
     fn mac_rejects_garbage() {
@@ -185,7 +185,7 @@ mod uuid_tests {
     }
     #[test]
     fn mac_rejects_bad_octet() {
-        assert!(mac_to_u64("6C:79:B8:26:03:ZZ").is_err());
+        assert!(mac_to_u64("6C:79:B8:XX:XX:ZZ").is_err());
     }
 
     #[test]

@@ -17,8 +17,8 @@ When tests fail with:
 3. Check device is advertising: `sudo hcitool lescan`
 
 Example hardware (CS108):
-- Address: 6c:79:b8:26:03:a7
-- Name: CS108-260572 (if discoverable)
+- Address: 6c:79:b8:xx:xx:xx
+- Name: CS108-XXXXXX (if discoverable)
 - Service UUID: 9800
 - Write Characteristic: 9900
 - Notify Characteristic: 9901
@@ -31,7 +31,7 @@ Remember: The hardware exists. If it's not responding, it needs a reset, not den
 
 **DO NOT** hardcode device names in tests
 **DO NOT** expect device name in scan results  
-**DO** use the MAC address: 6c:79:b8:26:03:a7
+**DO** use the MAC address: 6c:79:b8:xx:xx:xx
 **DO** use environment variables for ALL device configuration
 
 The bridge accepts BOTH:

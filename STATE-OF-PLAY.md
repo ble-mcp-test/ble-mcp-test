@@ -410,7 +410,7 @@ Caught live while the link was up:
 
 ```
 $ sudo hcitool -i hci1 con
-    < LE 6C:79:B8:26:03:A7 handle 3585 state 1 lm CENTRAL     ← the CS108
+    < LE 6C:79:B8:XX:XX:XX handle 3585 state 1 lm CENTRAL     ← the CS108
 $ sudo hcitool -i hci0 con
     (none)
 ```
@@ -538,7 +538,7 @@ wholesale rather than recovery defects. All are silent at runtime.
   device-agnostic premise in `CLAUDE.md`.
 
 - **Session management lost.** Rust speaks only `{type:"data"}` plus one
-  `{type:"connected",device:"CS108Reader2603A7"}` greeting (device name also
+  `{type:"connected",device:"CS108ReaderXXXXXX"}` greeting (device name also
   hardcoded). The protocol `ws-transport.ts:3-18` defines — `session`, `token`,
   `eviction_warning`, `keepalive_ack`, `force_cleanup`, `cleanup_session`,
   `admin_cleanup` — is entirely unimplemented.
@@ -598,7 +598,7 @@ from main on 2025-08-06 and is ~2 weeks behind the other work.
 | Host | `knuckles` — Intel NUC5, Celeron N3050 @ 1.60GHz dual-core (Braswell) |
 | RAM / disk | 8 GB / ~1 TB NVMe |
 | OS | Ubuntu 24.04 Noble |
-| Device under test | **CS108Reader2603A7**, MAC `6C:79:B8:26:03:A7`, service `9800` / write `9900` / notify `9901` |
+| Device under test | **CS108ReaderXXXXXX**, MAC `6C:79:B8:XX:XX:XX`, service `9800` / write `9900` / notify `9901` |
 | Power / uptime | Always on AC, headless, suspend targets masked system-wide |
 | `sudo` | Passwordless (`sudo -n` succeeds) |
 
@@ -638,7 +638,7 @@ deliberate choice. Same class of latent bug.
 ### Verified live, 2026-08-21
 
 `pnpm run check:device` →
-`✅ Found device: CS108Reader2603A7 [6c79b82603a7] RSSI: -67, Service UUIDs: 9800`.
+`✅ Found device: CS108ReaderXXXXXX [6c79b8xxxxxx] RSSI: -67, Service UUIDs: 9800`.
 Hardware is present and discoverable; Noble can still scan.
 
 ### Runtime
@@ -946,7 +946,7 @@ Zero panics, zero PM2 restarts, zero WebSocket closes.
 | Check | Result |
 |---|---|
 | BLE link (`hcitool con`) | **empty — link down** |
-| Device advertising (`lescan`) | **yes — `6C:79:B8:26:03:A7 CS108Reader2603A7`** |
+| Device advertising (`lescan`) | **yes — `6C:79:B8:XX:XX:XX CS108ReaderXXXXXX`** |
 | Rust subprocess | **alive**, 1m47s uptime |
 | WS port 8080 | **still LISTENING** |
 | Panics in `err.log` | **0** |

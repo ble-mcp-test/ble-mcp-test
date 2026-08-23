@@ -65,7 +65,7 @@ injectWebBluetoothMock({
   sessionId: `farm-${deviceId}-${os.hostname()}`,
   serverUrl: 'ws://device-farm:8080',
   service: '9800',
-  deviceId: '6c79b82603a7'  // Connect to specific device
+  deviceId: '6c79b8xxxxxx'  // Connect to specific device
 });
 
 ```
@@ -273,7 +273,7 @@ const client = new NodeBleClient({
   service: '9800',
   write: '9900',
   notify: '9901',
-  deviceId: '6c79b82603a7'  // Connect to specific device
+  deviceId: '6c79b8xxxxxx'  // Connect to specific device
 });
 
 // Filter by device name (partial match)
@@ -527,7 +527,7 @@ All messages are JSON objects with a `type` field.
 ```json
 {
   "type": "connected",
-  "device": "CS108Reader2603A7",
+  "device": "CS108ReaderXXXXXX",
   "token": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```

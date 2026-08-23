@@ -44,7 +44,7 @@ async fn handle_websocket_connection(
     println!("📱 New WebSocket client connected");
     let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-    let connected_msg = json!({ "type": "connected", "device": "CS108Reader2603A7" });
+    let connected_msg = json!({ "type": "connected", "device": "CS108ReaderXXXXXX" });
     if let Err(e) = ws_sender.send(Message::Text(connected_msg.to_string())).await {
         println!("❌ Failed to send connected message: {}", e);
         return;

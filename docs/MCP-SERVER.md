@@ -142,7 +142,7 @@ Get current BLE connection status and statistics.
 ```json
 {
   "connected": true,
-  "deviceName": "CS108Reader2603A7",
+  "deviceName": "CS108ReaderXXXXXX",
   "connectedAt": "2024-01-15T10:20:00.000Z",
   "lastActivity": "2024-01-15T10:23:45.123Z",
   "packetsTransmitted": 42,
@@ -197,7 +197,7 @@ Scan for nearby BLE devices.
   "devices": [
     {
       "id": "e245f25413c2e682de9eefb9adc81d88",
-      "name": "CS108Reader2603A7",
+      "name": "CS108ReaderXXXXXX",
       "rssi": -42
     }
   ],

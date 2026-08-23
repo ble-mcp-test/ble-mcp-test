@@ -539,7 +539,7 @@ backends. See `.env.local.example` for the complete list.
 
 - `BLE_BACKEND` — `btleplug` (default) or `esphome`.
 - `BLE_MCP_SERVICE_UUID` / `BLE_MCP_WRITE_UUID` / `BLE_MCP_NOTIFY_UUID` — 16-bit short (`9800`) or full UUID. CS108 defaults: `9800` / `9900` / `9901`.
-- `BLE_MCP_DEVICE_MAC` — target MAC (used to select the device on the `esphome` backend). Default `6C:79:B8:26:03:A7`.
+- `BLE_MCP_DEVICE_MAC` — target MAC (used to select the device on the `esphome` backend). Default `6C:79:B8:XX:XX:XX`.
 - `BLE_MCP_WS_HOST` / `BLE_MCP_WS_PORT` — WebSocket bind (default `0.0.0.0:8080`).
 
 **btleplug backend:**

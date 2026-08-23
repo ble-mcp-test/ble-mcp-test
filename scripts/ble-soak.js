@@ -30,7 +30,7 @@ const LABEL = getArg('label', 'unlabeled');
 const INTERVAL_MS = parseInt(getArg('interval', '1000'), 10);
 const WS_URL = process.env.BLE_MCP_WS_URL || 'ws://localhost:8080';
 const CMD_TIMEOUT_MS = 5000;
-const DEVICE_MAC = '6C:79:B8:26:03:A7';
+const DEVICE_MAC = '6C:79:B8:XX:XX:XX';
 
 // Load mode: 'poll' = 1 req/interval trigger-status; 'inventory' = continuous RFID stream
 const MODE = getArg('mode', 'poll');
