@@ -1,179 +1,76 @@
-# BLE Mock Bridge for Device Testing
+# CLAUDE.md
 
-## Primary Purpose & Critical Understanding
+## What this is
 
-### What This Tool Does
-**This tool enables browser-based E2E tests to control REAL BLE hardware from headless environments** (CI/CD, development VMs, sandboxes, Claude Code instances).
+Browser-based E2E tests controlling **real BLE hardware** from headless environments (CI, VMs, containers, Claude Code sessions).
 
-This bridge allows Playwright tests to interact with any BLE device through a mocked Web Bluetooth API. Originally developed for CS108 UHF RFID readers, it is fully **device-agnostic** and works with any BLE device that supports GATT services and characteristics.
+**We mock the `navigator.bluetooth` Web API — not the hardware.** Commands flow browser → mock → WebSocket → bridge → real device, and back. If no device is reachable, connections fail; that is correct behaviour, not a bug in the mock.
 
-### Device Compatibility
-**This tool works with ANY BLE device**, including but not limited to:
-- RFID readers (CS108, Nordic-based readers, etc.)
-- IoT sensors (temperature, humidity, motion, etc.)
-- Medical devices (glucose meters, blood pressure monitors, etc.)
-- Fitness trackers and heart rate monitors
-- Industrial equipment with BLE interfaces
-- Development boards (nRF52, ESP32, Arduino with BLE, etc.)
+Device-agnostic by design: any GATT device works, configured by UUID env vars. CS108 UHF RFID is the reference device, not a requirement.
 
-**Requirements:** Your BLE device must support:
-- GATT services and characteristics
-- Read/write operations on characteristics
-- Optional: Notification capabilities (for real-time data)
-
-**Configuration:** Set your device's service and characteristic UUIDs in environment variables - no code changes needed.
-
-### Architecture: Browser → Mock API → Bridge → Real Hardware
+## Architecture
 
 ```
-[Browser/Playwright Test]
-         ↓
-[mock-bluetooth.ts - Mocks navigator.bluetooth API ONLY]
-         ↓
-    (WebSocket)
-         ↓
-[Bridge Server (bridge-server.ts)]
-         ↓
-[Noble Transport (noble-transport.ts)]
-         ↓
-[REAL BLE HARDWARE]
+[Playwright/browser] → [mock-bluetooth.ts] → (WebSocket) → [bridge] → [ESPHome proxy over TCP] → [BLE device]
 ```
 
-**Critical Understanding:**
-- We mock the `navigator.bluetooth` Web API in the browser - NOT the hardware
-- The bridge connects to and controls REAL BLE devices
-- Commands flow: Browser → Mock → WebSocket → Bridge → Noble → Real Device
-- Responses flow back through the same path in reverse
-- If no real BLE hardware is available, connections will fail
+Two bridge implementations exist today:
+- **TypeScript** (`src/`) — Noble/BlueZ, requires a local radio. Frozen.
+- **Rust** (`rust-ble-test/`) — ESPHome proxy over TCP, no local radio. What actually runs.
 
-### Success Metrics
-1. **Playwright E2E Compatibility** - Each test creates a fresh browser context; our session management must handle this
-2. **Full Path Communication** - Must verify end-to-end: connect + send test request/response through complete chain
-3. **Test Reliability** - E2E tests pass consistently in headless environments without direct BLE hardware access
+Both are being replaced by a **Python** server. See `docs/design/2026-08-23-python-bridge-rewrite.md` and TRA-1155/1156-1163. The WS contract is specified in `docs/design/2026-08-23-ws-protocol-spec.md` — **treat that document as the acceptance criterion**, not any message count.
 
-## Critical Technical Constraints
+## Package Manager
 
-### Noble.js Async Operations (Frequent Source of Errors)
-The old codebase mixed callbacks with promises, causing race conditions.
+**pnpm EXCLUSIVELY** — never `npm`, `npx`, or `yarn`. `npx` → `pnpm dlx` or `pnpm exec`.
 
-**Requirements:**
-- Use ONLY @stoprocent/noble (v0.1.14)
-- Use ONLY async/await patterns
-- ALWAYS await Noble operations
-- Callbacks acceptable ONLY in event handlers
+Rust: `cargo` in `rust-ble-test/`. Python (incoming): `uv`.
 
-```javascript
-// INCORRECT (old pattern that causes issues)
-peripheral.connect(() => {
-  peripheral.discoverServices(); // Returns promise but not awaited!
-});
+## Git Workflow
 
-// CORRECT
-await peripheral.connectAsync();
-await peripheral.discoverServicesAsync();
-```
+- **Never push directly to main** — all changes via PR, no exceptions
+- **Never squash merge** — `gh pr merge --merge`, preserve commit history
+- **Never merge without explicit confirmation**
+- Branch naming: `<type>/tra-NNNN-slug` (e.g. `fix/tra-1157-ws-relay`); `feat:`/`fix:`/`docs:`/`chore:`/`refactor:`/`test:`
+- Conventional commits; prefer incremental commits over amending
 
-### Common Implementation Errors
-These issues have repeatedly caused problems:
+## Worktrees
 
-1. **Device Name Confusion** - Noble often reports devices as "Unknown" on Linux. This does NOT mean the device isn't the expected type.
-2. **Hardware vs Mock Confusion** - The mock provides Web Bluetooth API only. Real devices provide actual responses.
-3. **Session Persistence** - localStorage that only works within a browser session is insufficient for Playwright tests.
+Worktrees go in **`.claude/worktrees/<name>/`** — the canonical location across all trakrf repos (docs/platform/infra). Create with the native `EnterWorktree` tool. Do **not** use manual `git worktree add`, and do **not** create a root-level `.worktrees/` or a symlink bridge to one (fresh-clone footgun). `git worktree list` is authoritative for cleanup.
 
-### Playwright Test Environment
-Production deployment runs on headless VMs without display capabilities.
-
-**Requirements:**
-- ALWAYS run Playwright tests in headless mode
-- NEVER use `headless: false` in test configurations
-- Tests must work without GUI access
-
-```javascript
-// INCORRECT (will fail on headless VM)
-const browser = await chromium.launch({ headless: false });
-
-// CORRECT
-const browser = await chromium.launch({ headless: true }); // or omit (default)
-```
-
-## Development Guidelines
-
-### Package Manager (Strict Requirement)
-- Use pnpm EXCLUSIVELY
-- NEVER use npm, npx, or yarn
-- Replace `npx` with `pnpm exec` or `pnpm dlx`
+## Testing
 
 ```bash
-# INCORRECT
-npx playwright test
-npm run build
-
-# CORRECT
-pnpm exec playwright test
-pnpm run build
+pnpm test           # unit + integration
+pnpm test:unit      # 74 tests, no bridge, no hardware
+pnpm test:e2e       # Playwright — ALWAYS headless, never headless:false
 ```
 
-### Git Workflow
-Never commit directly to main. Use feature branches:
-- `feature/` - New features
-- `fix/` - Bug fixes
-- `refactor/` - Code refactoring
-- `docs/` - Documentation
-- `test/` - Test updates
+**Hardware reality:** ~10 e2e tests need a powered device in range; **none** need a staged tag field. They currently cannot run anywhere — this container has no usable Bluetooth stack (`AF_BLUETOOTH` → errno 97) and the TS bridge is Noble-only. Do not report the hardware subset as passing or failing; report it as **unexecutable**.
 
-### Clean Code Principles
-1. DELETE don't deprecate - no .old files or commented code
-2. Separation of concerns between bridge and observability
-3. Session-based architecture for test reliability
-4. Node.js 24.x required for BLE compatibility
+`pnpm run check:device` scans for a local radio — it cannot work here.
 
-### Architecture Notes
-The current implementation includes:
-- ✅ Session management for test reliability
-- ✅ Connection pooling to prevent Noble.js degradation
-- ✅ MCP integration for debugging
-- ✅ Connection metrics for health monitoring
-- ⚠️ Noble.js internal state dependencies (technical debt)
+## Known failure classes
 
-## Operations & Commands
+Two bug classes recur in this codebase. Design against both.
 
-### Build & Deploy
-After any bridge code changes:
-```bash
-pnpm build && pnpm pm2:restart
-```
+1. **A waiter whose condition cannot be satisfied by what is actually sent** — fails as a *timeout*, so it looks like slowness. Check every wait condition against its emitter **mechanically** (a test, or a shared constant both sides derive from), never by eye.
+2. **A silent fallback that looks like configuration** — succeeds against the *wrong input*, so it looks like correctness and nothing is even slow. Require the variable; fail loudly when absent; never fall back.
 
-### PM2 Process Management
-- `pnpm pm2:status` - Check server status
-- `timeout 1 pnpm pm2:logs` - View recent logs (timeout prevents auto-tailing)
-- `pnpm pm2:restart` - Restart the server
-- `pnpm pm2:stop` - Stop the server
-- `pnpm pm2:start` - Start the server
-- `pnpm pm2:monitor` - Interactive monitoring
+## Verification
 
-### Hardware Availability & Troubleshooting
-- `pnpm run check:device` - Scan for BLE devices to verify hardware availability
-- **Troubleshooting Hardware Issues:** If E2E tests fail with "hardware not found" or "device not available" errors, run `pnpm run check:device` first to verify your BLE device is discoverable and responsive
+- Run the command before claiming completion; report actual output — **no false optimism**
+- A masking or renaming pass is verified by **execution**, not by grep
+- If tests fail, say so with the output. If a step was skipped, say that.
 
-## Project Structure
+## Style
 
-### Expected Files
-```
-src/
-├── index.ts           # Exports only
-├── bridge-server.ts   # WebSocket server
-├── noble-transport.ts # Noble BLE wrapper
-├── mock-bluetooth.ts  # navigator.bluetooth mock
-└── ws-transport.ts    # WebSocket client
+- **DELETE, don't deprecate** — no `.old` files, no commented-out code
+- Async/await only for BLE operations; callbacks only in event handlers
+- Keep files under 500 lines
+- Ask when requirements are unclear; never delete code without explicit instruction
 
-tests/
-├── integration/       # Server + mock client tests
-└── e2e/              # Playwright browser tests
-```
+## Notes
 
-## Archive Warning
-**NEVER access prp/archive/ unless explicitly directed.**
-The archive contains outdated specifications that will introduce incorrect patterns.
-
-## Context & History
-This project has evolved from a simple bridge to a comprehensive BLE testing framework. The current implementation solves the core problem: enabling browser-based tests to control real BLE hardware from headless environments (CI/CD, development VMs, Claude Code instances), with robust session management and debugging capabilities.
+- Node.js 24.x required
+- `prp/archive/` is dead historical spec — do not treat it as current

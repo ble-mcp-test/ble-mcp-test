@@ -129,3 +129,8 @@ scripts/esphome-probe/.esphome/
 
 # Hand-written ambient declarations — the **/*.d.ts rule above targets build output
 !src/global.d.ts
+
+# Git worktrees — Claude Code's native worktree tool writes here; this is the
+# canonical location across trakrf repos. Narrow ignore: the rest of .claude/
+# stays tracked so shared agent config is versioned.
+.claude/worktrees/
