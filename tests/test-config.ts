@@ -97,8 +97,8 @@ export async function setupTestServer() {
   } catch (error) {
     // Connection failed - PM2 server should be running for new architecture
     console.error(`[Test] Cannot connect to Rust bridge at ${WS_URL}`);
-    console.error(`[Test] Please ensure PM2 server is running: pnpm pm2:start`);
-    throw new Error(`Cannot connect to Rust bridge server at ${WS_URL}. Run 'pnpm pm2:start' to start the server.`);
+    console.error(`[Test] Please ensure the bridge is running: pnpm start`);
+    throw new Error(`Cannot connect to Rust bridge server at ${WS_URL}. Run 'pnpm start' to start the server.`);
   }
 }
 

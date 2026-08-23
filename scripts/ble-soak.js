@@ -93,8 +93,13 @@ const INVENTORY_BRINGUP = [
 
 const PROJECT_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const OUT_DIR = path.join(PROJECT_ROOT, 'tmp', 'soak');
-const ERR_LOG = path.join(PROJECT_ROOT, 'logs', 'err.log');
-const PM2 = path.join(PROJECT_ROOT, 'node_modules', '.bin', 'pm2');
+
+// Where the bridge's stderr is captured, if anything is capturing it. pm2 used
+// to write this and no longer exists; a bridge started by hand writes to a
+// terminal and this file will be absent, in which case panics are UNOBSERVABLE
+// rather than absent. Point it at a real capture with BLE_MCP_ERR_LOG.
+const ERR_LOG = process.env.BLE_MCP_ERR_LOG || path.join(PROJECT_ROOT, 'logs', 'err.log');
+const WS_PORT = new URL(WS_URL).port || '80';
 
 // ---------------------------------------------------------------- probes
 
@@ -112,21 +117,44 @@ function linkState() {
   return null;
 }
 
-/** Count of Rust panics recorded in err.log so far. */
+/**
+ * Count of Rust panics captured so far, or null if nothing is capturing stderr.
+ *
+ * Returning null rather than 0 is the whole point. A soak that cannot observe
+ * panics and one that observed none both used to report 0, so the summary said
+ * "no panics" either way -- a health signal that is inert reads exactly like a
+ * healthy system.
+ */
 function panicCount() {
-  if (!existsSync(ERR_LOG)) return 0;
+  if (!existsSync(ERR_LOG)) return null;
   try {
     return (readFileSync(ERR_LOG, 'utf8').match(/panicked at/g) || []).length;
-  } catch { return 0; }
+  } catch { return null; }
 }
 
-function pm2Restarts() {
-  const out = sh(`${PM2} jlist`);
-  if (!out) return null;
-  try {
-    const app = JSON.parse(out).find((a) => a.name === 'ble-mcp-test');
-    return app ? app.pm2_env.restart_time : null;
-  } catch { return null; }
+/**
+ * Identity of whatever is listening on the soak's WebSocket port, or null.
+ *
+ * This replaces asking pm2 for a restart count. The bridge is not supervised
+ * any more -- it is started by hand and orphaned to init -- so there is no
+ * supervisor to ask, and the replatform ships no supervision at all. Process
+ * identity works regardless of who launched it.
+ *
+ * Matched on the SOCKET, not on a command-line pattern: `pgrep -f rust-ble-test`
+ * also matches the shell running the pipeline, so it reports a bridge that is
+ * not there. Start time is folded in because PIDs are reused.
+ */
+function bridgeIdentity() {
+  const out = sh(`ss -ltnpH "sport = :${WS_PORT}"`);
+  const pid = out.match(/pid=(\d+)/)?.[1];
+  if (!pid) return null;
+  const since = sh(`ps -o lstart= -p ${pid}`);
+  return since ? `${pid}@${since}` : null;
+}
+
+/** b - a, or null if either end could not be observed. */
+function delta(a, b) {
+  return a === null || a === undefined || b === null || b === undefined ? null : b - a;
 }
 
 function adapterInventory() {
@@ -164,8 +192,12 @@ const stats = {
   linkAdapterChanges: [],
   panicsAtStart: panicCount(),
   panicsAtEnd: null,
-  restartsAtStart: pm2Restarts(),
-  restartsAtEnd: null,
+  bridgeIdentityAtStart: bridgeIdentity(),
+  bridgeIdentityAtEnd: null,
+  /** Times the process on the WS port changed identity mid-soak. */
+  bridgeRestarts: 0,
+  /** Samples where nothing was listening on the WS port at all. */
+  bridgeAbsentSamples: 0,
   longestSilenceMs: 0,
   events: [],
 };
@@ -389,7 +421,7 @@ async function runRecoveryCycles() {
     await new Promise((r) => setTimeout(r, 2000));   // let traffic settle on the fresh link
 
     const pBefore = panicCount();
-    const rBefore = pm2Restarts();
+    const idBefore = bridgeIdentity();
     logEvent('inducing_disconnect', `#${i} on ${link.hci} handle ${link.handle}`);
     sh(`sudo -n hcitool -i ${link.hci} ledc ${link.handle}`);
 
@@ -409,12 +441,13 @@ async function runRecoveryCycles() {
       dropConfirmed,
       recovered,
       recoveryMs: recovered ? ms : null,
-      panics: panicCount() - pBefore,
-      pm2Restarts: (pm2Restarts() ?? 0) - (rBefore ?? 0),
+      panics: delta(pBefore, panicCount()),
+      bridgeRestarted: idBefore === null ? null : bridgeIdentity() !== idBefore,
     };
     stats.cycles.push(rec);
     logEvent(recovered ? 'recovered' : 'RECOVERY_FAILED',
-      `#${i} in ${(ms / 1000).toFixed(1)}s, panics=${rec.panics}, restarts=${rec.pm2Restarts}`);
+      `#${i} in ${(ms / 1000).toFixed(1)}s, panics=${rec.panics ?? 'unobservable'}, ` +
+      `bridge restarted=${rec.bridgeRestarted ?? 'unobservable'}`);
 
     if (!recovered) {
       // Bridge is wedged. Give the supervisor a chance, then continue measuring.
@@ -449,10 +482,23 @@ const monitorTimer = setInterval(() => {
   }
 
   const panics = panicCount();
-  if (panics > (stats._lastPanics ?? stats.panicsAtStart)) {
+  if (panics !== null && panics > (stats._lastPanics ?? stats.panicsAtStart ?? 0)) {
     logEvent('rust_panic', `total ${panics}`);
   }
-  stats._lastPanics = panics;
+  if (panics !== null) stats._lastPanics = panics;
+
+  // Watch the process on the WS port. A restart between two endpoint samples
+  // would otherwise be invisible: the bridge dies, something restarts it, and
+  // start and end identities happen to differ by nothing observable.
+  const id = bridgeIdentity();
+  if (id === null) {
+    stats.bridgeAbsentSamples++;
+    if (stats._lastBridgeId !== null) logEvent('bridge_absent', 'nothing listening on the WS port');
+  } else if (stats._lastBridgeId && id !== stats._lastBridgeId) {
+    stats.bridgeRestarts++;
+    logEvent('bridge_restart', `${stats._lastBridgeId} -> ${id}`);
+  }
+  stats._lastBridgeId = id;
 }, 2000);
 
 const progressTimer = setInterval(() => {
@@ -497,7 +543,7 @@ function finish() {
 function report() {
 
   stats.panicsAtEnd = panicCount();
-  stats.restartsAtEnd = pm2Restarts();
+  stats.bridgeIdentityAtEnd = bridgeIdentity();
   stats.endedAt = new Date().toISOString();
   stats.actualDurationS = Math.round((Date.now() - started) / 1000);
 
@@ -545,14 +591,18 @@ function report() {
             max: stats.latencies.length ? Math.max(...stats.latencies) : null,
           },
         }),
-    panics: stats.panicsAtEnd - stats.panicsAtStart,
-    pm2Restarts: (stats.restartsAtEnd ?? 0) - (stats.restartsAtStart ?? 0),
+    // null means UNOBSERVABLE, not zero. Folding an inert signal to 0 is what
+    // made every previous soak report "no panics, no restarts" unconditionally.
+    panics: delta(stats.panicsAtStart, stats.panicsAtEnd),
+    bridgeRestarts: stats.bridgeIdentityAtStart === null ? null : stats.bridgeRestarts,
+    bridgeAbsentSamples: stats.bridgeIdentityAtStart === null ? null : stats.bridgeAbsentSamples,
     wsCloses: stats.wsCloses,
     linkDrops: stats.linkDrops,
     longestSilenceS: Math.round(stats.longestSilenceMs / 1000),
   };
 
   delete stats._lastPanics;
+  delete stats._lastBridgeId;
   if (!existsSync(OUT_DIR)) mkdirSync(OUT_DIR, { recursive: true });
   const outFile = path.join(OUT_DIR, `${LABEL}.json`);
   writeFileSync(outFile, JSON.stringify(stats, null, 2));
@@ -576,5 +626,20 @@ setTimeout(finish, MINUTES * 60 * 1000);
 console.log(`\n🔬 BLE soak: ${LABEL} — ${MINUTES} min @ ${INTERVAL_MS}ms interval`);
 console.log(`   adapters present: ${stats.adaptersPresent.join(', ')}`);
 console.log(`   link at start:    ${stats.linkAdapterAtStart ?? 'none'}`);
-console.log(`   panics at start:  ${stats.panicsAtStart}, pm2 restarts: ${stats.restartsAtStart}\n`);
+
+// Say which health signals are actually live BEFORE spending 15 minutes, not
+// after. An inert signal reports the same value as a healthy system, so the
+// operator's evidence is identical either way unless it is stated up front.
+if (stats.bridgeIdentityAtStart === null) {
+  console.log(`   ⚠️  bridge restarts:  UNOBSERVABLE — nothing is listening on port ${WS_PORT}`);
+} else {
+  console.log(`   bridge process:   ${stats.bridgeIdentityAtStart}`);
+}
+if (stats.panicsAtStart === null) {
+  console.log(`   ⚠️  rust panics:      UNOBSERVABLE — no stderr capture at ${ERR_LOG}`);
+  console.log(`      set BLE_MCP_ERR_LOG to a file the bridge's stderr is redirected to`);
+} else {
+  console.log(`   panics at start:  ${stats.panicsAtStart}`);
+}
+console.log('');
 connect();
