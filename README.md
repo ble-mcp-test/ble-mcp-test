@@ -552,10 +552,10 @@ backends. See `.env.local.example` for the complete list.
 
 ```bash
 # Local radio (default)
-BLE_BACKEND=btleplug BLE_MCP_ADAPTER=hci0 pnpm pm2:restart
+BLE_BACKEND=btleplug BLE_MCP_ADAPTER=hci0 pnpm start
 
 # ESPHome proxy over the network — no local Bluetooth needed
-BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 pnpm pm2:restart
+BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 pnpm start
 ```
 
 ## Requirements

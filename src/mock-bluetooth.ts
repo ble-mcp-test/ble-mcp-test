@@ -478,26 +478,45 @@ export class MockBluetooth {
         data: Array.from(options.data).map(b => '0x' + b.toString(16).padStart(2, '0')).join(' ')
       });
       
-      // Directly update the characteristic value and dispatch the event
       const characteristic = options.characteristic as any;
-      
-      // Update the characteristic's value
-      characteristic.value = new DataView(options.data.buffer);
-      
-      // Create and dispatch the characteristicvaluechanged event
-      const event = new CustomEvent('characteristicvaluechanged', {
-        detail: { target: characteristic }
-      });
-      
-      // Set the target property on the event
-      Object.defineProperty(event, 'target', {
-        value: { value: characteristic.value },
-        writable: false
-      });
-      
-      // Dispatch the event
-      characteristic.dispatchEvent(event);
-      
+
+      // Respect the byte range: `data` may be a view into a larger buffer, and
+      // `new DataView(buf)` would hand the app the whole thing.
+      characteristic.value = new DataView(
+        options.data.buffer,
+        options.data.byteOffset,
+        options.data.byteLength
+      );
+
+      // Primary path: dispatch the standard Web Bluetooth DOM event. This is
+      // what a real MockBluetoothRemoteGATTCharacteristic exposes -- its
+      // triggerNotification is private, so dispatchEvent IS the public surface.
+      if (typeof characteristic.dispatchEvent === 'function') {
+        const event = new CustomEvent('characteristicvaluechanged', {
+          detail: { target: characteristic }
+        });
+
+        // Set the target property on the event
+        Object.defineProperty(event, 'target', {
+          value: { value: characteristic.value },
+          writable: false
+        });
+
+        characteristic.dispatchEvent(event);
+      } else if (typeof characteristic.triggerNotification === 'function') {
+        characteristic.triggerNotification(options.data);
+      } else if (typeof characteristic.simulateNotification === 'function') {
+        // Legacy shape, kept because callers may hold hand-rolled stubs.
+        characteristic.simulateNotification(options.data);
+      } else {
+        // Say what is wrong rather than letting `undefined is not a function`
+        // surface from three frames down.
+        throw new Error(
+          'Unable to simulate notification: the characteristic exposes none of ' +
+          'dispatchEvent, triggerNotification or simulateNotification'
+        );
+      }
+
       // Log successful dispatch
       console.log('ble-mcp-test: notify event dispatched successfully');
     },

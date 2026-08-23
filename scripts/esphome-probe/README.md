@@ -5,7 +5,7 @@ ESP32) replace the local BlueZ/btleplug radio as the transport under ble-mcp-tes
 
 It is the Python twin of `scripts/ble-soak.js` — same CS108 commands, same four
 modes, same summary JSON written to `tmp/soak/<label>.json` — so the results line up
-column-for-column with the adapter evaluation in `STATE-OF-PLAY.md` §11.
+column-for-column with `scripts/ble-soak.js`.
 
 No Home Assistant, no BlueZ, no local radio. The probe talks the ESPHome native API
 over TCP via `bleak-esphome`, which is the same path a Rust bridge would take with
@@ -101,8 +101,9 @@ flips to the Noble path.
 ## 3. Read the result
 
 Each run prints a summary and writes `tmp/soak/<label>.json`. Columns match
-`ble-soak.js`; `panics`/`pm2Restarts` are always 0 here (there is no subprocess), and
-two new ones appear:
+`ble-soak.js`; `panics`/`bridgeRestarts` are `null` here — there is no subprocess to
+panic and no bridge process to watch, and `null` means *not observed* rather than
+*none happened*. Two new columns appear:
 
 - `linkDrops` — unexpected GATT disconnects reported by the proxy
 - `apiWarnings` — WARNING+ records from `aioesphomeapi`/`bleak_esphome` (API link

@@ -122,7 +122,7 @@ async function restartBluetooth() {
       console.log('\n✅ Bluetooth restart completed successfully');
       console.log('   The service should now be ready for new connections');
       console.log('   Restart your bridge server to clear any cached state:');
-      console.log('   pnpm pm2:restart');
+      console.log('   pnpm start');
     } else {
       console.error('\n❌ Bluetooth service restart completed but service is not active');
       console.log('   Manual intervention may be required');

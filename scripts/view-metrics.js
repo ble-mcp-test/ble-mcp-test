@@ -17,7 +17,7 @@ async function fetchMetrics() {
   } catch (error) {
     console.error(`Failed to fetch metrics from ${url}:`, error.message);
     console.error('\nMake sure the observability server is running:');
-    console.error('  pnpm pm2:status');
+    console.error('  pnpm start');
     process.exit(1);
   }
 }
@@ -119,10 +119,10 @@ function printMetrics(data) {
     console.log(`  ⚠️ Listener leak detected - ${metrics.resources.listenerWarnings} warnings`);
   }
   
-  // PM2 restart correlation
-  console.log('\n🔄 PM2 Restart Analysis:');
-  console.log('  Check PM2 restarts with: pnpm pm2:status');
-  console.log('  If PM2 restarts correlate with zombie connections,');
+  // Bridge restart correlation
+  console.log('\n🔄 Bridge Restart Analysis:');
+  console.log('  scripts/ble-soak.js reports bridgeRestarts, watching the process');
+  console.log('  on the WS port. If restarts correlate with zombie connections,');
   console.log('  it indicates critical resource exhaustion.');
   
   console.log('\n' + '═'.repeat(60));

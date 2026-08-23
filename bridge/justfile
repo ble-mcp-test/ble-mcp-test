@@ -1,0 +1,20 @@
+# Python bridge workspace. Invoked directly, or via the root justfile.
+
+default: validate
+
+lint:
+    uv run ruff check src tests
+
+fmt:
+    uv run ruff format src tests
+
+test:
+    uv run pytest
+
+# Opt-in sustained rate ladder. Saturates cores for ~45s at the default
+# duration -- announce before running it on a shared box, and note that a
+# non-zero saturated-tick count voids that row as a statement about the relay.
+firehose seconds="10":
+    FIREHOSE_BASELINE=1 FIREHOSE_SECONDS={{seconds}} uv run pytest tests/stress -v -s -k ladder
+
+validate: lint test

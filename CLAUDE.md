@@ -70,7 +70,14 @@ Two bug classes recur in this codebase. Design against both.
 - Keep files under 500 lines
 - Ask when requirements are unclear; never delete code without explicit instruction
 
+## Documentation
+
+**We do not keep build-, ticket-, or spec-specific documentation.** Implementation plans, investigation write-ups and point-in-time assessments are scaffolding. Write them to disk — `docs/superpowers/` and `docs/notes/` are gitignored for exactly this — and never commit them. The durable record is the code, the commit history, and the ticket.
+
+**Durable documentation is written deliberately; it does not fall out of spec or plan activity.** If a finding is worth keeping, rewrite it as a design doc in `docs/design/`, a README section, or a line here — stated as a claim being asserted now, not as a transcript of how it was found.
+
+**Discount any dated or investigative document you find, and verify against the code before acting on it.** A recorded diagnosis reads as a settled conclusion precisely because someone wrote it down, which is what makes a stale one expensive.
+
 ## Notes
 
-- `prp/archive/` is dead historical spec — do not treat it as current
 - **Node version:** `.nvmrc` pins 24 and `package.json` sets `engines: {node: ">=24.0.0"}`. Nothing in the dependency tree requires it — `@stoprocent/noble@2.3.5` declares `>=14` and no package in the lockfile needs `>=22` — so the floor is not a technical constraint. It is kept deliberately because **platform pins 24 too**, and matching the primary consumer's runtime is the reason to pin. Do not lower it to match a dependency floor without testing on that version.
