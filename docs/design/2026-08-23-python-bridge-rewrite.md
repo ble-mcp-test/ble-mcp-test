@@ -329,17 +329,20 @@ never. That is literally the failure-becomes-silence class this project keeps re
 **3. Backpressure.** `ws` and `websockets` treat slow consumers differently. Irrelevant at 45 msg/s,
 decisive at firehose rates — which is exactly what the first milestone tests.
 
-**4. The WebSocket protocol is the real contract, and it is bigger than it looks.** The e2e suite is
-written against the TS bridge's protocol. Counting message types the TS client handles: `connected`,
-`data`, `disconnected`, `error`, `characteristicvaluechanged`, `warning`, `cleanup_session`,
-`cleanup_complete`, `session_cleanup_complete`, `force_cleanup`, `force_cleanup_complete`,
-`admin_cleanup`, `admin_cleanup_complete` — thirteen. **The Rust bridge implements two**
-(`connected`, `data`). That gap — not performance, not language — is why the Rust bridge never
-replaced the TS one and why `session-management.spec.ts` cannot pass against it.
+**4. The WebSocket protocol is the real contract — and it is SMALLER than this ADR first claimed.**
+The e2e suite is written against the TS bridge's protocol, and the Rust bridge implements two message
+types (`connected`, `data`). That gap — not performance, not language — is why the Rust bridge never
+replaced the TS one and why `session-management.spec.ts` cannot pass against it. The hazard is real.
 
-The Python rewrite must reimplement this protocol **exactly**, or the e2e suite must be rewritten
-alongside it. Treat the protocol as the acceptance criterion. The Rust bridge is the cautionary
-example, and it is an in-repo one.
+**Correction to this ADR's earlier claim of "13 message types."** The count was right by accident and
+the membership was wrong: `characteristicvaluechanged` is a DOM `CustomEvent` inside the mock, not a
+wire message; `disconnected` is synthesized client-side in the socket's `onclose` handler and never
+crosses the wire; `ack` was missing from the list. **Nine message types actually traverse the wire,
+and two request/response pairs among them are dead on both ends** — so the port implements seven.
+
+The contract is now specified properly in **`2026-08-23-ws-protocol-spec.md`**, which supersedes the
+count as the acceptance criterion. Treat *that document* as the criterion — a number was never
+implementable.
 
 ---
 
