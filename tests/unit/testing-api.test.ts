@@ -185,6 +185,53 @@ describe('MockBluetooth Testing API', () => {
       })).rejects.toThrow('Unable to simulate notification');
     });
 
+    it('should prefer dispatchEvent, which is what the real characteristic exposes', async () => {
+      // MockBluetoothRemoteGATTCharacteristic.triggerNotification is PRIVATE;
+      // dispatchEvent is its public surface and the standard Web Bluetooth path.
+      // The stubs above only have triggerNotification, so without this test the
+      // production path would have no coverage at all.
+      let dispatched: any = null;
+      const realShapedChar = {
+        uuid: '2a01',
+        dispatchEvent: vi.fn((event: any) => { dispatched = event; return true; }),
+        triggerNotification: vi.fn()
+      };
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic: realShapedChar as any,
+        data: new Uint8Array([0xA7, 0xB3, 0x04])
+      });
+
+      expect(realShapedChar.dispatchEvent).toHaveBeenCalled();
+      expect(realShapedChar.triggerNotification).not.toHaveBeenCalled();
+
+      // The real class reads target.value as a DataView and converts it back to
+      // a Uint8Array via buffer/byteOffset/byteLength — assert that exact shape.
+      const view = dispatched.target.value as DataView;
+      expect(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
+        .toEqual([0xA7, 0xB3, 0x04]);
+    });
+
+    it('should preserve the byte range when data is a view into a larger buffer', async () => {
+      // `new DataView(data.buffer)` ignores byteOffset/byteLength and hands the
+      // app the whole backing buffer. Firehose payloads are subarrays.
+      let dispatched: any = null;
+      const char = {
+        uuid: '2a01',
+        dispatchEvent: vi.fn((event: any) => { dispatched = event; return true; })
+      };
+
+      const backing = new Uint8Array([0xFF, 0xFF, 0x01, 0x02, 0x03, 0xFF]);
+      await mockBluetooth.testing.simulateNotification({
+        characteristic: char as any,
+        data: backing.subarray(2, 5)
+      });
+
+      const view = dispatched.target.value as DataView;
+      expect(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
+        .toEqual([0x01, 0x02, 0x03]);
+    });
+
     it('should work with legacy simulateNotification method', async () => {
       const legacyChar = {
         simulateNotification: vi.fn()
