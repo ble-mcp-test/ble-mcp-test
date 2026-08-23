@@ -14,13 +14,6 @@ afterAll(async () => {
   
   cleanupComplete = true;
   
-  // Import and cleanup Noble if available
-  try {
-    const { cleanupNoble } = await import('../dist/noble-transport.js');
-    await cleanupNoble();
-  } catch (error) {
-    // Noble transport might not be built yet in some test scenarios
-  }
   
   // Wait a bit for cleanup to complete
   await new Promise(resolve => setTimeout(resolve, 500));
