@@ -37,6 +37,18 @@ route, RF proximity moves to a ~$10 ESP32, and the runner may be a container wit
 at all. **ESPHome-only is a prerequisite for unattended hardware CI** — necessary, not sufficient;
 see Hazard 4.
 
+**Whose CI, though — Mike's correction, and it matters for how this is justified.** The unattended
+hardware rig exists to run **platform's application-level e2e** (`inventory.spec.ts` and friends),
+not this repo's transport suite. Earlier framing of the CI-rig argument — including in TRA-1155 —
+reasoned about the smaller case. The retirement still enables the rig; the rig just serves the other
+repo. Two claims, kept separate:
+
+- *This repo's* hardware e2e suite is unrunnable anywhere today. That is a fact about this repo, it
+  is what makes the Python/ESPHome server a capability gain **here**, and it stands on its own.
+- *The CI rig's* value accrues mainly to **platform**. This decision unblocks it; it does not
+  consume it. Do not justify the rewrite by benefits that land in the other repo — it doesn't need
+  them.
+
 ---
 
 ## The voided-premise table
