@@ -322,6 +322,23 @@ Futures / Events / Queues, and each translation is a lifetime-and-cancellation j
 one recreates *"listener never fires, caller waits out the timeout"* — TRA-1154 and #583 in a new
 language.
 
+**1a. The recurring failure class: a waiter whose condition cannot be satisfied by what is actually
+sent.** Four instances in this codebase family, all found on one day:
+
+| Instance | Shape |
+|---|---|
+| #583 | write failures produced silence; the caller waited out the timeout |
+| TRA-1154 | no op-code correlation; a stray packet settles the wrong command |
+| `@2colors` ESPHome client | no GATT error handling; a rejected write hangs 5s, then a generic timeout |
+| `cleanup_complete` | the wait tests a message name the server never sends |
+
+Every one fails **as a timeout rather than as an error**, which is why none were caught by
+inspection. This is an architectural failure mode, not four coincidences.
+
+**Design rule for the port:** every request/response pair must have its **wait condition and its
+emitter checked against each other mechanically** — a test, or a shared constant both sides derive
+from — never by eye. Eyeballing has now missed it four times.
+
 **2. asyncio swallows exceptions.** A `Task` whose exception is never retrieved logs at GC time, or
 never. That is literally the failure-becomes-silence class this project keeps rediscovering.
 **Standing rule: every task is awaited or given an explicit done-callback.** No exceptions.
@@ -358,10 +375,17 @@ implementable.
 
 ## Open questions
 
-1. **`bleak-esphome`'s NOTIFY path needs reading before commitment.** ~45 msg/s sustained is our
-   workload, and high-rate notification delivery is exactly where abstractions leak. This is the one
-   finding that could still upset the decision. **Do not treat the choice as settled until this is
-   read.**
+1. ~~**`bleak-esphome`'s NOTIFY path needs reading before commitment.**~~ **RESOLVED** — see
+   `2026-08-23-bleak-esphome-notify-audit.md`. The path is sound: correlation is explicit
+   per-`(address, handle)` (`client_base.py:172`), there is no queue so a slow consumer produces
+   backpressure rather than unbounded growth, subscriptions cannot outlive their connection because
+   the handler registry lives on the connection object, and handler exceptions are caught and logged
+   rather than swallowed. Two of this project's recurring bug classes — TRA-1154's correlation gap
+   and 3f7eefb's stale-transport events — are handled *better* there than in our current code.
+
+   One constraint falls out: **the notify callback runs synchronously on the event loop**, so
+   non-trivial per-notification work must go behind the bridge's own queue. Throughput was reasoned,
+   not measured; the firehose test settles it.
 2. **Confirm the 2026-07-28 MCP re-architecture independently** before building on it. See the MCP
    section — those claims are second-hand and past this author's cutoff. The decision does not rest
    on them (the ESPHome client comparison and the unrunnable-server argument stand alone), but the
