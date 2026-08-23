@@ -3,6 +3,7 @@ import pytest
 from ble_bridge.ws.params import (
     InvalidParameterError,
     MissingParametersError,
+    Role,
     parse_params,
 )
 from ble_bridge.ws.protocol import MISSING_PARAMS_ERROR
@@ -111,3 +112,25 @@ def test_repeated_parameter_takes_the_first_like_searchparams_get():
     """URLSearchParams.get() returns the first occurrence."""
     p = parse_params("service=first&service=second&write=2a01&notify=2a02")
     assert p.service == "first"
+
+
+def test_role_defaults_to_writer():
+    """Absent means writer, matching every client that predates the role param."""
+    assert parse_params(REQUIRED).role is Role.WRITER
+
+
+@pytest.mark.parametrize("value", ["writer", "observer"])
+def test_role_is_taken_verbatim(value):
+    assert parse_params(f"{REQUIRED}&role={value}").role is Role(value)
+
+
+@pytest.mark.parametrize("value", ["true", "Observer", "reader", "1", "", "observer "])
+def test_an_unrecognised_role_is_refused_rather_than_defaulted(value):
+    """CLAUDE.md failure class 2, in its most expensive form.
+
+    A silent fallback here hands full write access to a client that asked, in good
+    faith, for read-only -- and it looks like correctness from both ends, because
+    the connection succeeds and the writes land.
+    """
+    with pytest.raises(InvalidParameterError):
+        parse_params(f"{REQUIRED}&role={value}")
