@@ -3,6 +3,7 @@ import { BleSession } from './ble-session.js';
 import { WebSocketHandler } from './ws-handler.js';
 import type { BleConfig } from './noble-transport.js';
 import type { SharedState } from './shared-state.js';
+import type { TransportFactory } from './ble-transport.js';
 import { MetricsTracker } from './connection-metrics.js';
 
 // Constants
@@ -28,7 +29,10 @@ export class SessionManager {
   );
   private transportCleanupInProgress = false;
   
-  constructor(private sharedState?: SharedState) {}
+  constructor(
+    private sharedState?: SharedState,
+    private transportFactory?: TransportFactory
+  ) {}
 
   /**
    * Wait for transport cleanup to complete
@@ -76,7 +80,7 @@ export class SessionManager {
       
       // Create new session
       console.log(`[SessionManager] Creating new session: ${sessionId}`);
-      session = new BleSession(sessionId, config, this.sharedState);
+      session = new BleSession(sessionId, config, this.sharedState, this.transportFactory);
       this.sessions.set(sessionId, session);
       
       // Set up activity tracking
