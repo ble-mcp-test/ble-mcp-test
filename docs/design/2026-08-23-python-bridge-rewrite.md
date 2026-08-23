@@ -223,6 +223,70 @@ Two corrections to the figures circulated earlier:
 
 ---
 
+## Concurrency: single writer, multiple read-only observers
+
+**Decision:** the Python bridge grants the command path to **exactly one client**. A second attempt
+to claim it is **rejected loudly**, with a distinguishable error — never silently queued, never
+silently shared. Additional clients may attach **read-only** to the notification stream.
+
+**Why the observer role exists rather than a plain lock:** what platform actually uses the mock for
+is the user-gesture bypass *and* access to the transport stream to debug unexpected reader
+behaviour. A pure single-client lock blocks that legitimate second use; unrestricted multi-client
+permits the dangerous one. Single-writer / multi-observer is the shape that serves the stated need
+without the hazard.
+
+### What the two existing bridges actually do (verified)
+
+| | Guard | Evidence |
+|---|---|---|
+| TS / Noble | **Session-level only** | `session-manager.ts:51-56` `findActiveSession(excludeSessionId)` finds any *other* session with `hasTransport`; `:71-75` returns `null`. Surfaces as `"Device is busy with another session"` (`bridge-server.ts:116`) |
+| Rust | **None** | `main.rs:141-144` — bare `while let Ok((stream, _)) = ws_listener.accept().await`, cloning `cmd_tx` and calling `accept_transport.subscribe()` per connection, with no busy check in the accept path |
+
+So single-client blocking was never *removed*; the Rust spike simply never implemented it. Because
+the Rust bridge is what actually runs, **the protection is absent in practice while still present in
+the code nobody runs.**
+
+### The guard is weaker than "single client" even in TypeScript
+
+This is the part that changes the requirement, and it is why the ADR specifies the ownership unit
+explicitly rather than saying "restore the old behaviour":
+
+- `ble-session.ts:18` holds `private activeWebSockets = new Set<WebSocket>()`, and `:97`
+  `addWebSocket(ws)` adds to it. **Multiple WebSockets per session are a designed feature**, and
+  they all share one transport with full write access.
+- The guard therefore rejects a *different* `sessionId`. It has never protected against multiple
+  writers sharing *the same* `sessionId`.
+- And the test harness pins one: `tests/shared/test-config.ts` sets
+  ``sessionId: `ble-mcp-e2e-${os.hostname()}` `` — fixed per host. So **every test client on a host
+  shares one session, with shared write access, by default.** Shared-writer is the normal
+  configuration here, not an edge case the guard catches.
+
+**Requirement for the port: ownership is per-CONNECTION, not per-session.** Restoring the
+TypeScript behaviour verbatim would reproduce a guard that never covered the common case.
+
+### Why this compounds — do not treat it as cosmetic
+
+It multiplies with **TRA-1154**: `CommandManager` has no op-code correlation and settles the pending
+command with whatever command-class packet arrives. Add a second writer on the same physical reader
+and you get exactly that mis-resolution — client A's response settling client B's pending command.
+Two independently survivable gaps that are dangerous together.
+
+### Why interference is mostly self-announcing today, and where that stops
+
+The CS108 is single-connection **at the radio level**. If someone pairs natively while the bridge
+holds the link, the bridge simply cannot connect and the run dies at `connectToDevice` — demonstrated
+live: with cell A holding the link, a native pair attempt scans and finds nothing.
+
+That covers only the *native* case. The *same-bridge* case is quiet today precisely because the Rust
+bridge lost the guard — which is the gap this decision closes.
+
+**Caveat for the unattended rig:** an empty device selector is loud but **not diagnostic**. "Nothing
+here" covers someone-else-holds-it, reader-off, reader-asleep and out-of-range identically. This is
+where the never-populated `battery` column returns: at 3am, a discharged reader and a claimed reader
+produce the same silence. Distinguishable errors matter more without a human in the room.
+
+---
+
 ## Hazards
 
 These cluster on wounds this project already has, which is why they are called out rather than left
