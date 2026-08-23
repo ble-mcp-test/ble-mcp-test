@@ -261,8 +261,33 @@ explicitly rather than saying "restore the old behaviour":
   shares one session, with shared write access, by default.** Shared-writer is the normal
   configuration here, not an edge case the guard catches.
 
+Both sides pin a fixed per-host session id, so this is symmetric rather than a quirk of one harness:
+
+| repo | file | session id |
+|---|---|---|
+| ble-mcp-test | `tests/shared/test-config.ts:15` | `` `ble-mcp-e2e-${os.hostname()}` `` |
+| platform | `tests/config/vite-bridge.config.ts:37` | `` `trakrf-handheld-dev-${systemHostname}` `` |
+
 **Requirement for the port: ownership is per-CONNECTION, not per-session.** Restoring the
-TypeScript behaviour verbatim would reproduce a guard that never covered the common case.
+TypeScript behaviour verbatim would reproduce a guard that never covered the common case — it would
+feel like a fix and change nothing.
+
+**Corollary, and it corrects a natural assumption:** the same-bridge hazard is *not* a Rust
+regression. It would be equally quiet under the TypeScript bridge, because same-session sharing is
+by design there and the guard only ever rejected a *different* session id. The Rust bridge is worse
+— it doesn't reject even that — but the hazard we actually care about predates it and lives in the
+implementation we were treating as the good example.
+
+### The concrete form of the risk
+
+The thing someone would actually do: **open a second tab on `localhost:5173` to watch what the app
+is doing while a soak runs.** Same host, same pinned session id, mock injected, full write access —
+two clients commanding one reader through one `CommandManager` that matches no op codes.
+
+Note the specificity: `localhost:5173`, **not** the deployed build. The deployed build uses native
+Web Bluetooth with no mock, so a second viewer there lands in the loud radio-level case above. **The
+dangerous path is the debugging path** — which is exactly the path the observer role is meant to
+serve, and the reason it must be read-only rather than merely discouraged.
 
 ### Why this compounds — do not treat it as cosmetic
 
