@@ -13,44 +13,6 @@ premise change that makes this decision correct.
 
 ---
 
-## The decisive argument: the current server cannot run in our own environment
-
-Placed first because it is a **capability** claim rather than a preference, it survives every
-preference argument on either side, and anyone who doubts this ADR can check it in ten seconds.
-
-- mssb (this container) has **no usable Bluetooth stack**. `/sys/class/bluetooth/hci0` exists, but
-  opening an HCI socket fails with *"Address family not supported by protocol"*, and
-  `systemctl is-active bluetooth` returns `failed`. Normal incus behaviour — no `AF_BLUETOOTH`.
-- The TypeScript bridge is **Noble-only**: `src/ble-session.ts:41` does `new NobleTransport(...)`
-  unconditionally, and `grep -rli esphome src/` returns **nothing**. There is no ESPHome path
-  anywhere in the TypeScript product.
-- knuckles — the machine that had a working radio — is powered off as of today.
-
-**Therefore no host in the estate can currently execute this repo's hardware e2e suite.** The
-existing TS server is not merely inconvenient here; it is unrunnable. A Python bridge on
-`bleak-esphome` runs on mssb, in a container, with no radio — restoring hardware testability that
-Noble structurally cannot provide in the environment we now develop in.
-
-This also subsumes the CI-rig argument rather than competing with it: with a local-radio bridge you
-buy a machine *and* colocate hardware next to it. With an ESPHome bridge the runner needs only a TCP
-route, RF proximity moves to a ~$10 ESP32, and the runner may be a container with no Bluetooth stack
-at all. **ESPHome-only is a prerequisite for unattended hardware CI** — necessary, not sufficient;
-see Hazard 4.
-
-**Whose CI, though — Mike's correction, and it matters for how this is justified.** The unattended
-hardware rig exists to run **platform's application-level e2e** (`inventory.spec.ts` and friends),
-not this repo's transport suite. Earlier framing of the CI-rig argument — including in TRA-1155 —
-reasoned about the smaller case. The retirement still enables the rig; the rig just serves the other
-repo. Two claims, kept separate:
-
-- *This repo's* hardware e2e suite is unrunnable anywhere today. That is a fact about this repo, it
-  is what makes the Python/ESPHome server a capability gain **here**, and it stands on its own.
-- *The CI rig's* value accrues mainly to **platform**. This decision unblocks it; it does not
-  consume it. Do not justify the rewrite by benefits that land in the other repo — it doesn't need
-  them.
-
----
-
 ## The voided-premise table
 
 This is the load-bearing part of the document. Four decisions were each individually reasonable and
@@ -115,6 +77,60 @@ classes fixed today:
 
 Adopting it means re-fixing both in someone else's library and owning them there. This is the
 strongest single argument against the "just consolidate on Node" position.
+
+---
+
+## Capability: the current server cannot run in this container as configured
+
+**Placed here, not first — and stated precisely, because an earlier draft overstated it.** The
+ESPHome-client comparison above is the independent, unchallenged argument and carries first
+position. This one is real but qualified.
+
+**Measured, from inside the container:**
+
+- `/proc/self/uid_map` reads `0 1000000 1000000000` — mssb is an **unprivileged, user-namespaced**
+  container.
+- Opening an `AF_BLUETOOTH` socket fails with **errno 97, "Address family not supported by
+  protocol."** `systemctl is-active bluetooth` returns `failed`.
+- `/sys/class/bluetooth/hci0` *appears* to exist but is hollow — no `address` attribute. Visible in
+  sysfs, not a usable adapter.
+- The host (`k8s-alpha`) has a working `hci0` with the Bluetooth service **active**; the container
+  has `security.privileged` empty, `security.nesting: true`, and **no devices passed through.**
+
+**Why it fails is structural for unprivileged containers specifically:** the Linux Bluetooth
+subsystem is **not network-namespace aware**, so a BLE socket inside a user-namespaced container
+cannot reach the host stack. That is exactly the errno 97 observed.
+
+**The precise claim, replacing an earlier absolute:**
+
+> The TS server cannot run in this container **as configured**, and making it run requires
+> `security.privileged: true` — dropping user-namespace isolation on a dev box — plus device access,
+> plus sharing the host's single adapter. Whether it would then be **stable is unknown**; prior
+> evidence of passthrough instability concerns a USB dongle into a container and a VM, which is
+> related but not identical to using the host's built-in adapter from a privileged container.
+> **The Python/ESPHome server runs unprivileged, with no radio at all.**
+
+That is weaker than "structurally unrunnable" and stronger than "inconvenient." It remains a
+capability argument — nothing you can configure makes the TS server as deployable as the Python one
+— but it **must not be quoted as an absolute** at a decision.
+
+**Open, and assigned to review:** would a privileged container with the host's `hci0` actually give a
+working, *stable* BlueZ path, or does the prior passthrough instability apply there too? Neither
+author has answered this.
+
+Separately and not in dispute: **knuckles is powered off**, so the machine that could run this
+repo's ~10 device-present tests is gone. That subset is currently unexecutable regardless of how the
+container question resolves.
+
+**On the CI rig** — with a local-radio bridge you buy a machine *and* colocate hardware next to it;
+with an ESPHome bridge the runner needs only a TCP route, RF proximity moves to a ~$10 ESP32, and the
+runner may be a container with no Bluetooth stack. **ESPHome-only is a prerequisite for unattended
+hardware CI** — necessary, not sufficient; see Hazard 4.
+
+**Whose CI, though — Mike's correction.** The unattended rig exists to run **platform's
+application-level e2e** (`inventory.spec.ts` and friends), not this repo's transport suite. The
+retirement enables the rig; the rig serves the other repo. Do not justify the rewrite by benefits
+that land elsewhere — it does not need them.
 
 ---
 
