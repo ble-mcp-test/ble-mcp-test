@@ -1,8 +1,10 @@
-"""The nine URL query parameters, parsed per src/bridge-server.ts:40-79.
+"""The URL query parameters: the nine from src/bridge-server.ts:40-79, plus `role`.
 
 Nine, not the five that circulated before the spec was written: `service`,
 `write`, `notify`, `session`, `_mv`, `force`, `deviceId`, `deviceName`,
-`timeout`.
+`timeout`. `role` is the tenth and the only one with no TypeScript ancestor --
+TRA-1159 added it, and docs/design/2026-08-23-ws-protocol-spec.md records it as an
+addition rather than as something read out of the old bridge.
 
 Faithful to the TypeScript in every respect but one, flagged here and in the PR:
 an unparseable `timeout` raises rather than becoming NaN. `parseInt('abc', 10)`
@@ -22,12 +24,30 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from urllib.parse import parse_qs, urlsplit
 
 from ble_bridge.ws.protocol import MISSING_PARAMS_ERROR
 
 #: Sent by the mock as a version marker. Observation, never negotiation.
 MOCK_VERSION_PARAM = "_mv"
+
+#: Which side of the ownership model this connection is asking to be on.
+ROLE_PARAM = "role"
+
+
+class Role(StrEnum):
+    """Who this connection is. Stated explicitly, never inferred from arrival order.
+
+    Inferring it -- first connection writes, later ones observe -- is the tempting
+    shortcut and it is the wrong one. A second client that MEANT to write would be
+    silently demoted, its writes would vanish into a role it never asked for, and
+    nothing would be slow. The ticket requires a loud rejection instead, and a loud
+    rejection is only possible if intent was stated rather than guessed.
+    """
+
+    WRITER = "writer"
+    OBSERVER = "observer"
 
 
 class MissingParametersError(ValueError):
@@ -55,6 +75,7 @@ class ConnectionParams:
     device_id: str | None
     device_name: str | None
     timeout: int | None
+    role: Role
 
 
 def parse_params(
@@ -98,6 +119,19 @@ def parse_params(
                 "Refusing to pass an unusable timeout to the transport."
             ) from exc
 
+    raw_role = one(ROLE_PARAM)
+    if raw_role is None:
+        role = Role.WRITER
+    else:
+        try:
+            role = Role(raw_role)
+        except ValueError as exc:
+            allowed = ", ".join(r.value for r in Role)
+            raise InvalidParameterError(
+                f"{ROLE_PARAM} is set to {raw_role!r}, which is not one of: {allowed}. "
+                "Refusing to guess, because guessing wrong grants write access."
+            ) from exc
+
     return ConnectionParams(
         service=service,
         write=write,
@@ -110,4 +144,5 @@ def parse_params(
         device_id=one("deviceId") or None,
         device_name=one("deviceName") or None,
         timeout=timeout,
+        role=role,
     )
