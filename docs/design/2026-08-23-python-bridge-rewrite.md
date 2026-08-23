@@ -339,6 +339,17 @@ inspection. This is an architectural failure mode, not four coincidences.
 emitter checked against each other mechanically** — a test, or a shared constant both sides derive
 from — never by eye. Eyeballing has now missed it four times.
 
+**The fifth instance is different in kind, and the distinction matters.** `aioesphomeapi`
+(`connection.py:1184-1192`) catches every handler exception and routes it to `_LOGGER.exception`,
+explicitly so a buggy callback cannot tear down the session (their issue #1755). **That is correct
+upstream design, not a defect** — but the consequence is that *our* notify-path exceptions vanish
+into their logger.
+
+So the four above are "mistakes to avoid"; this one is **a correct upstream decision that transfers
+the obligation to us**. The bridge must surface notify-path errors *deliberately, from inside the
+callback*. Nothing upstream will do it, and nothing will fail loudly if we forget — which is the same
+silence, arrived at from the opposite direction.
+
 **2. asyncio swallows exceptions.** A `Task` whose exception is never retrieved logs at GC time, or
 never. That is literally the failure-becomes-silence class this project keeps rediscovering.
 **Standing rule: every task is awaited or given an explicit done-callback.** No exceptions.
