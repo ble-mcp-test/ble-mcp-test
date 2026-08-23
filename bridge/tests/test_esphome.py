@@ -369,6 +369,37 @@ def test_esphome_client_exposes_is_connected_as_the_ble_link_state():
     assert isinstance(ESPHomeClient.is_connected, property)
 
 
+def test_the_notify_callback_takes_exactly_one_argument():
+    """The bug that only hardware found, now pinned against its emitter.
+
+    `BleakEsphomeSession.start_notify` first passed a two-argument lambda,
+    reasoning from the `(handle, data)` pair that appears one layer up. But
+    `bleak_esphome/backend/client.py:903` is `lambda handle, data: callback(data)`
+    -- the handle is already dropped, because correlation happened at
+    `client_base.py:172`.
+
+    Nothing caught it. The subscription succeeded, `connect()` returned, the
+    session stayed healthy, `is_connected()` was True, and the write went
+    through. The TypeError was raised inside aioesphomeapi's handler and routed
+    to ITS logger, which is the exact behaviour the notify audit documented and
+    the exact reason NotifySink exists -- except this fired UPSTREAM of the sink,
+    so even `notifications_lost` read zero while every notification was lost.
+
+    A bridge reporting perfect health and delivering nothing. Found by watching
+    a real reader say nothing for 20 seconds.
+    """
+    import typing
+
+    from bleak.backends.client import NotifyCallback
+
+    parameters, _return = typing.get_args(NotifyCallback)
+    assert parameters == [bytearray], (
+        "bleak's NotifyCallback signature has changed. BleakEsphomeSession.start_notify "
+        "passes a one-argument lambda to match it; if this is now two, that lambda is "
+        "wrong and the failure will be SILENT -- a healthy session delivering nothing."
+    )
+
+
 def test_the_cccd_write_lives_in_bleak_esphome_not_aioesphomeapi():
     """The fact the library choice turns on. See the ADR.
 

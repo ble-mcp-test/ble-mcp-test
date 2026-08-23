@@ -407,7 +407,20 @@ class BleakEsphomeSession:
         )
 
     async def start_notify(self, notify_uuid: str, sink: NotifySink) -> None:
-        await self._ble.start_notify(self._notify_char, lambda _c, data: sink(bytes(data)))
+        """Subscribe, with a callback of the arity bleak-esphome actually calls.
+
+        ONE argument, not two. `bleak_esphome/backend/client.py:903` is
+        `lambda handle, data: callback(data)` -- it has already dropped the
+        handle by the time our callback is reached, because correlation happened
+        upstream at `client_base.py:172`.
+
+        Getting this wrong was invisible to every test and to the whole connect
+        path: the subscription succeeded, the session stayed healthy, and the
+        TypeError was raised inside aioesphomeapi's handler, which routes it to
+        its OWN logger. Found only by running against hardware and watching no
+        data arrive. See test_the_notify_callback_takes_exactly_one_argument.
+        """
+        await self._ble.start_notify(self._notify_char, lambda data: sink(bytes(data)))
 
     async def write(self, write_uuid: str, data: bytes) -> None:
         await self._ble.write_gatt_char(self._write_char, data, response=False)
