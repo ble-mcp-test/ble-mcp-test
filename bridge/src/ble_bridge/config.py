@@ -14,6 +14,7 @@ input, so it looks like correctness and nothing is even slow.
 from __future__ import annotations
 
 import ipaddress
+import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,6 +25,43 @@ DEFAULT_WS_PORT = 8080
 
 HOST_ENV = "BLE_MCP_WS_HOST"
 PORT_ENV = "BLE_MCP_WS_PORT"
+
+# --- Operability, restored by TRA-1173 ----------------------------------------
+#
+# All four were declared in `.env.local.example` and read by nothing. The Noble
+# implementation read them; the Rust bridge was a spike that skipped them; the
+# Python port was written against the spike. One event, four inert variables.
+
+LOG_LEVEL_ENV = "BLE_MCP_LOG_LEVEL"
+LOG_TIMESTAMPS_ENV = "BLE_MCP_LOG_TIMESTAMPS"
+LOG_BUFFER_SIZE_ENV = "BLE_MCP_LOG_BUFFER_SIZE"
+IDLE_TIMEOUT_ENV = "BLE_MCP_IDLE_TIMEOUT"
+
+#: Matches `.env.local.example` and `log-buffer.ts:24`.
+DEFAULT_LOG_BUFFER_SIZE = 10_000
+#: A ring smaller than this cannot span a single soak run; larger than this is a
+#: process-lifetime memory leak in slow motion. Out of range raises rather than
+#: clamping -- see test_an_out_of_range_buffer_size_fails_loudly.
+MIN_LOG_BUFFER_SIZE = 100
+MAX_LOG_BUFFER_SIZE = 1_000_000
+
+#: Seconds. Ten minutes, matching `.env.local.example` and the v0.7.0 TS default.
+DEFAULT_IDLE_TIMEOUT_S = 600.0
+
+#: Accepted spellings for BLE_MCP_LOG_LEVEL, named by `logging` itself rather than
+#: retyped, so this cannot drift from the levels it resolves to. NOTSET is
+#: deliberately not among them: it means "inherit", which as an operator's answer
+#: to "what level?" is a fallback wearing a level's clothes.
+LOG_LEVELS = {
+    logging.getLevelName(level).lower(): level
+    for level in (logging.DEBUG, logging.INFO, logging.WARNING, logging.ERROR, logging.CRITICAL)
+}
+#: The TS side accepted this spelling, so an operator's existing .env.local may
+#: already say it.
+LOG_LEVELS["warn"] = logging.WARNING
+
+_TRUE = frozenset({"1", "true", "yes", "on"})
+_FALSE = frozenset({"0", "false", "no", "off"})
 
 #: The ESPHome Bluetooth Proxy. Accepts "host" or "host:port", matching the Rust
 #: bridge's `ESPHOME_PROXY_HOST` so an existing .env.local carries over unchanged.
@@ -69,6 +107,16 @@ class Config:
     ws_port: int = DEFAULT_WS_PORT
     #: None when no proxy is configured at all -- never a half-configured one.
     esphome: EsphomeConfig | None = None
+    #: A `logging` level constant, already resolved from its name.
+    log_level: int = logging.INFO
+    log_timestamps: bool = True
+    #: Entries retained in the ring TRA-1161's get_logs / search_packets read.
+    #: 0 means the operator turned it off.
+    log_buffer_size: int = DEFAULT_LOG_BUFFER_SIZE
+    #: Seconds of no INBOUND frame before a writer's device link is released.
+    #: 0 means the operator turned it off. See ble_bridge.ws.idle for why only
+    #: inbound traffic counts.
+    idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
 
     @property
     def ws_bind(self) -> str:
@@ -119,7 +167,90 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
                 f"Refusing to fall back to {DEFAULT_WS_PORT}."
             )
 
-    return Config(ws_host=host, ws_port=port, esphome=_esphome_from_env(env))
+    return Config(
+        ws_host=host,
+        ws_port=port,
+        esphome=_esphome_from_env(env),
+        log_level=_log_level(env),
+        log_timestamps=_flag(env, LOG_TIMESTAMPS_ENV, default=True),
+        log_buffer_size=_log_buffer_size(env),
+        idle_timeout=_idle_timeout(env),
+    )
+
+
+def _log_level(env: Mapping[str, str]) -> int:
+    raw = _present(env, LOG_LEVEL_ENV)
+    if raw is None:
+        return logging.INFO
+    try:
+        return LOG_LEVELS[raw.lower()]
+    except KeyError:
+        raise ConfigError(
+            f"{LOG_LEVEL_ENV} is set to {raw!r}, which is not a log level. "
+            f"Expected one of {', '.join(sorted(LOG_LEVELS))}. Refusing to fall back "
+            "to info -- an ignored log level is exactly how this variable came to be "
+            "inert in the first place."
+        ) from None
+
+
+def _flag(env: Mapping[str, str], key: str, *, default: bool) -> bool:
+    """A boolean, or a refusal. Never `!= "false"`.
+
+    `logger.ts:11` compared against the string "false", so every typo meant true:
+    BLE_MCP_LOG_TIMESTAMPS=flase reads as configured-off and behaves as on.
+    """
+    raw = _present(env, key)
+    if raw is None:
+        return default
+    lowered = raw.lower()
+    if lowered in _TRUE:
+        return True
+    if lowered in _FALSE:
+        return False
+    raise ConfigError(
+        f"{key} is set to {raw!r}, which is not a boolean. Expected one of "
+        f"{', '.join(sorted(_TRUE | _FALSE))}."
+    )
+
+
+def _log_buffer_size(env: Mapping[str, str]) -> int:
+    raw = _present(env, LOG_BUFFER_SIZE_ENV)
+    if raw is None:
+        return DEFAULT_LOG_BUFFER_SIZE
+    try:
+        size = int(raw)
+    except ValueError as exc:
+        raise ConfigError(
+            f"{LOG_BUFFER_SIZE_ENV} is set to {raw!r}, which is not an integer."
+        ) from exc
+    if size == 0:
+        return 0
+    if not MIN_LOG_BUFFER_SIZE <= size <= MAX_LOG_BUFFER_SIZE:
+        raise ConfigError(
+            f"{LOG_BUFFER_SIZE_ENV} is set to {size}, which is outside "
+            f"{MIN_LOG_BUFFER_SIZE}-{MAX_LOG_BUFFER_SIZE} (0 disables the buffer). "
+            "Refusing to clamp: a clamp is a fallback, and the operator would keep "
+            "reading their own value back out of the environment."
+        )
+    return size
+
+
+def _idle_timeout(env: Mapping[str, str]) -> float:
+    raw = _present(env, IDLE_TIMEOUT_ENV)
+    if raw is None:
+        return DEFAULT_IDLE_TIMEOUT_S
+    try:
+        seconds = float(raw)
+    except ValueError as exc:
+        raise ConfigError(
+            f"{IDLE_TIMEOUT_ENV} is set to {raw!r}, which is not a number of seconds."
+        ) from exc
+    if seconds < 0:
+        raise ConfigError(
+            f"{IDLE_TIMEOUT_ENV} is set to {seconds}, which is negative. Use 0 to "
+            "disable the timeout."
+        )
+    return seconds
 
 
 def _parse_port(raw: str, env_key: str) -> int:

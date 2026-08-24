@@ -675,27 +675,53 @@ updateMockConfig({
 - `retryBackoffMultiplier` (default: 1.3) - Multiplier for exponential backoff between retries
 - `logRetries` (default: true) - Whether to log retry attempts to console
 
-## Session Management (v0.5.0+)
+## Session Management
 
-Sessions allow BLE connections to persist across WebSocket disconnects:
+> **Rewritten for the current bridge.** This section previously described BLE
+> connections persisting across WebSocket disconnects, a 60-second grace period,
+> session reuse and recovery, and multiple WebSockets sharing one BLE session. None
+> of that is how the bridge works, and the two variables it named —
+> `BLE_SESSION_GRACE_PERIOD_SEC` and `BLE_SESSION_IDLE_TIMEOUT_SEC` — are read by
+> no code in this repository. The pooling model was deliberately replaced: one
+> transport per connection, released in `finally`.
 
-### Session Behavior
-- **Session ID**: Pass `?session=<id>` in WebSocket URL to use a specific session
-- **Grace Period**: BLE connections persist for 60 seconds after WebSocket disconnect (configurable via `BLE_SESSION_GRACE_PERIOD_SEC`)
-- **Idle Timeout**: Sessions auto-cleanup after 5 minutes of inactivity (configurable via `BLE_SESSION_IDLE_TIMEOUT_SEC`)
-- **Multiple WebSockets**: Multiple WebSocket clients can share the same BLE session
-- **Backward Compatible**: Works without session parameters for existing clients
+### Session behaviour
 
-### Session Lifecycle
-1. **Session Creation**: First WebSocket with a session ID creates the BLE session
-2. **Session Reuse**: Subsequent WebSockets with same ID reuse existing BLE connection
-3. **Grace Period**: When last WebSocket disconnects, BLE connection enters grace period
-4. **Session Recovery**: New WebSocket within grace period resumes the session
-5. **Session Cleanup**: After grace period expires, BLE connection is terminated
+- **Session ID**: pass `?session=<id>` in the WebSocket URL. Two layers differ
+  here, deliberately. The **bridge** treats it as optional and generates a UUID
+  when it is absent, so a hand-rolled client still connects. The **mock**
+  (`injectWebBluetoothMock`) *requires* `sessionId` and throws without it, because
+  a generated id is invisible to the test that owns it: a value the client never
+  chose and cannot see is what lets two runs share a device while both look
+  correctly configured. The session id is a label for diagnostics and refusal
+  messages, not a lock — see the next bullet.
+- **One writer at a time**: the command path is single-writer and the claim is *per
+  connection*, not per session. A second writer is refused with a `Device is busy`
+  error naming the holder — including when both connections carry the same session
+  id. Two writers on one reader is the hazard the model exists to prevent: with no
+  op-code correlation, client A's response settles client B's pending command, and
+  neither client is slow or sees an error.
+- **Observers**: connect with `role=observer` to attach read-only to the current
+  writer's notification stream. An observer builds no transport and holds no
+  device. A write from an observer is refused and discarded, and the connection
+  stays open.
+- **Takeover**: connect with `force=true` to displace the current writer. The
+  evicted connection is sent an `error` explaining why its stream ended; the
+  displacing connection is sent a `warning`, before `connected`, saying the run it
+  interrupted is now invalid.
+- **Release is immediate**: when a writer's socket closes, the device link is
+  released. No grace period, no pooling, no recovery window. A bridge that is
+  merely running holds no radio.
+- **Idle timeout**: a writer that sends nothing for `BLE_MCP_IDLE_TIMEOUT` seconds
+  (default 600) has its device link and command path released, is told so in an
+  `error` frame, and the release is logged. Only frames *from the client* renew the
+  lease — device notifications never do, because the reader emits unprompted
+  traffic on its own timers and an abandoned session would otherwise renew its own
+  lease forever. See `.env.local.example` for the reasoning and the citations.
 
 ### Configuration
-- `BLE_SESSION_GRACE_PERIOD_SEC` - Grace period in seconds (default: 60)
-- `BLE_SESSION_IDLE_TIMEOUT_SEC` - Idle timeout in seconds (default: 300)
+- `BLE_MCP_IDLE_TIMEOUT` — seconds of no inbound frame before a writer is released
+  (default: 600; `0` disables it).
 
 ## Connection Token
 All successful connections now receive a unique authentication token:
