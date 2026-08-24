@@ -12,9 +12,13 @@ Each section of the file declares who reads it with a `# @owner <token>` marker,
 and this test goes and looks. A variable that loses its reader fails here rather
 than becoming folklore.
 
-`@owner unread` is a deliberate, guarded admission that nothing reads a variable
-today. It is checked in the other direction too: wire one up and this test tells
-you to move the marker, so "unread" cannot quietly become false either.
+There is deliberately no token meaning "nothing reads this". An escape hatch with
+no subjects is a guard that cannot go red, and the whole point of the exercise is
+that a variable with no reader gets deleted rather than annotated. If a future
+component genuinely needs a variable declared before it is wired up, point the
+marker at where it IS read today -- the way `mcp-server` points at `src/` while
+TRA-1161 is still pending -- or add the token back along with the check that
+makes it mean something.
 """
 
 from __future__ import annotations
@@ -27,9 +31,9 @@ import pytest
 REPO = pathlib.Path(__file__).resolve().parents[2]
 EXAMPLE = REPO / ".env.local.example"
 
-#: Owner token -> the directories that owner's code lives in. `None` means the
-#: claim is that NOTHING reads it, and is verified against every root here.
-OWNERS: dict[str, tuple[str, ...] | None] = {
+#: Owner token -> the directories that owner's code lives in. Every token must
+#: name somewhere real: there is no "nothing reads this" option, by design.
+OWNERS: dict[str, tuple[str, ...]] = {
     "python-bridge": ("bridge/src",),
     # TRA-1161 moves this surface into the Python bridge; until then the reader is
     # the TypeScript observability server.
@@ -38,12 +42,7 @@ OWNERS: dict[str, tuple[str, ...] | None] = {
     # Ships to consumers inside the npm package, not a test-only knob.
     "mock-client": ("src",),
     "e2e-harness": ("tests",),
-    "unread": None,
 }
-
-#: Everywhere a reader could plausibly live. Used for the `unread` check, which
-#: has to be exhaustive to mean anything.
-ALL_ROOTS = ("src", "tests", "scripts", "bridge/src", "rust-ble-test/src")
 
 _MARKER = re.compile(r"^#\s*@owner\s+(\S+)\s*$")
 #: An assignment, commented out or not. A commented-out example line still
@@ -110,8 +109,8 @@ def test_every_variable_names_a_known_owner(name, owner):
 
 @pytest.mark.parametrize(
     ("name", "owner"),
-    [(n, o) for n, o, _ in DECLARATIONS if o in OWNERS and OWNERS[o] is not None],
-    ids=[f"{n}@{o}" for n, o, _ in DECLARATIONS if o in OWNERS and OWNERS[o] is not None],
+    [(n, o) for n, o, _ in DECLARATIONS if o in OWNERS],
+    ids=[f"{n}@{o}" for n, o, _ in DECLARATIONS if o in OWNERS],
 )
 def test_every_owned_variable_is_actually_read_by_its_owner(name, owner):
     """The acceptance criterion, executed rather than eyeballed.
@@ -120,30 +119,11 @@ def test_every_owned_variable_is_actually_read_by_its_owner(name, owner):
     exactly like a variable that works, right up until someone depends on it.
     """
     roots = OWNERS[owner]
-    assert roots is not None
     assert _referenced_in(name, roots), (
         f"{name} claims '# @owner {owner}' but no file under {list(roots)} mentions it. "
         "Either its reader was removed -- in which case delete the variable, this is "
         "how BLE_MCP_IDLE_TIMEOUT came to be inert -- or the marker is on the wrong "
         "section."
-    )
-
-
-@pytest.mark.parametrize(
-    "name",
-    [n for n, o, _ in DECLARATIONS if o == "unread"],
-)
-def test_an_unread_variable_really_is_unread(name):
-    """The other direction, so the admission cannot quietly become false.
-
-    Wiring one of these up without moving its marker would leave the file saying
-    nothing reads a variable that something now does -- the same class of lie,
-    just pointing the other way.
-    """
-    hits = _referenced_in(name, ALL_ROOTS)
-    assert not hits, (
-        f"{name} is marked '# @owner unread' but is referenced in {hits}. Move it "
-        "under the marker for whoever now reads it."
     )
 
 
