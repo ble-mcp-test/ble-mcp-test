@@ -17,4 +17,14 @@ test:
 firehose seconds="10":
     FIREHOSE_BASELINE=1 FIREHOSE_SECONDS={{seconds}} uv run pytest tests/stress -v -s -k ladder
 
+# Opt-in acceptance tests against a REAL device. Needs a powered reader in range
+# of a reachable ESPHome proxy (ESPHOME_PROXY_HOST + BLE_MCP_DEVICE_MAC), and it
+# takes the device for the duration -- announce before running it on a shared
+# reader. Takes ~2 minutes: two of these have to outlast an idle timeout.
+#
+# It refuses to fall back to the stub transport. A hardware suite that passes
+# against a fake is worse than no hardware suite.
+hardware:
+    BLE_MCP_HARDWARE=1 uv run pytest tests/hardware -v -s
+
 validate: lint test

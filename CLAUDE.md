@@ -46,15 +46,14 @@ Worktrees go in **`.claude/worktrees/<name>/`** — the canonical location acros
 just validate       # the whole gate: lint + typecheck + both test suites
 just test           # TS unit + Python, no bridge, no hardware
 pnpm test:e2e       # Playwright — ALWAYS headless, never headless:false
+cd bridge && just hardware   # opt-in, needs a real device
 ```
 
 **No test counts here** — every hand-written one has drifted. Run the command.
 
-**Hardware reality:** ~10 e2e tests need a powered device in range; **none** need a staged tag field. They currently cannot run anywhere — this container has no usable Bluetooth stack (`AF_BLUETOOTH` → errno 97) and the TS bridge is Noble-only. Do not report the hardware subset as passing or failing; report it as **unexecutable**.
+**Hardware reality — the two halves differ.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: it needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default. The TypeScript e2e tests stay **unexecutable** here — Noble-only, needs a local radio, as does `pnpm run check:device`. Say which stack you mean.
 
 **Gitignored is not glob-invisible.** `vitest.config.ts` must exclude `.claude/worktrees/**` or a run collects sibling worktrees' tests; `tests/unit/vitest-isolation.test.ts` guards it.
-
-`pnpm run check:device` scans for a local radio — it cannot work here.
 
 ## Known failure classes
 
