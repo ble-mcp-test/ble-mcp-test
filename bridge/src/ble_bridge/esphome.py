@@ -43,7 +43,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from ble_bridge.config import EsphomeConfig
 from ble_bridge.notify import NotifySink
-from ble_bridge.transport import DataCallback, DeviceInfo
+from ble_bridge.transport import DataCallback, DeviceInfo, TransportError
 
 if TYPE_CHECKING:
     from ble_bridge.ws.params import ConnectionParams
@@ -61,10 +61,6 @@ ADVERTISEMENT_TIMEOUT_S = 30.0
 
 #: How long to wait for the BLE link itself once the proxy has heard the device.
 CONNECT_TIMEOUT_S = 20.0
-
-
-class TransportError(RuntimeError):
-    """The device link could not be established, or could not be used."""
 
 
 @dataclass(frozen=True)

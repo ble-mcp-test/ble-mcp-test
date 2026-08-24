@@ -107,6 +107,25 @@ TAKEOVER_STALLED_ERROR: Final = (
     "its transport in time. The device link was left alone. Retry."
 )
 
+# --- Operability, TRA-1173 ----------------------------------------------------
+
+#: Sent when the write to the device raised something other than a TransportError.
+#: A TransportError's own text is already a complete sentence naming the two-state
+#: distinction, and is forwarded verbatim rather than wrapped in this.
+WRITE_FAILED_PREFIX: Final = "The write to the device failed"
+#: Sent when the idle timeout released this connection's device link. Says which
+#: traffic counts, because the obvious guess is wrong and an operator watching a
+#: busy notification stream get released deserves the answer in the message.
+IDLE_TIMEOUT_ERROR_PREFIX: Final = (
+    "Released for inactivity: no frame arrived from this client within the idle timeout"
+)
+IDLE_TIMEOUT_ERROR_ADVICE: Final = (
+    "The device link and the command path are free; reconnect to take them again. "
+    "Only frames you send renew the lease -- notifications from the device do not, "
+    "because a reader emits those unprompted and an abandoned session would hold "
+    "the device forever."
+)
+
 
 class ProtocolError(ValueError):
     """A frame could not be understood as this protocol."""

@@ -36,6 +36,20 @@ from typing import Protocol, runtime_checkable
 DataCallback = Callable[[bytes], None]
 
 
+class TransportError(RuntimeError):
+    """The device link could not be established, or could not be used.
+
+    Declared here rather than in `esphome.py` because the relay has to catch it:
+    a write that fails has to be logged and reported to the client, and having
+    `ws/server.py` import the ESPHome implementation to name its exception would
+    invert this seam for one class.
+
+    The message is written to be shown to a human verbatim -- notably, whether the
+    PROXY was still reachable when the BLE link was not, which is the one genuinely
+    diagnostic distinction the two-state model exists to draw.
+    """
+
+
 @dataclass(frozen=True)
 class DeviceInfo:
     name: str

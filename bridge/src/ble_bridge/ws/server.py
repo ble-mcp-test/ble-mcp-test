@@ -19,14 +19,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 import websockets
 from websockets.asyncio.server import Server, ServerConnection, serve
 
 from ble_bridge.config import Config
+from ble_bridge.log_buffer import RX, TX, LogBuffer
 from ble_bridge.mock_version import expected_mock_version
-from ble_bridge.transport import BleTransport, TransportFactory
+from ble_bridge.transport import BleTransport, TransportError, TransportFactory
 from ble_bridge.ws import protocol as p
+from ble_bridge.ws.idle import IdleTimer
 from ble_bridge.ws.ownership import (
     END_OF_STREAM,
     Claim,
@@ -58,18 +61,39 @@ class BridgeServer:
     for why process lifetime must not be a claim on the radio.
     """
 
-    def __init__(self, config: Config, transport_factory: TransportFactory) -> None:
+    def __init__(
+        self,
+        config: Config,
+        transport_factory: TransportFactory,
+        log_buffer: LogBuffer | None = None,
+    ) -> None:
         self._config = config
         self._factory = transport_factory
         self._server: Server | None = None
         self._port: int | None = None
         self._path = CommandPath()
+        # `__main__` passes the buffer that `logging_setup.configure` already
+        # attached its handler to, so log lines and relayed packets land in ONE
+        # ordered record. Two rings cannot answer "what was on the wire when the
+        # log went quiet", which is the question a wedge post-mortem asks.
+        self._log_buffer = (
+            log_buffer if log_buffer is not None else LogBuffer(config.log_buffer_size)
+        )
 
     @property
     def port(self) -> int:
         if self._port is None:
             raise RuntimeError("server is not started")
         return self._port
+
+    @property
+    def log_buffer(self) -> LogBuffer:
+        """What TRA-1161's `get_logs` and `search_packets` read."""
+        return self._log_buffer
+
+    @property
+    def command_path(self) -> CommandPath:
+        return self._path
 
     async def start(self) -> int:
         """Bind and begin serving. Returns the port actually bound.
@@ -187,11 +211,19 @@ class BridgeServer:
     async def _relay(self, ws: ServerConnection, params: ConnectionParams, claim: Claim) -> None:
         transport = self._factory(params)
         loop = asyncio.get_running_loop()
+        # None disables the timeout, which is the operator's explicit choice at
+        # BLE_MCP_IDLE_TIMEOUT=0 -- never a timer configured to fire at once.
+        idle = IdleTimer(self._config.idle_timeout) if self._config.idle_timeout else None
 
         def on_data(payload: bytes) -> None:
             # Synchronous, and called on the transport's loop: hand off and
             # return. Anything slower here blocks the notification source, which
             # in the ESPHome case also swallows exceptions into its own logger.
+            #
+            # Note what is NOT here: idle.stamp(). Outbound traffic must never
+            # renew the lease -- see ble_bridge.ws.idle for why counting it makes
+            # an abandoned session immortal.
+            self._log_buffer.push_packet(RX, payload)
             loop.call_soon_threadsafe(claim.fan_out, payload)
 
         transport.set_data_callback(on_data)
@@ -202,15 +234,45 @@ class BridgeServer:
             await ws.send(p.encode_connected(device.name))
             logger.info("session %s owns the command path on %s", params.session, device.name)
 
-            receiving = asyncio.create_task(_receive_writer(ws, transport))
-            draining = asyncio.create_task(_drain(ws, claim.own_subscription))
-            stream_ended = await _whichever_finishes_first(receiving, draining)
+            if idle is not None:
+                # The transport is up: start counting from here, not from when the
+                # handler was entered. Connecting can legitimately take most of
+                # ADVERTISEMENT_TIMEOUT_S, and charging that to the client's idle
+                # budget would shorten the timeout by an amount nobody configured.
+                # `ble-session.ts:63` stamps on the same event, for the same reason.
+                idle.stamp()
+            loops: dict[str, asyncio.Task[Any]] = {
+                "receiving": asyncio.create_task(
+                    _receive_writer(ws, transport, idle=idle, log_buffer=self._log_buffer)
+                ),
+                "draining": asyncio.create_task(_drain(ws, claim.own_subscription)),
+            }
+            if idle is not None:
+                loops["idle"] = asyncio.create_task(idle.wait_for_expiry())
+            outcome = await _race(loops)
         finally:
             await transport.cleanup()
             logger.info("session %s released the command path", params.session)
 
-        # Only an eviction ends the stream while the socket is still open.
-        if stream_ended and claim.evicted_by is not None:
+        if outcome.get("idle") is True:
+            assert idle is not None
+            logger.warning(
+                "session %s released after %gs idle: no frame arrived from the client. "
+                "Device notifications do not renew the lease, by design.",
+                params.session,
+                idle.timeout,
+            )
+            await _refuse(
+                ws,
+                f"{p.IDLE_TIMEOUT_ERROR_PREFIX} of {idle.timeout:g}s. "
+                f"{p.IDLE_TIMEOUT_ERROR_ADVICE}",
+            )
+        elif outcome.get("receiving") is not None:
+            # The write failed. `_receive_writer` has already logged it; this is
+            # the half that used to be missing entirely -- telling the client.
+            await _refuse(ws, str(outcome["receiving"]))
+        elif outcome.get("draining") is True and claim.evicted_by is not None:
+            # Only an eviction ends the stream while the socket is still open.
             await _refuse(ws, f"{p.EVICTED_ERROR_PREFIX} (session {claim.evicted_by!r}).")
 
     # --- the observer ---------------------------------------------------------
@@ -233,25 +295,63 @@ class BridgeServer:
         await ws.send(p.encode_connected(device.name))
         logger.info("session %s is observing %s read-only", params.session, device.name)
 
-        receiving = asyncio.create_task(_receive_observer(ws))
-        draining = asyncio.create_task(_drain(ws, subscription))
-        stream_ended = await _whichever_finishes_first(receiving, draining)
-        if stream_ended:
+        # No idle timer here, deliberately. An observer holds no device and no
+        # command path, so there is nothing for a timeout to release -- and a
+        # timer on this connection could not renew the writer's lease even if it
+        # wanted to, because the two are separate connections.
+        outcome = await _race(
+            {
+                "receiving": asyncio.create_task(_receive_observer(ws)),
+                "draining": asyncio.create_task(_drain(ws, subscription)),
+            }
+        )
+        if outcome.get("draining") is True:
             await _refuse(ws, p.STREAM_ENDED_ERROR)
 
 
 # --- per-connection loops -----------------------------------------------------
 
 
-async def _receive_writer(ws: ServerConnection, transport: BleTransport) -> None:
-    """Client -> device. Returns when the socket closes."""
+async def _receive_writer(
+    ws: ServerConnection,
+    transport: BleTransport,
+    *,
+    idle: IdleTimer | None,
+    log_buffer: LogBuffer,
+) -> str | None:
+    """Client -> device.
+
+    Returns None on an ordinary hangup, or the sentence to send the client when a
+    write failed. Returning it rather than raising is what keeps the failure out of
+    `_race`'s cancellation path: the caller has to run `transport.cleanup()` first,
+    and only then is the socket safe to write a final frame on.
+    """
     try:
         async for raw in ws:
             payload = _payload_or_none(raw)
-            if payload is not None:
+            if payload is None:
+                # Dropped by the relay, so it never reached the device: it must
+                # not be recorded as traffic, and it must not renew the lease.
+                continue
+            # The one place the idle clock is stamped. See ble_bridge.ws.idle.
+            if idle is not None:
+                idle.stamp()
+            log_buffer.push_packet(TX, payload)
+            try:
                 await transport.write(payload)
+            except TransportError as exc:
+                # This used to raise into `gather(..., return_exceptions=True)`
+                # and be discarded -- no log line at any level, and the client saw
+                # only a socket close. The message names whether the proxy was
+                # still reachable, so it is forwarded verbatim.
+                logger.error("the write to the device failed: %s", exc)
+                return str(exc)
+            except Exception as exc:
+                logger.exception("the write to the device raised an unexpected error")
+                return f"{p.WRITE_FAILED_PREFIX}: {type(exc).__name__}: {exc}"
     except websockets.exceptions.ConnectionClosed:
         pass
+    return None
 
 
 async def _receive_observer(ws: ServerConnection) -> None:
@@ -307,21 +407,38 @@ async def _drain(ws: ServerConnection, subscription: Subscription) -> bool:
             return False
 
 
-async def _whichever_finishes_first(
-    receiving: asyncio.Task[None], draining: asyncio.Task[bool]
-) -> bool:
-    """Run both loops until either stops, then cancel the other.
+async def _race(loops: dict[str, asyncio.Task[Any]]) -> dict[str, Any]:
+    """Run every loop until one stops, cancel the rest, and report what each returned.
 
-    Returns True if it was the STREAM that ended -- which only happens on an
-    eviction, since an ordinary hangup ends the socket first. Distinguishing the
-    two is what lets the evicted client be told why instead of just dropped.
+    A cancelled loop reports None, so the caller can tell "this is why the session
+    ended" from "this was still running when it did". That distinction is what lets
+    an evicted client be told why instead of just dropped, and now also separates
+    an idle release from a hangup.
+
+    **Exceptions are logged, never discarded.** The previous version ended with
+    `await asyncio.gather(..., return_exceptions=True)` and then looked only at the
+    drain task, so anything the receive loop raised was collected into a list that
+    nobody read. That is where a failed device write went to die: not swallowed by
+    a bare `except`, which review would have caught, but by a `gather` whose whole
+    job is to collect exceptions and hand them to someone.
     """
-    done, _ = await asyncio.wait({receiving, draining}, return_when=asyncio.FIRST_COMPLETED)
-    for task in (receiving, draining):
+    tasks = list(loops.values())
+    await asyncio.wait(set(tasks), return_when=asyncio.FIRST_COMPLETED)
+    for task in tasks:
         if not task.done():
             task.cancel()
-    await asyncio.gather(receiving, draining, return_exceptions=True)
-    return draining in done and draining.result() is True
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    outcome: dict[str, Any] = {}
+    for name, result in zip(loops, results, strict=True):
+        if isinstance(result, asyncio.CancelledError):
+            outcome[name] = None
+        elif isinstance(result, BaseException):
+            logger.exception("the %s loop raised", name, exc_info=result)
+            outcome[name] = None
+        else:
+            outcome[name] = result
+    return outcome
 
 
 async def _refuse(ws: ServerConnection, message: str) -> None:
