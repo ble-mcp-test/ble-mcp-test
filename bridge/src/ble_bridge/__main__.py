@@ -11,22 +11,47 @@ import asyncio
 import logging
 import signal
 
-from ble_bridge.config import from_env
-from ble_bridge.transport import StubTransport
+from ble_bridge.config import Config, from_env
+from ble_bridge.esphome import transport_factory
+from ble_bridge.habluetooth_runtime import setup_manager
+from ble_bridge.transport import StubTransport, TransportFactory
 from ble_bridge.ws.server import BridgeServer
 
 logger = logging.getLogger("ble_bridge")
 
 
+async def _select_transport(config: Config) -> TransportFactory:
+    """Real device if one is configured, stub if none is -- and say which, loudly.
+
+    The stub is not a fallback. It is reached only when NO proxy and NO device
+    are configured at all, because `config.from_env` refuses a half-configured
+    pair rather than handing one back. That distinction is the whole point: a
+    bridge that quietly relays nothing has every symptom of a dead reader, and
+    an operator will spend the evening on the radio.
+    """
+    if config.esphome is None:
+        logger.warning(
+            "running with the STUB transport: no real BLE device will be reached. "
+            "Set ESPHOME_PROXY_HOST and BLE_MCP_DEVICE_MAC to reach one."
+        )
+        return lambda _params: StubTransport()
+
+    await setup_manager()
+    logger.info(
+        "ESPHome transport: device %s via proxy %s:%d%s",
+        config.esphome.device_mac,
+        config.esphome.proxy_host,
+        config.esphome.proxy_port,
+        " (encrypted)" if config.esphome.noise_psk else "",
+    )
+    return transport_factory(config.esphome)
+
+
 async def _run() -> None:
     config = from_env()
 
-    # TRA-1158 replaces this with the ESPHome transport. Until it lands the
-    # relay runs against a stub, which is precisely what makes TRA-1157
-    # testable end to end with no radio in the path.
-    server = BridgeServer(config, lambda _params: StubTransport())
+    server = BridgeServer(config, await _select_transport(config))
     await server.start()
-    logger.warning("running with the STUB transport: no real BLE device will be reached")
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
