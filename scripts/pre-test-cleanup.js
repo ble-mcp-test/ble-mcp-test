@@ -12,9 +12,29 @@ import { execSync } from 'child_process';
 import { readdirSync, readFileSync, realpathSync } from 'fs';
 import net from 'net';
 import path from 'path';
+import { killPort } from './port-cleanup.js';
 
-const TEST_PORTS = [8080, 8081, 8082, 8083];
+const DEFAULT_TEST_PORTS = [8080, 8081, 8082, 8083];
 const COOLDOWN_MS = 5000;
+
+/**
+ * Ports to sweep. `BLE_MCP_TEST_PORTS` overrides the default so tests can point
+ * this script at a scratch port instead of at the real bridge on 8080.
+ *
+ * Set-but-unparseable throws. A silent fall back to the defaults would sweep
+ * 8080 while the operator's evidence said otherwise -- the second failure class
+ * in CLAUDE.md, and a close relative of the bug this script just had.
+ */
+function resolveTestPorts(raw) {
+  if (raw === undefined) return DEFAULT_TEST_PORTS;
+  const ports = raw.split(',').map((s) => s.trim()).filter(Boolean).map(Number);
+  if (!ports.length || ports.some((p) => !Number.isInteger(p) || p < 1 || p > 65535)) {
+    throw new Error(`BLE_MCP_TEST_PORTS is set but is not a comma-separated port list: ${JSON.stringify(raw)}`);
+  }
+  return ports;
+}
+
+const TEST_PORTS = resolveTestPorts(process.env.BLE_MCP_TEST_PORTS);
 
 const PROJECT_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 
@@ -87,34 +107,6 @@ function ownTestRunners() {
     found.push(pid);
   }
   return found;
-}
-
-// Function to kill process using port
-function killPort(port) {
-  try {
-    // Find process using the port
-    const pid = execSync(`lsof -t -i:${port}`, { encoding: 'utf8' }).trim();
-    if (pid) {
-      // Be nice! Check if it's a production process we shouldn't kill
-      try {
-        const cmdline = execSync(`ps -p ${pid} -o args=`, { encoding: 'utf8' }).trim();
-        // Don't kill production Rust bridge (port 8080) or Node observability server
-        if (cmdline.includes('rust-ble-test') || cmdline.includes('dist/start-server.js') || cmdline.includes('PM2')) {
-          console.log(`  Port ${port}: Production process detected (pid ${pid}) - being nice and leaving it alone! 🤝`);
-          return false;
-        }
-      } catch (e) {
-        // Couldn't check, proceed with cleanup
-      }
-
-      console.log(`  Killing process ${pid} on port ${port}`);
-      execSync(`kill -9 ${pid}`);
-      return true;
-    }
-  } catch (e) {
-    // lsof returns error if no process found
-  }
-  return false;
 }
 
 // Main cleanup
