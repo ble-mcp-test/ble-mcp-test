@@ -11,8 +11,10 @@ the 2026-08-23 incident actually produced, is a second writer that connects
 successfully and corrupts somebody else's run without anything being slow or
 anything reporting an error.
 
-`force_cleanup` / `force_cleanup_complete` are not here. TRA-1162 owns the cleanup
-family and root-causes the zombie before deciding whether it is reimplemented.
+`force_cleanup` / `force_cleanup_complete` are not here and are not coming.
+TRA-1162 settled it: the zombie they existed to clear was a Noble artifact, and
+this server has never used Noble. See CLIENT_MESSAGE_TYPES in protocol.py for the
+soak evidence.
 """
 
 from __future__ import annotations
@@ -177,6 +179,13 @@ class BridgeServer:
         waiting on the handshake. Announcing a destructive act to the side that
         caused it is the structural half of the convention the 2026-08-23 incident
         produced -- the human half is announcing on both transitions.
+
+        Until TRA-1162 the "logs it" half of that sentence was false. The client's
+        handshake handler branched on `connected` and `error` and dropped anything
+        else without a word, so this announcement reached the browser and vanished
+        -- a guarantee asserted in a docstring and not implemented anywhere. Both
+        client handlers now branch on it, and
+        test_wire_types_have_a_typescript_consumer fails if either stops.
         """
         displaced = claim.evicted
         assert displaced is not None

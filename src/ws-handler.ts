@@ -47,18 +47,6 @@ export class WebSocketHandler extends EventEmitter {
           const data = new Uint8Array(msg.data);
           this.sharedState?.logPacket('RX', data);
           await this.session.write(data);
-        } 
-        // Handle force cleanup command
-        else if (msg.type === 'force_cleanup') {
-          await this.handleForceCleanup();
-        }
-        // Handle session cleanup command (for tests)
-        else if (msg.type === 'cleanup_session') {
-          await this.handleSessionCleanup();
-        }
-        // Handle admin cleanup command
-        else if (msg.type === 'admin_cleanup') {
-          await this.handleAdminCleanup(msg);
         }
       } catch (error) {
         const errorMessage = translateBluetoothError(error);
@@ -103,98 +91,6 @@ export class WebSocketHandler extends EventEmitter {
   private sendError(error: string): void {
     if (this.ws.readyState === this.ws.OPEN) {
       this.ws.send(JSON.stringify({ type: 'error', error }));
-    }
-  }
-
-  private async handleSessionCleanup(): Promise<void> {
-    try {
-      // Clean up the current session (including transport)
-      await this.session.cleanup('session cleanup requested');
-      
-      // Clear from session manager
-      if (this.sessionManager) {
-        const allSessions = this.sessionManager.getAllSessions();
-        const thisSession = allSessions.find(s => s.sessionId === this.session.sessionId);
-        if (thisSession) {
-          // This will remove it from the map
-          this.sessionManager.clearSession(this.session.sessionId);
-        }
-      }
-      
-      // Send confirmation
-      if (this.ws.readyState === this.ws.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: 'session_cleanup_complete', 
-          sessionId: this.session.sessionId,
-          message: 'Session cleaned up successfully'
-        }));
-        
-        // Give message time to send before closing
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        // Now close the WebSocket
-        this.ws.close();
-      }
-    } catch (error) {
-      this.sendError(`Session cleanup failed: ${error}`);
-    }
-  }
-
-  private async handleForceCleanup(): Promise<void> {
-    try {
-      // Send warning about broken force cleanup
-      if (this.ws.readyState === this.ws.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: 'warning',
-          warning: 'forceCleanup() is currently not working as expected - it creates zombie connections. Do not use it.',
-          message: 'Using normal disconnect instead'
-        }));
-      }
-      
-      // Just disconnect normally - don't use force cleanup
-      if (this.ws.readyState === this.ws.OPEN) {
-        this.ws.send(JSON.stringify({ 
-          type: 'force_cleanup_complete', 
-          message: 'Used normal disconnect instead',
-          warning: 'forceCleanup() is not working as expected.' 
-        }));
-        
-        // Give message time to send before closing
-        await new Promise(resolve => setTimeout(resolve, 50));
-        
-        // Now close the WebSocket
-        this.ws.close();
-      }
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  private async handleAdminCleanup(msg: WSMessage): Promise<void> {
-    // Check auth token
-    const requiredAuth = process.env.BLE_ADMIN_AUTH_TOKEN;
-    if (requiredAuth && msg.auth !== requiredAuth) {
-      this.sendError('Unauthorized');
-      return;
-    }
-    
-    try {
-      // Use properly injected SessionManager
-      if (this.sessionManager && msg.action === 'cleanup_all') {
-        await this.sessionManager.forceCleanupAll('admin cleanup');
-        
-        if (this.ws.readyState === this.ws.OPEN) {
-          this.ws.send(JSON.stringify({ 
-            type: 'admin_cleanup_complete', 
-            message: 'All sessions cleaned up',
-            action: msg.action
-          }));
-        }
-      } else {
-        this.sendError('Invalid admin action');
-      }
-    } catch {
-      this.sendError('Admin cleanup failed');
     }
   }
 

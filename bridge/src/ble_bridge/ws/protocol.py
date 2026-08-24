@@ -22,9 +22,10 @@ the other would work by coincidence and break the moment either moves.
 
 Membership follows docs/design/2026-08-23-ws-protocol-spec.md section 5. TRA-1157
 implemented the two types that carry all real traffic plus the parameter
-validation error; TRA-1159 adds `warning` and the ownership errors. The
-`force_cleanup` pair is TRA-1162's, the cleanup and admin families are dropped as
-dead on both ends, and the phantom types were never protocol at all.
+validation error; TRA-1159 adds `warning` and the ownership errors. TRA-1162
+settled the last open question: the `force_cleanup` pair is NOT protocol here,
+the cleanup and admin families are dropped as dead on both ends, and the phantom
+types were never protocol at all.
 """
 
 from __future__ import annotations
@@ -39,14 +40,21 @@ MSG_WARNING: Final = "warning"
 
 #: What this server may emit. Never extended by a caller.
 SERVER_MESSAGE_TYPES: Final = (MSG_CONNECTED, MSG_DATA, MSG_ERROR, MSG_WARNING)
-#: What this server accepts. `force_cleanup` joins this in TRA-1162, or does not.
+#: What this server accepts. TRA-1162 settled that `force_cleanup` does not join
+#: it: the zombie it existed to clear was a Noble artifact, and Noble is gone. The
+#: 2026-08-24 cell B soak (n=781) wedged twice -- runs 309-311 and 562-566 -- and
+#: recovered both times with no cleanup mechanism present and 0 proxy resets, so
+#: the recovery path is exercised evidence rather than an untested absence.
 CLIENT_MESSAGE_TYPES: Final = (MSG_DATA,)
 
-#: The types that END the client's connect handshake, per ws-transport.ts:75-85.
-#: `warning` is deliberately absent: ws-transport.ts:176-178 keeps waiting on one,
-#: so treating it as terminal would break the handshake. This tuple is not
-#: decoration -- test_handshake_terminal_types_match_the_typescript_waiter reads
-#: the waiter out of the TypeScript and compares it against exactly this.
+#: The types that END the client's connect handshake: the `resolve()`/`reject()`
+#: branches of the onmessage handler inside WebSocketTransport.connect().
+#: `warning` is deliberately absent -- that branch logs and falls through, so the
+#: handshake keeps waiting. (Before TRA-1162 this cited ws-transport.ts:176-178,
+#: which was the force_cleanup block, not the handshake. The conclusion was right
+#: and the citation was wrong, which is the reading that costs the most.)
+#: This tuple is not decoration -- test_handshake_terminal_types_match_the_typescript_waiter
+#: reads the branches out of the TypeScript and compares them against exactly this.
 HANDSHAKE_TERMINAL_TYPES: Final = (MSG_CONNECTED, MSG_ERROR)
 
 FIELD_TYPE: Final = "type"
@@ -155,10 +163,15 @@ def encode_error(message: str) -> str:
 
 
 def encode_warning(message: str) -> str:
-    """src/ws-handler.ts:148 -- non-fatal, and the client keeps waiting on one.
+    """Non-fatal: the client logs it and keeps waiting on the handshake.
 
     Interstitial by contract: a warning may travel mid-handshake and must not
     settle it. See HANDSHAKE_TERMINAL_TYPES.
+
+    Consumed in src/ws-transport.ts (mid-handshake) and src/mock-bluetooth.ts
+    (after it), both checked by test_wire_types_have_a_typescript_consumer. The
+    former reference here was src/ws-handler.ts:148 -- the TypeScript bridge,
+    which TRA-1155 retires; this now points at the client that survives it.
     """
     return json.dumps({FIELD_TYPE: MSG_WARNING, FIELD_WARNING: message})
 
