@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { spawn, type ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { killPort } from '../../scripts/port-cleanup.js';
+import { killPort, isProtectedProcess } from '../../scripts/port-cleanup.js';
 
 const FIXTURE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -82,5 +82,58 @@ describe('killPort', () => {
     expect(alive(client)).toBe(true);
     expect(killed).toBe(false);
     expect(logs.join('\n')).toContain('Production process detected');
+  });
+
+  it('still kills an unprotected listener that has a client connected', async () => {
+    const listener = await startFixture(['listen']);
+    const client = await startFixture(['connect', '--port', String(listener.port)]);
+
+    const logs: string[] = [];
+    const killed = killPort(listener.port, (m: string) => logs.push(m));
+
+    expect(killed).toBe(true);
+    await waitForExit(listener);
+    expect(alive(listener)).toBe(false);
+    // The client was never the target and must be untouched.
+    expect(alive(client)).toBe(true);
+    expect(logs.join('\n')).toContain('Killing process');
+  });
+
+  it('refuses when several processes share the listening socket', async () => {
+    const first = await startFixture(['listen', '--reuse-port']);
+    const second = await startFixture(['listen', '--reuse-port', '--port', String(first.port)]);
+
+    const logs: string[] = [];
+    const killed = killPort(first.port, (m: string) => logs.push(m));
+
+    await new Promise((r) => setTimeout(r, 250));
+    expect(killed).toBe(false);
+    expect(alive(first)).toBe(true);
+    expect(alive(second)).toBe(true);
+    // Pin the specific branch: three different paths log "refusing to kill
+    // anything", so the generic string alone would not prove this one ran.
+    expect(logs.join('\n')).toContain('2 processes share the listening socket');
+  });
+
+  it('refuses when nothing is listening on the port', async () => {
+    // A port with no listener: take one, then release it.
+    const transient = await startFixture(['listen']);
+    const port = transient.port;
+    transient.proc.kill('SIGKILL');
+    await waitForExit(transient);
+
+    const logs: string[] = [];
+    expect(killPort(port, (m: string) => logs.push(m))).toBe(false);
+    expect(logs.join('\n')).toContain('nothing we can see is listening');
+  });
+
+  it('reports "unknown" rather than "not protected" for a pid it cannot inspect', async () => {
+    const gone = await startFixture(['listen']);
+    gone.proc.kill('SIGKILL');
+    await waitForExit(gone);
+
+    // The load-bearing distinction: a dead pid must THROW, not return false.
+    // Returning false here is what let the bug kill the bridge.
+    expect(() => isProtectedProcess(gone.pid)).toThrow();
   });
 });
