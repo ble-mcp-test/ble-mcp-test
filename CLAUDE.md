@@ -24,7 +24,11 @@ Both are being replaced by a **Python** server. See `docs/design/2026-08-23-pyth
 
 **pnpm EXCLUSIVELY** — never `npm`, `npx`, or `yarn`. `npx` → `pnpm dlx` or `pnpm exec`.
 
-Rust: `cargo` in `rust-ble-test/`. Python (incoming): `uv`.
+Rust: `cargo` in `rust-ble-test/`. Python: `uv`, in `bridge/`.
+
+**`just` is the cross-language front door** — `just validate` is what `.claude/csw.json`
+runs, and it spans both languages. Use it rather than the underlying `pnpm`/`uv`
+commands when you want the whole gate.
 
 ## Git Workflow
 
@@ -41,12 +45,24 @@ Worktrees go in **`.claude/worktrees/<name>/`** — the canonical location acros
 ## Testing
 
 ```bash
-pnpm test           # unit + integration
-pnpm test:unit      # 74 tests, no bridge, no hardware
+just validate       # the whole gate: lint + typecheck + both test suites
+just test           # TS unit + Python, no bridge, no hardware
 pnpm test:e2e       # Playwright — ALWAYS headless, never headless:false
 ```
 
+**No test counts are recorded here on purpose.** Every hand-written count in this
+file has been wrong: `74` was stale for a year, and its 2026-08-24 replacement was
+measured three times in one session as 170, 85 and 73 — all honestly run. The 170
+was a worktree contaminating the glob (see below), the others were a real deletion
+landing in between. Run the command; do not cite a number from a document.
+
 **Hardware reality:** ~10 e2e tests need a powered device in range; **none** need a staged tag field. They currently cannot run anywhere — this container has no usable Bluetooth stack (`AF_BLUETOOTH` → errno 97) and the TS bridge is Noble-only. Do not report the hardware subset as passing or failing; report it as **unexecutable**.
+
+**A gitignored directory is still visible to a glob.** `.claude/worktrees/` is
+excluded from git, which says nothing to vitest — so `vitest.config.ts` excludes it
+explicitly, and `tests/unit/vitest-isolation.test.ts` fails if that is removed.
+Without it a run in one worktree collects every sibling worktree's tests and
+reports green over code that is not its own.
 
 `pnpm run check:device` scans for a local radio — it cannot work here.
 
