@@ -1,13 +1,12 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { killPort, isProtectedProcess } from '../../scripts/port-cleanup.js';
 
-const FIXTURE = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../fixtures/port-holder.mjs'
-);
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const FIXTURE = path.resolve(HERE, '../fixtures/port-holder.mjs');
+const SCRIPT = path.resolve(HERE, '../../scripts/pre-test-cleanup.js');
 
 /**
  * Passed as a real argv token so it shows up in `ps -o args=`, which is what
@@ -135,5 +134,42 @@ describe('killPort', () => {
     // The load-bearing distinction: a dead pid must THROW, not return false.
     // Returning false here is what let the bug kill the bridge.
     expect(() => isProtectedProcess(gone.pid)).toThrow();
+  });
+});
+
+describe('pre-test-cleanup.js', () => {
+  it('leaves a protected listener with a connected client alive (acceptance, TRA-1170)', async () => {
+    const listener = await startFixture(['listen', PROTECTED_MARKER]);
+    const client = await startFixture(['connect', '--port', String(listener.port)]);
+
+    const output = execFileSync(process.execPath, [SCRIPT], {
+      encoding: 'utf8',
+      env: { ...process.env, BLE_MCP_TEST_PORTS: String(listener.port) },
+      timeout: 45_000,
+    });
+
+    expect(alive(listener)).toBe(true);
+    expect(alive(client)).toBe(true);
+    // Name the port. A bare "being nice and leaving it alone" is also printed
+    // when the sweep meets a real bridge on the default port 8080, so the
+    // unqualified string passes against a script that ignored the override
+    // entirely -- satisfied by an emitter other than the one under test.
+    expect(output).toContain(`Port ${listener.port}: Production process detected`);
+    // The override must actually be in force: the default ports are not swept.
+    expect(output).not.toContain('Port 8080');
+    // The bug's only fingerprint. If the shell ever splits a command again,
+    // this is where it shows up.
+    expect(output).not.toContain('not found');
+  });
+
+  it('refuses to run with an unparseable port override rather than falling back', () => {
+    expect(() =>
+      execFileSync(process.execPath, [SCRIPT], {
+        encoding: 'utf8',
+        env: { ...process.env, BLE_MCP_TEST_PORTS: 'not-a-port' },
+        timeout: 45_000,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+    ).toThrow();
   });
 });
