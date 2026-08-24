@@ -11,12 +11,42 @@ read by nothing.
 client stamps this clock; nothing else does. In particular a notification
 travelling device -> client does not.
 
-That asymmetry is not fastidiousness. The reader emits unprompted traffic all by
-itself: timed battery state, heartbeat notifications, and during inventory a
-continuous tag stream. Count outbound as activity and an abandoned session renews
-its own lease forever -- the device is never released, the timeout looks
-configured and working, and nothing is even slow. It is the same shape as the four
-inert variables this ticket restores, one layer further in.
+Put plainly: you do not get to keep the connection because your reader is
+reporting battery voltage every five seconds.
+
+The lease belongs to the client and is earned by the client doing something. A
+device talking to itself is not evidence that anyone is still there -- and the
+reference reader talks to itself on three separate timers, none of which needs a
+client. From *CS108 and CS463 Bluetooth and USB Byte Stream API Specifications*:
+
+  0xA002           "Start battery 5 seconds auto reporting (for BT connection
+                   only)". Five seconds, fixed -- the interval is part of the
+                   command, not a parameter.
+  0xA008           "Start trigger state auto reporting (for BT connection only),
+                   1 byte value = interval in second". One second, if asked.
+  en_commandactive Bit 9 of the packet-enable register: "Enable periodic output of
+                   Command Active packet for long running commands, IN THE ABSENCE
+                   OF ANY OTHER HOST INTERFACE OUTPUT". The spec's own note: during
+                   inventory with no tag in front of the reader, it "will still
+                   send out, every 3 seconds, a Command Active packet, so that the
+                   user will know the reader is still in inventory mode".
+
+That last one deserves its name read twice. It is a keepalive whose entire purpose
+is to emit when nothing else is happening -- so under an outbound-counting clock it
+would not merely renew the lease, it would renew it *hardest* in exactly the
+condition an idle timeout exists to detect. The timeout would be defeated by
+design rather than by accident.
+
+So on this hardware, counting outbound does not weaken the timeout, it deletes it.
+A five-second report against a ten-minute lease renews it a hundred and twenty
+times over before the timer could ever fire. The abandoned session becomes
+immortal, the device is never released, and the timeout looks configured and
+working the entire time. Nothing is slow and nothing reports an error -- the same
+shape as the four inert variables this module was written alongside, one layer
+further in.
+
+It is also why the rule cannot be softened to "outbound counts, but only
+sometimes". Any device-driven renewal is a renewal the client never asked for.
 
 The TypeScript implementation got this right and is the reference for the rule
 only: all four `recordActivity()` sites in `ble-session.ts` are inbound or

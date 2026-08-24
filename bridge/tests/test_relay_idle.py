@@ -117,19 +117,23 @@ async def test_inbound_frames_renew_the_lease(idle_relay):
 async def test_outbound_notifications_do_NOT_renew_the_lease(idle_relay):
     """The rule this whole module exists for.
 
-    A stream of device -> client notifications must not look like activity. Count
-    them and an abandoned session renews its own lease forever: the reader emits
-    unprompted traffic on its own -- timed battery state, heartbeats, and during
-    inventory a continuous tag stream -- so the lease would never lapse, the
-    device would never be released, and the timeout would look configured and
-    working the entire time.
+    A stream of device -> client notifications must not look like activity. You do
+    not get to keep the connection because your reader is reporting battery voltage
+    every five seconds -- and per the CS108/CS463 byte-stream API spec the reference
+    reader has three unprompted timers: 0xA002 battery auto-report at a fixed five
+    seconds, 0xA008 trigger-state auto-report at an interval as low as one second,
+    and en_commandactive, which emits every three seconds specifically "in the
+    absence of any other host interface output".
 
-    Note what this test asserts against the ticket's acceptance summary, which
-    reads "a session streaming inventory with no inbound frames is NOT [released]".
-    Ticket body section 2 is explicit and argued at length in the other direction
-    -- "Outbound must never count", "Stamp the clock inside that `if`, and only
-    there" -- and the mitigation it gives for a long LOCATE hold is choosing a
-    floor that clears it, not counting outbound. The body is the decision.
+    Against a ten-minute lease that is not a weakened timeout, it is no timeout.
+    See ble_bridge.ws.idle for the full citation.
+
+    TRA-1173's acceptance summary reads "a session streaming inventory with no
+    inbound frames is NOT [released]", which taken literally asks for the opposite.
+    Ticket body section 2 argues this direction at length -- "Outbound must never
+    count", "Stamp the clock inside that `if`, and only there" -- and Mike
+    confirmed it directly on 2026-08-24, citing the periodic reporting above.
+    The bullet lost the sign; this is the decision.
     """
     url, transports, _ = idle_relay
 
