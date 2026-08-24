@@ -386,64 +386,61 @@ injectWebBluetoothMock({
   service: '9800'
 });
 
-// Session persists for 60 seconds after disconnect
-// Different sessions allow multiple apps to share the same device
+// Disconnecting releases the device immediately - no grace period
 // Bridge logs show exactly which machine has the connection!
 ```
 
-### Session Persistence (v0.5.2+)
+### `sessionId` is required, and you supply it
+
+There is no auto-detection, no environment variable, and no fallback. Pass a
+`sessionId` or `injectWebBluetoothMock` throws:
+
 ```javascript
-// Use same sessionId across test runs for session reuse
-// Test 1: First run
-injectWebBluetoothMock({
-  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern
-  serverUrl: 'ws://localhost:8080',
-  service: '9800'
-});
-
-// Test 2: Second run (different page, same sessionId)
-injectWebBluetoothMock({
-  sessionId: `myapp-e2e-${os.hostname()}`,  // Consistent pattern  // Same session - reuses connection!
-  serverUrl: 'ws://localhost:8080',
-  service: '9800'
-});
-
-// Session persists for 60 seconds after disconnect
-// Same sessionId = connection reuse, different sessionId = new connection
+injectWebBluetoothMock({ serverUrl: 'ws://localhost:8080', service: '9800' });
+// Error: sessionId is required - this prevents session conflicts and ensures
+// predictable BLE connection management
 ```
 
-### Deterministic Session IDs for Playwright (v0.5.5+)
+Earlier versions of this README described a four-level priority chain
+(`window.BLE_TEST_SESSION_ID`, then `process.env.BLE_TEST_SESSION_ID`, then
+Playwright auto-detection from the test file path, then random generation) and a
+`setTestSessionId` export. **None of that exists.** Neither variable is read
+anywhere, `setTestSessionId` is not exported, and the auto-detection helpers are
+uncalled. Requiring the value explicitly is the deliberate replacement: a fallback
+chain picks a session id you did not choose and cannot see, which is how two runs
+end up sharing a device while both look correctly configured.
+
+Derive it yourself, from whatever makes it stable and unique for your case:
+
 ```javascript
-// Playwright tests get automatic deterministic session IDs
-test('inventory page', async ({ page }) => {
-  // Auto-detected: "localhost-tests/e2e/inventory-page"
-  // Same test always gets same session ID
-});
+// Per machine - the common case for local e2e
+sessionId: `myapp-e2e-${os.hostname()}`
 
-test('scanning page', async ({ page }) => {
-  // Auto-detected: "localhost-tests/e2e/scanning-page"
-  // Different test gets different session ID
-});
+// Per CI job
+sessionId: `myapp-ci-${process.env.CI_JOB_ID || os.hostname()}`
 
-// Or use explicit session ID
-import { setTestSessionId } from 'ble-mcp-test';
-setTestSessionId('inventory-test-session');
-
-// Or via environment variable
-// BLE_TEST_SESSION_ID=ci-run-123 pnpm test
+// Per Playwright test, if you want isolation between tests
+sessionId: `myapp-${test.info().titlePath.join('-')}`
 ```
 
-**Hierarchical priority:**
-1. `window.BLE_TEST_SESSION_ID` - Explicit test injection
-2. `process.env.BLE_TEST_SESSION_ID` - Environment variable
-3. Playwright auto-detection - Derives from test file path
-4. Random generation - For interactive browser use
+### Session behaviour
 
-### Session Behavior
-- **Chrome + Playwright**: Isolated sessions - no conflicts ✅
-- **Same browser, multiple tabs**: Share session - device conflict (realistic!) ⚠️
-- **Page reloads**: Reuse session from localStorage ✅
-- **Clear error messages**: Server logs show exactly which session has the device
+- **The command path is single-writer, per connection.** A second writer is
+  refused with a `Device is busy` error naming the session that holds it —
+  *including* when both connections carry the same `sessionId`. Sharing an id
+  does not share write access.
+- **Attach read-only with `role=observer`** to watch the notification stream
+  without competing for the device. An observer never writes and never holds the
+  radio.
+- **`force=true` takes the command path over**, evicting the current holder. Both
+  sides are told: the evicted connection gets an `error` explaining why its stream
+  ended, and the displacing connection gets a `warning` saying the run it
+  interrupted is now invalid.
+- **Disconnecting releases the device immediately.** There is no grace period and
+  no pooling; a bridge with no clients holds no radio.
+- **Idle writers are released** after `BLE_MCP_IDLE_TIMEOUT` seconds with no frame
+  *from the client*. Notifications from the device do not renew the lease — see
+  `.env.local.example` for why.
 
 ## Service UUID Filtering (v0.5.8+)
 
@@ -483,7 +480,7 @@ This is especially useful when:
 ✅ **CI/CD Ready** - Run BLE tests in GitHub Actions, Docker, etc  
 ✅ **MCP Observability** - AI-friendly debugging with Claude, Cursor, etc  
 ✅ **TypeScript** - Full type safety and IntelliSense  
-✅ **Session Persistence** - BLE connections survive WebSocket disconnects  
+✅ **Single-writer safety** - A second writer is refused, not silently admitted  
 ✅ **Service UUID Filtering** - Connect by service without device name (v0.5.8+)  
 ✅ **Minimal** - Core bridge under 600 lines, one connection at a time  
 
