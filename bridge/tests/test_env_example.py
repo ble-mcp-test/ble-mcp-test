@@ -33,15 +33,23 @@ EXAMPLE = REPO / ".env.local.example"
 
 #: Owner token -> the directories that owner's code lives in. Every token must
 #: name somewhere real: there is no "nothing reads this" option, by design.
+#:
+#: Two of these are TRANSITIONAL and are expected to fail eventually. The target
+#: shape is a clean client/server split -- TypeScript client, Python server -- so
+#: src/ shrinks to mock-bluetooth.ts and its transport, and rust-ble-test/ goes
+#: away. When `mcp-server` fails, TRA-1161 has moved that surface into bridge/;
+#: when `rust-bridge` fails, TRA-1155 has retired the Rust bridge. Neither is a
+#: broken test. Each is the retirement asking whether the variable moved to the new
+#: component or died with the old one, at the moment there is someone around who
+#: knows the answer.
 OWNERS: dict[str, tuple[str, ...]] = {
     "python-bridge": ("bridge/src",),
-    # TRA-1161 moves this surface into the Python bridge; until then the reader is
-    # the TypeScript observability server.
-    "mcp-server": ("src",),
-    "rust-bridge": ("rust-ble-test/src",),
     # Ships to consumers inside the npm package, not a test-only knob.
     "mock-client": ("src",),
     "e2e-harness": ("tests",),
+    # Transitional -- see above.
+    "mcp-server": ("src",),
+    "rust-bridge": ("rust-ble-test/src",),
 }
 
 _MARKER = re.compile(r"^#\s*@owner\s+(\S+)\s*$")
