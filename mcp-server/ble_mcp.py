@@ -59,6 +59,7 @@ from collections.abc import Mapping
 from typing import Any
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 VERSION = "1.0.0"
@@ -79,12 +80,25 @@ _DISABLED_HINT = (
 )
 
 
-class BridgeDown(RuntimeError):
-    """No bridge is listening on the socket."""
+class BridgeDown(ToolError):
+    """No bridge is listening on the socket.
+
+    A `ToolError` rather than a bare exception, and that is load-bearing: the SDK
+    forwards a ToolError's message to the client and reduces anything else to
+    "Error executing tool <name>". The whole point of these messages is that they
+    say which of "no bridge", "wrong socket" and "bridge wedged" happened -- and a
+    caller told only that a tool failed would go looking in the wrong place.
+    """
 
 
-class BridgeRefused(RuntimeError):
-    """The bridge answered, and the answer was no. Its sentence, verbatim."""
+class BridgeRefused(ToolError):
+    """The bridge answered, and the answer was no. Its sentence, verbatim.
+
+    Also a ToolError, for the same reason: the control socket's refusals are
+    written to name what was wrong ("that pattern is not hexadecimal, so it can
+    never match"), and swallowing them would leave the caller with a hex search
+    that failed for no stated reason.
+    """
 
 
 def resolve_socket_path(env: Mapping[str, str] | None = None) -> str:

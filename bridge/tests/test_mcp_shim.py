@@ -25,6 +25,7 @@ import sys
 import time
 
 import pytest
+from mcp.server.mcpserver.exceptions import ToolError
 
 from ble_bridge.config import Config, default_socket_path
 from ble_bridge.control import ControlServer
@@ -217,6 +218,30 @@ async def test_the_dropped_tools_are_not_registered(shim):
     assert "get_metrics" not in names
     assert "scan_devices" not in names
     assert "restart_rust_bridge" not in names
+
+
+async def test_a_refusal_reaches_the_client_with_its_sentence_intact(wired):
+    """The bridge writes its refusals to name what was wrong, and that text has to
+    survive the SDK.
+
+    The SDK forwards a ToolError's message and reduces every other exception to
+    "Error executing tool <name>". So a refusal raised as a plain RuntimeError
+    arrives as a hex search that failed for no stated reason -- which is how it
+    behaved before BridgeRefused was made a ToolError, verified over real stdio.
+    """
+    shim, _, _ = wired
+    with pytest.raises(ToolError, match="hexadecimal"):
+        await shim.build_server().call_tool("search_packets", {"hex_pattern": "zz"})
+
+
+async def test_bridge_down_reaches_the_client_with_its_sentence_intact(shim, tmp_path, monkeypatch):
+    """Same guard on the other message. "no bridge", "wrong socket" and "bridge
+    wedged" are three different things to go and fix, and a caller told only that a
+    tool failed would look in the wrong place."""
+    monkeypatch.setenv("BLE_MCP_SOCKET_PATH", str(tmp_path / "nothing.sock"))
+    with pytest.raises(ToolError, match="nothing.sock") as exc:
+        await shim.build_server().call_tool("status", {})
+    assert "not start" in str(exc.value).lower()
 
 
 async def test_a_tool_call_returns_structured_content(wired):
