@@ -17,7 +17,7 @@ import ipaddress
 import logging
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 #: Loopback, not a deployment setting. See test_default_bind_is_loopback.
 DEFAULT_WS_HOST = "127.0.0.1"
@@ -47,6 +47,13 @@ MAX_LOG_BUFFER_SIZE = 1_000_000
 
 #: Seconds. Ten minutes, matching `.env.local.example` and the v0.7.0 TS default.
 DEFAULT_IDLE_TIMEOUT_S = 600.0
+
+# --- The MCP control socket, added by TRA-1161 --------------------------------
+
+SOCKET_PATH_ENV = "BLE_MCP_SOCKET_PATH"
+
+#: The file name under XDG_RUNTIME_DIR, and the stem of the /tmp fallback.
+SOCKET_BASENAME = "ble-bridge.sock"
 
 #: Accepted spellings for BLE_MCP_LOG_LEVEL, named by `logging` itself rather than
 #: retyped, so this cannot drift from the levels it resolves to. NOTSET is
@@ -117,6 +124,8 @@ class Config:
     #: 0 means the operator turned it off. See ble_bridge.ws.idle for why only
     #: inbound traffic counts.
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
+    #: Where ble_bridge.control listens and the MCP shim connects. Absolute, always.
+    socket_path: str = field(default_factory=lambda: default_socket_path())
 
     @property
     def ws_bind(self) -> str:
@@ -135,6 +144,28 @@ class Config:
             return ipaddress.ip_address(self.ws_host).is_loopback
         except ValueError:
             return False
+
+
+def default_socket_path(env: Mapping[str, str] | None = None) -> str:
+    """Where the bridge listens and the MCP shim connects, absent an override.
+
+    `$XDG_RUNTIME_DIR/ble-bridge.sock`, or `/tmp/ble-bridge-$UID.sock` when
+    XDG_RUNTIME_DIR is unset -- as specified in
+    docs/design/2026-08-23-python-package-layout.md.
+
+    Two processes have to agree on this without sharing code: the MCP shim is a
+    single file so it can be uvx-run, and it cannot import this module. A rule
+    duplicated by eye is exactly the wait condition that fails as a timeout and
+    reads as "the bridge is down", so
+    `bridge/tests/test_mcp_shim.py::test_both_processes_resolve_the_same_socket_path`
+    checks the two implementations against each other across a matrix of
+    environments. Change this function and that test goes red.
+    """
+    env = os.environ if env is None else env
+    runtime_dir = env.get("XDG_RUNTIME_DIR")
+    if runtime_dir is not None and runtime_dir.strip():
+        return os.path.join(runtime_dir.strip(), SOCKET_BASENAME)
+    return f"/tmp/ble-bridge-{os.getuid()}.sock"
 
 
 def _present(env: Mapping[str, str], key: str) -> str | None:
@@ -175,7 +206,23 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
         log_timestamps=_flag(env, LOG_TIMESTAMPS_ENV, default=True),
         log_buffer_size=_log_buffer_size(env),
         idle_timeout=_idle_timeout(env),
+        socket_path=_socket_path(env),
     )
+
+
+def _socket_path(env: Mapping[str, str]) -> str:
+    raw = _present(env, SOCKET_PATH_ENV)
+    if raw is None:
+        return default_socket_path(env)
+    if not os.path.isabs(raw):
+        raise ConfigError(
+            f"{SOCKET_PATH_ENV} is set to {raw!r}, which is not an absolute path. The "
+            "bridge and the MCP shim are separate processes with separate working "
+            "directories, so a relative path names two different files -- and the "
+            "symptom would be an MCP server reporting the bridge as down while the "
+            "bridge is running fine."
+        )
+    return raw
 
 
 def _log_level(env: Mapping[str, str]) -> int:

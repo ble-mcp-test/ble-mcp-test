@@ -1,3 +1,5 @@
+import os
+
 import pytest
 
 from ble_bridge.config import (
@@ -140,3 +142,35 @@ def test_mac_as_int_is_the_address_the_proxy_wants():
     cfg = from_env({ESPHOME_HOST_ENV: "p", DEVICE_MAC_ENV: "6c:79:b8:11:22:33"})
     assert cfg.esphome is not None
     assert cfg.esphome.address == 0x6C79B8112233
+
+
+# --- the MCP control socket (TRA-1161) ---------------------------------------
+
+
+def test_the_socket_path_defaults_under_xdg_runtime_dir():
+    cfg = from_env({"XDG_RUNTIME_DIR": "/run/user/1000"})
+    assert cfg.socket_path == "/run/user/1000/ble-bridge.sock"
+
+
+def test_without_xdg_runtime_dir_the_socket_falls_back_to_a_uid_scoped_tmp_path():
+    cfg = from_env({})
+    assert cfg.socket_path == f"/tmp/ble-bridge-{os.getuid()}.sock"
+
+
+def test_a_blank_xdg_runtime_dir_is_absent_not_a_root_relative_path():
+    """XDG_RUNTIME_DIR="" would otherwise join to "/ble-bridge.sock"."""
+    cfg = from_env({"XDG_RUNTIME_DIR": "  "})
+    assert cfg.socket_path == f"/tmp/ble-bridge-{os.getuid()}.sock"
+
+
+def test_the_socket_path_can_be_set_outright():
+    cfg = from_env({"BLE_MCP_SOCKET_PATH": "/tmp/somewhere.sock"})
+    assert cfg.socket_path == "/tmp/somewhere.sock"
+
+
+def test_a_relative_socket_path_is_refused():
+    """The bridge and the MCP shim are separate processes with separate working
+    directories. A relative path names two different files and presents as a
+    bridge that is down."""
+    with pytest.raises(ConfigError):
+        from_env({"BLE_MCP_SOCKET_PATH": "ble-bridge.sock"})
