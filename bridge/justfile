@@ -3,10 +3,10 @@
 default: validate
 
 lint:
-    uv run ruff check src tests
+    uv run ruff check src tests ../mcp-server
 
 fmt:
-    uv run ruff format src tests
+    uv run ruff format src tests ../mcp-server
 
 test:
     uv run pytest
