@@ -1,440 +1,145 @@
-# MCP Server Documentation
+# The MCP server
 
-## Overview
+A read-only window onto a running bridge, for reading the raw BLE data stream and the log lines
+interleaved with it while debugging an e2e failure.
 
-ble-mcp-test includes integrated MCP (Model Context Protocol) tools that provide powerful debugging and analysis capabilities for BLE communication. MCP runs alongside the WebSocket bridge, using stdio transport by default for security. HTTP/SSE transport can be enabled when network access is needed.
+**Ninety percent of the value is `read_stream`.** The other four tools are context around it.
 
-## Architecture
+This is not on the e2e path. Tests reach the bridge over its WebSocket; this is a separate channel
+and nothing automated depends on it. CI needs none of it.
 
-The MCP server is integrated directly into the bridge server process:
+## Two processes
+
+The bridge is long-lived and holds the device. The MCP server is a stdio process that comes and goes
+with each Claude Code session, connects to the bridge's unix socket, asks one question, and gets one
+answer.
+
+They are split because a single process would cycle the hardware connection out from under whoever
+holds it every time a session ended. Once they are split and co-located on one host, a unix socket
+does the whole job — no port, no CORS, no bearer token.
+
+**The MCP server never starts a bridge.** If the socket is absent it says so and exits. A debugging
+tool that silently launches the thing it inspects will eventually launch a second writer alongside a
+running soak, and two writers on one reader is the hazard the bridge's ownership model exists to
+prevent.
+
+## The tools
+
+| tool | arguments | returns |
+| --- | --- | --- |
+| `read_stream` | `cursor`, `limit` | packets and log lines interleaved, in the order the bridge saw them |
+| `search_packets` | `hex_pattern`, `limit` | packets whose hex contains the pattern |
+| `get_logs` | `cursor`, `limit` | the same record with packets filtered out |
+| `get_connection_state` | — | who owns the command path, its device, its observers, lifetime TX/RX counts |
+| `status` | — | resolved configuration and uptime |
+
+`limit` defaults to 200 and must be 1–1000. Out of range is an error, not a clamp.
+
+Every tool returns `structuredContent` against a declared `outputSchema`.
+
+**Three tools from the TypeScript server were not ported.**
+
+- `get_metrics` — backed by `connection-metrics.ts`, which has no Python equivalent. A tool with no
+  backing is worse than an absent one; `status` and `get_connection_state` carry the operability
+  need.
+- `scan_devices` — scanned a local radio. There is no local radio: the bridge reaches the device
+  over TCP through an ESPHome proxy. Discovery through that proxy would be a different tool with a
+  different contract, and nothing has asked for one.
+- `restart_rust_bridge` — died with the Rust bridge.
+
+`get_logs` is a **tool**. It is not the MCP protocol's `logging/*` capability, which is deprecated.
+A tool that returns log text and a server-to-client logging channel are different things.
+
+## Reading the stream
+
+Call `read_stream` with no cursor to see what the ring holds. Keep `next_cursor` from the reply and
+pass it back as `cursor` on the next call to get only what is new. `next_cursor` holds its place
+when nothing arrived, so polling a quiet stream does not rewind.
+
+Two fields say when the answer is not what it looks like:
+
+- **`dropped_before`** — the ring evicted entries the cursor had not reached. Its value is the
+  oldest id still held; everything between the cursor and it existed and is gone. An evicted entry
+  is absent rather than renumbered, which is honest and completely invisible without this field.
+- **`buffer_enabled: false`** — the bridge is recording nothing because `BLE_MCP_LOG_BUFFER_SIZE=0`.
+  `notice` says so in a sentence. An empty result in that state says nothing about the device.
+
+Packets are stored as uppercase space-separated hex (`A7 B3 02`). `search_packets` matches a
+substring of that, ignoring spacing and case, so `a7b3` and `A7 B3` find the same frames. A pattern
+that is not hexadecimal is an error rather than an empty result — `zz` can never match, and zero
+results would read as "the device never sent that".
+
+## The socket contract
+
+Newline-delimited JSON over `AF_UNIX`. One request per line, one reply per line, in order, on a
+connection the client closes. No server-initiated messages, no streaming.
 
 ```
-┌─────────────────────────────────────┐
-│         Bridge Server Process       │
-├─────────────────────────────────────┤
-│  WebSocket Server (Port 8080)       │
-│  ├─ BLE Device Connection           │
-│  └─ Web Client Connection           │
-├─────────────────────────────────────┤
-│  MCP Server                         │
-│  ├─ Stdio Transport (local)         │
-│  └─ HTTP/SSE Transport (Port 8081)  │
-├─────────────────────────────────────┤
-│  Shared Components                  │
-│  ├─ Circular Log Buffer (10k)       │
-│  ├─ Connection State Manager        │
-│  └─ BLE Transport Layer             │
-└─────────────────────────────────────┘
+request   {"op": <name>, "args": {...}}      -- "args" may be omitted
+reply     {"ok": true,  "result": {...}}
+          {"ok": false, "reason": "<a sentence>"}
 ```
 
-## Transports
+The op names are the tool names. Lines over 64 KiB are refused rather than buffered.
 
-### Stdio Transport (Default)
+**Path:** `$BLE_MCP_SOCKET_PATH` if set, else `$XDG_RUNTIME_DIR/ble-bridge.sock`, else
+`/tmp/ble-bridge-$UID.sock`. Must be absolute — the two processes have separate working
+directories. The bridge logs the resolved path at startup.
 
-Secure local transport for terminal/CLI access:
+**Mode 0600, owner only.** That is the entire authorization story, and it is why no token replaced
+`BLE_MCP_HTTP_TOKEN`.
 
-- **Auto-enabled**: When `process.stdin.isTTY` is true
-- **Disabled**: In cloud/Docker environments without TTY
-- **Force disable**: Set `BLE_MCP_STDIO_DISABLED=true`
-- **Security**: No network ports opened
+**Direction:** the MCP process is always the client. The bridge never calls out and does not know
+whether an MCP process exists.
 
-### HTTP/SSE Transport (Optional)
+Three refusals are deliberate. An unknown op names the ops that exist, so a caller reaching for
+`get_metrics` learns it was dropped rather than that the socket is broken. An unknown argument is
+refused rather than ignored, because a silently dropped filter returns the wrong rows and they look
+exactly like data. An out-of-range `limit` is refused rather than clamped, because a clamp leaves
+the caller's own value in the request, apparently in force.
 
-Network transport for remote access from VMs, containers, and other machines:
+Starting the bridge over a socket file that something is still listening on is refused too. A file
+left behind with nothing listening is a stale socket from a hard kill, and is removed with a warning.
 
-- **Enable**: Set `BLE_MCP_HTTP_PORT`, `BLE_MCP_HTTP_TOKEN`, or use `--mcp-http` flag
-- **Port**: 8081 (configurable via `BLE_MCP_HTTP_PORT`)
-- **Protocol**: HTTP with Server-Sent Events (SSE)
-- **Authentication**: Bearer token (when `BLE_MCP_HTTP_TOKEN` is set)
-- **CORS**: Permissive for local network use
-
-## Available Tools
-
-### 1. get_logs
-
-Retrieve recent BLE communication logs from the circular buffer.
-
-**Parameters:**
-- `since` (string, default: "30s"): Time filter
-  - Duration: "30s", "5m", "1h"
-  - ISO timestamp: "2024-01-15T10:30:00Z"
-  - Special: "last" (from last seen position)
-- `filter` (string, optional): Filter logs
-  - "TX" or "RX" for direction
-  - Hex pattern for content matching
-- `limit` (number, default: 100, max: 1000): Maximum entries
-
-**Example:**
-```json
-{
-  "name": "get_logs",
-  "arguments": {
-    "since": "5m",
-    "filter": "TX",
-    "limit": 50
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "logs": [
-    {
-      "id": 1234,
-      "timestamp": "2024-01-15T10:23:45.123Z",
-      "direction": "TX",
-      "hex": "A7 B3 02 00",
-      "size": 4
-    }
-  ],
-  "count": 1,
-  "truncated": false
-}
-```
-
-### 2. search_packets
-
-Search for specific hex patterns across all logged packets.
-
-**Parameters:**
-- `hex_pattern` (string, required): Hex pattern to search
-  - Supports spaces: "A7 B3" or "A7B3"
-  - Case insensitive: "a7b3" or "A7B3"
-  - Partial matches: "B3" finds "A7 B3 02"
-- `limit` (number, default: 100, max: 1000): Maximum results
-
-**Example:**
-```json
-{
-  "name": "search_packets",
-  "arguments": {
-    "hex_pattern": "A7 B3",
-    "limit": 20
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "matches": [
-    {
-      "id": 1234,
-      "timestamp": "2024-01-15T10:23:45.123Z",
-      "direction": "TX",
-      "hex": "A7 B3 02 00",
-      "size": 4
-    }
-  ],
-  "count": 1,
-  "pattern": "A7 B3"
-}
-```
-
-### 3. get_connection_state
-
-Get current BLE connection status and statistics.
-
-**Parameters:** None
-
-**Response:**
-```json
-{
-  "connected": true,
-  "deviceName": "CS108ReaderXXXXXX",
-  "connectedAt": "2024-01-15T10:20:00.000Z",
-  "lastActivity": "2024-01-15T10:23:45.123Z",
-  "packetsTransmitted": 42,
-  "packetsReceived": 38
-}
-```
-
-### 4. status
-
-Get bridge server status and configuration.
-
-**Parameters:** None
-
-**Response:**
-```json
-{
-  "version": "0.3.0",
-  "uptime": 3600,
-  "wsPort": 8080,
-  "mcpPort": 8081,
-  "logBufferSize": 10000,
-  "logBufferUsed": 1532,
-  "connections": {
-    "websocket": 1,
-    "mcp": 2
-  }
-}
-```
-
-### 5. scan_devices
-
-Scan for nearby BLE devices. 
-
-⚠️ **Important**: This tool will fail if already connected to a device to prevent BLE adapter conflicts.
-
-**Parameters:**
-- `duration` (number, default: 5000, min: 1000, max: 30000): Scan duration in milliseconds
-
-**Example:**
-```json
-{
-  "name": "scan_devices",
-  "arguments": {
-    "duration": 10000
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "devices": [
-    {
-      "id": "e245f25413c2e682de9eefb9adc81d88",
-      "name": "CS108ReaderXXXXXX",
-      "rssi": -42
-    }
-  ],
-  "count": 1,
-  "duration": 10000
-}
-```
-
-## HTTP Endpoints
-
-When running with HTTP transport (`--mcp-http`), the following endpoints are available:
-
-### GET /mcp/info
-Returns server metadata and available tools. No authentication required.
-
-### POST /mcp/register  
-Client registration endpoint. Returns server capabilities. Requires authentication if BLE_MCP_HTTP_TOKEN is set.
-
-### POST /mcp
-Main MCP protocol endpoint for tool execution.
-
-### GET /mcp
-Server-Sent Events endpoint for streaming responses.
-
-See [API Documentation](./API.md#mcp-http-endpoints) for detailed endpoint specifications.
-
-## Configuration
-
-### Environment Variables
+## Registering it
 
 ```bash
-# MCP Server Configuration
-BLE_MCP_HTTP_PORT=8081     # HTTP transport port (enables HTTP when set)
-BLE_MCP_HTTP_TOKEN=secret123  # Bearer token (enables HTTP when set)
-LOG_BUFFER_SIZE=50000      # Circular buffer size (default: 10000)
-
-# Transport control
-DISABLE_STDIO=true         # Force disable stdio transport
---mcp-http                 # CLI flag to enable HTTP transport
+claude mcp add ble-mcp-test -- uv run --script /path/to/ble-mcp-test/mcp-server/ble_mcp.py
 ```
 
-### Authentication
-
-For local network security:
-
-```bash
-# Option 1: CI/CD mode with fixed test token
-pnpm start:ci
-
-# Option 2: Set explicit token with HTTP
-BLE_MCP_HTTP_TOKEN=your-secret-token pnpm start:http
-
-# Option 3: Use .env.local
-echo "BLE_MCP_HTTP_TOKEN=your-secret-token" >> .env.local
-pnpm start:http
-```
-
-## Client Configuration
-
-### Claude Code
-
-Add to your `settings.json`:
+or, in `~/.claude.json` under `projects.<path>.mcpServers`:
 
 ```json
-{
-  "mcpServers": {
-    "ble-mcp-test": {
-      "transport": "http",
-      "url": "http://localhost:8081/mcp",
-      "headers": {
-        "Authorization": "Bearer your-token-here"
-      }
-    }
-  }
+"ble-mcp-test": {
+  "type": "stdio",
+  "command": "uv",
+  "args": ["run", "--script", "/path/to/ble-mcp-test/mcp-server/ble_mcp.py"],
+  "env": {}
 }
 ```
 
-### Network Access
+`mcp-server/ble_mcp.py` is a PEP 723 single-file script: its dependency block pins the official MCP
+Python SDK (`mcp==2.1.0`, class `mcp.server.MCPServer`), and `uv` resolves it on first run. There is
+nothing to install and nothing to build.
 
-For access from VMs or other machines:
+A Claude Code session reads `~/.claude.json` at startup, so a change here needs a restart.
 
-```json
-{
-  "mcpServers": {
-    "ble-mcp-test": {
-      "transport": "http",
-      "url": "http://macbook.local:8081/mcp",
-      "headers": {
-        "Authorization": "Bearer your-token-here"
-      }
-    }
-  }
-}
-```
+## When it says the bridge is down
 
-### Using mcp-cli
+It means nothing is listening on the socket. Start one:
 
 ```bash
-# List available tools
-uvx mcp-cli tools
-
-# Call a specific tool
-uvx mcp-cli call get_logs --server ble-mcp-test
-
-# Interactive mode
-uvx mcp-cli chat --server ble-mcp-test
+cd bridge && uv run python -m ble_bridge
 ```
 
-## Security Considerations
+Without `ESPHOME_PROXY_HOST` and `BLE_MCP_DEVICE_MAC` it runs the stub transport and reaches no
+device — fine for protocol work, useless for reading real frames.
 
-⚠️ **WARNING**: The MCP HTTP transport is designed for LOCAL NETWORK USE ONLY.
-
-### Why Local Only?
-
-1. **Minimal Authentication**: Only bearer token support
-2. **Permissive CORS**: Allows all origins
-3. **Sensitive Data**: Exposes all BLE communication
-4. **Control Access**: Can trigger BLE device scans
-
-### Best Practices
-
-1. **Always use authentication** for network access:
-   ```bash
-   BLE_MCP_HTTP_TOKEN=strong-random-token pnpm start
-   ```
-
-2. **Firewall rules** to restrict access:
-   ```bash
-   # Allow only local network
-   sudo ufw allow from 192.168.0.0/16 to any port 8081
-   ```
-
-3. **Use SSH tunneling** for remote access:
-   ```bash
-   # On remote machine
-   ssh -L 8081:localhost:8081 user@ble-host
-   ```
-
-## Debugging
-
-### Check MCP Server Status
+To answer "is the bridge up and carrying traffic" without a Claude session:
 
 ```bash
-# Verify HTTP server is running
-curl http://localhost:8081/health
-
-# Test with authentication
-curl -H "Authorization: Bearer your-token" http://localhost:8081/health
+uv run --script mcp-server/ble_mcp.py --check
 ```
 
-### View Server Logs
-
-```bash
-# Start with debug logging
-BLE_MCP_LOG_LEVEL=debug pnpm start
-
-# Watch for MCP-specific logs
-[MCP HTTP] Server listening on port 8081
-[MCP HTTP] New session initialized: <session-id>
-```
-
-### Common Issues
-
-1. **"Cannot scan while connected"**
-   - Disconnect from BLE device first
-   - The bridge enforces single connection
-
-2. **"Session not found"**
-   - MCP clients must include Accept header
-   - Must accept both `application/json` and `text/event-stream`
-
-3. **"Unauthorized"**
-   - Check BLE_MCP_HTTP_TOKEN matches between server and client
-   - Include "Bearer " prefix in Authorization header
-
-## Examples
-
-### Get Recent TX Packets
-
-```javascript
-// Using fetch API
-const response = await fetch('http://localhost:8081/mcp', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json, text/event-stream',
-    'Mcp-Session-Id': sessionId
-  },
-  body: JSON.stringify({
-    jsonrpc: '2.0',
-    id: 1,
-    method: 'tools/call',
-    params: {
-      name: 'get_logs',
-      arguments: {
-        since: '1m',
-        filter: 'TX',
-        limit: 50
-      }
-    }
-  })
-});
-```
-
-### Search for Battery Commands
-
-```javascript
-// Search for CS108 battery voltage command (A000)
-const response = await fetch('http://localhost:8081/mcp', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json, text/event-stream',
-    'Mcp-Session-Id': sessionId
-  },
-  body: JSON.stringify({
-    jsonrpc: '2.0',
-    id: 2,
-    method: 'tools/call',
-    params: {
-      name: 'search_packets',
-      arguments: {
-        hex_pattern: 'A0 00',
-        limit: 100
-      }
-    }
-  })
-});
-```
-
-## Client Position Tracking
-
-The MCP server tracks each client's last seen log position for efficient log retrieval:
-
-1. **First request**: `since: "5m"` returns logs from 5 minutes ago
-2. **Server tracks**: Last log ID seen by this client
-3. **Next request**: `since: "last"` returns only new logs
-4. **Efficient streaming**: No duplicate logs sent
-
-This enables efficient log streaming without overwhelming clients with historical data.
+It prints a one-line summary and exits 0, or prints why and exits 2. It connects and reads; it
+starts nothing.

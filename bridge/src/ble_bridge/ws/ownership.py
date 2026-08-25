@@ -120,6 +120,16 @@ class Claim:
     def is_ready(self) -> bool:
         return self.device is not None
 
+    @property
+    def observer_count(self) -> int:
+        """How many read-only connections are attached to this claim.
+
+        Reported by MCP's get_connection_state: "one writer" and "one writer with
+        three watchers" are different situations to be debugging, and the second
+        one is where a stray browser tab shows up.
+        """
+        return len(self._observers)
+
     def ready(self, device: DeviceInfo) -> Claim:
         """Mark the device link up. Returns self so a test can claim-ready in one line."""
         self.device = device

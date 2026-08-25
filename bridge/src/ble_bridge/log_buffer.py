@@ -92,6 +92,8 @@ class LogBuffer:
         self._maxsize = maxsize
         self._entries: deque[LogEntry] = deque(maxlen=maxsize or 1)
         self._next_id = 0
+        self._packets_tx = 0
+        self._packets_rx = 0
 
     @property
     def enabled(self) -> bool:
@@ -102,8 +104,43 @@ class LogBuffer:
     def maxsize(self) -> int:
         return self._maxsize
 
+    @property
+    def packets_tx(self) -> int:
+        """Frames relayed client -> device since this process started."""
+        return self._packets_tx
+
+    @property
+    def packets_rx(self) -> int:
+        """Frames relayed device -> client since this process started."""
+        return self._packets_rx
+
+    @property
+    def oldest_id(self) -> int | None:
+        """The id of the oldest entry still held, or None when nothing is.
+
+        With `next_id`, this is what lets a reader be told it fell behind the ring
+        rather than being handed a short list that looks like a quiet device.
+        """
+        return self._entries[0].id if self._entries else None
+
+    @property
+    def next_id(self) -> int:
+        """The id the next entry will take. `next_id - 1` is the newest held."""
+        return self._next_id
+
     def push_packet(self, direction: str, payload: bytes) -> None:
-        """Record one relayed frame. `direction` is TX or RX."""
+        """Record one relayed frame. `direction` is TX or RX.
+
+        The counters increment even when the ring is disabled. They are lifetime
+        totals for this process, not a count of what is currently held: a
+        connection-state report saying 0 packets because the operator set
+        BLE_MCP_LOG_BUFFER_SIZE=0 would be a disabled buffer wearing a dead
+        device's clothes.
+        """
+        if direction == TX:
+            self._packets_tx += 1
+        elif direction == RX:
+            self._packets_rx += 1
         self._append(direction, _hex(payload), len(payload))
 
     def push_system(self, level: str, message: str) -> None:
@@ -121,6 +158,29 @@ class LogBuffer:
         is deep sees a gap, which is honest, where renumbering would hide it.
         """
         found = [e for e in self._entries if cursor is None or e.id > cursor]
+        return found if limit is None else found[:limit]
+
+    def system_since(self, cursor: int | None, limit: int | None = None) -> list[LogEntry]:
+        """Log lines after `cursor`, packets excluded. TRA-1161's `get_logs` reads this."""
+        found = [e for e in self.since(cursor) if not e.is_packet]
+        return found if limit is None else found[:limit]
+
+    def search_packets(self, hex_pattern: str, limit: int | None = None) -> list[LogEntry]:
+        """Packets whose hex contains `hex_pattern`, oldest first.
+
+        A substring match over the stored hex text, not a parse: frames are kept as
+        hex strings, and a caller searching for "A7 B3" means those two bytes
+        adjacent, wherever in the frame they land. Spacing and case in the pattern
+        are irrelevant; a log line that happens to contain the same characters is
+        not a frame and never matches.
+
+        A pattern that is not hexadecimal raises rather than matching nothing.
+        "zz" can never appear in a frame, so an empty result would read as "the
+        device never sent that" -- a wrong answer that looks exactly like a right
+        one, which is the failure mode this repo designs against.
+        """
+        needle = _normalise_hex_pattern(hex_pattern)
+        found = [e for e in self._entries if e.is_packet and needle in _compact(e.text)]
         return found if limit is None else found[:limit]
 
     def _append(self, direction: str, text: str, size: int) -> None:
@@ -142,6 +202,28 @@ def _hex(payload: bytes) -> str:
     """Uppercase, space separated -- the spelling `utils.ts:formatHex` produced,
     so a hex string copied out of an old log still matches one from this one."""
     return " ".join(f"{b:02X}" for b in payload)
+
+
+def _compact(text: str) -> str:
+    """The spacing-insensitive form both a stored frame and a search pattern reduce to."""
+    return text.replace(" ", "").upper()
+
+
+_HEXDIGITS: Final = frozenset("0123456789ABCDEF")
+
+
+def _normalise_hex_pattern(pattern: str) -> str:
+    """Uppercase, unspaced and hexadecimal -- or a refusal naming what was wrong."""
+    compact = _compact(pattern)
+    if not compact:
+        raise ValueError("the hex pattern is empty, so there is nothing to search for")
+    if not _HEXDIGITS.issuperset(compact):
+        raise ValueError(
+            f"the hex pattern {pattern!r} is not hexadecimal, so it can never match a "
+            "frame. Refusing to return an empty result, which would read as 'the "
+            "device never sent that'."
+        )
+    return compact
 
 
 class BufferHandler(logging.Handler):

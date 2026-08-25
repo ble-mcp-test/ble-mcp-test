@@ -1,0 +1,3 @@
+# The shim is run by `uv run --script`, which byte-compiles it in place. Same
+# rule as bridge/.gitignore.
+__pycache__/
