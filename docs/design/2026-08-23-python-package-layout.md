@@ -1,7 +1,14 @@
 # Python package layout
 
-**Status:** DRAFT / lowest-priority item of the replatform design package. Companion to
-`2026-08-23-python-bridge-rewrite.md`.
+**Status:** BUILT. Companion to `2026-08-23-python-bridge-rewrite.md`.
+
+The socket half of this shipped in TRA-1161 and the sections below are corrected to what is in the
+tree, not what was proposed. Three things changed in the building, each marked **[changed in
+TRA-1161]** where it appears:
+
+1. the shim is at `mcp-server/ble_mcp.py`, not `mcp/ble_mcp.py`;
+2. the ring buffer is `log_buffer.py`, not `observability.py`, and there is no metrics module;
+3. six requests became five, and two of the six were dropped rather than ported.
 
 Two processes with different lifetimes, joined by a unix socket. That split is the whole shape of
 the design; everything else follows from it.
@@ -36,11 +43,19 @@ bridge/                             # pyproject + uvx, long-running daemon
       protocol.py                   # message constants + encode/decode
       ownership.py                  # single-writer / multi-observer
     control.py                      # unix socket server for the MCP process
-    observability.py                # ring buffer, metrics, connection state
+    log_buffer.py                   # the ring: packets and log lines interleaved
 
-mcp/
-  ble_mcp.py                        # PEP 723 single-file script, uvx-runnable
+mcp-server/
+  ble_mcp.py                        # PEP 723 single-file script, `uv run --script`
 ```
+
+**[changed in TRA-1161] `mcp-server/`, not `mcp/`.** A top-level `mcp/` directory shadows the `mcp`
+SDK distribution — which is what the shim imports — for anything running with the repo root on
+`sys.path`. The failure would be an import error a long way from its cause.
+
+**[changed in TRA-1161] `log_buffer.py`, not `observability.py`.** Connection state is read straight
+off `ws/ownership.py`'s `CommandPath`, so there is nothing for a separate module to own, and there
+is no metrics tracker at all — see the request table below.
 
 **`protocol.py` is load-bearing.** Hazard 1a's design rule — wait conditions checked against
 emitters mechanically, never by eye — is satisfied by having exactly one module define every message
@@ -57,28 +72,44 @@ invisible if the code is scattered; a named module makes the boundary reviewable
 
 ## The unix socket contract
 
-**Path:** `$XDG_RUNTIME_DIR/ble-bridge.sock`, falling back to `/tmp/ble-bridge-$UID.sock`.
-`0600`, owner-only — that is the whole authorization story, and it is why no bearer token is needed.
+**Path:** `$BLE_MCP_SOCKET_PATH` if set, else `$XDG_RUNTIME_DIR/ble-bridge.sock`, falling back to
+`/tmp/ble-bridge-$UID.sock`. Must be absolute. `0600`, owner-only — that is the whole authorization
+story, and it is why no bearer token is needed.
+
+Two processes resolve that rule from two files that cannot import each other, so it is checked
+mechanically by `bridge/tests/test_mcp_shim.py::test_both_processes_resolve_the_same_socket_path`
+rather than by eye. Copied by eye it would fail as a timeout, and the symptom would be "the bridge is
+down" — which is also the shim's honest message for a bridge that really is down.
 
 **Framing:** newline-delimited JSON. One request, one response. No streaming, no server-initiated
-messages.
+messages. `{"ok": true, "result": {...}}` or `{"ok": false, "reason": "<sentence>"}` — `reason`
+rather than `error` because `error` is a WebSocket message type, and `protocol.py` owns that name.
 
 **Direction:** the MCP process is always the client; the bridge never calls out. This matters — it
 means the bridge has no knowledge of whether an MCP process exists, and starting or killing one has
 no effect on the BLE connection.
 
-**Requests** map to the six surviving MCP tools:
+**Requests** map one-to-one to the MCP tools. **[changed in TRA-1161]** six became five, and the one
+this design did not name is the one that matters most:
 
 | Request | Returns |
 |---|---|
-| `get_logs` | ring-buffer contents, filtered |
+| `read_stream` | the ring, packets and log lines interleaved, after a cursor |
 | `search_packets` | matching packets |
-| `get_connection_state` | current BLE + WS state |
+| `get_logs` | the same ring with packets filtered out |
+| `get_connection_state` | command-path ownership, device, observers, lifetime TX/RX |
 | `status` | daemon status |
-| `get_metrics` | connection metrics |
-| `scan_devices` | discovered devices |
 
-`restart_rust_bridge` is **not** ported — it dies with the Rust bridge.
+`read_stream` is the ninety percent. The original table listed `get_logs` first and had no cursored
+raw-stream read at all, which understated what platform actually uses this for.
+
+Three tools were **not** ported:
+
+- `restart_rust_bridge` — dies with the Rust bridge.
+- `get_metrics` — `connection-metrics.ts` has no Python equivalent and TRA-1163 deletes it. A tool
+  with no backing is worse than an absent one; `status` and `get_connection_state` carry the need.
+- `scan_devices` — scanned a local radio, and there is no local radio. Discovery through the ESPHome
+  proxy would be a different tool with a different contract, and nothing has asked for one.
 
 **Failure mode:** if the socket is absent or refuses, the MCP process reports the bridge as down. It
 must **not** start one — a debugging tool that silently launches the thing it is inspecting will
@@ -89,9 +120,10 @@ ownership model exists to prevent.
 
 ## uv boundaries
 
-**MCP process — PEP 723 single-file.** `mcp/ble_mcp.py` with an inline dependency block; run via
-`uvx ble_mcp.py`. It is a thin stdio shim over the socket with no state, so a single file is honest
-about its size and needs no packaging.
+**MCP process — PEP 723 single-file.** `mcp-server/ble_mcp.py` with an inline dependency block,
+pinning the official MCP Python SDK (`mcp==2.1.0`, class `mcp.server.MCPServer`); run via
+`uv run --script mcp-server/ble_mcp.py`. It is a thin stdio shim over the socket with no state, so a
+single file is honest about its size and needs no packaging.
 
 **Bridge — `pyproject.toml` + `uvx`.** A real package: multiple modules, third-party dependencies
 (`aioesphomeapi`, `bleak-esphome`, `websockets`), and a console entrypoint. Run as
@@ -121,11 +153,12 @@ Names carry over unchanged from the current `BLE_MCP_*` convention plus `ESPHOME
 
 ## Open
 
-1. **Where does the firehose harness live?** It drives the bridge (suggesting here) but exercises
-   the mock (which platform consumes). Unresolved; **[inferred]** here.
-2. **Does `bridge/` live in this repo or its own?** This repo, presumably, since the mock and the
-   Node client stay TypeScript alongside it — but a Python package inside a pnpm workspace wants a
-   deliberate decision about tooling boundaries rather than a default.
-3. **Ring-buffer ownership.** `observability.py` holds it in the daemon, which is right for
-   lifetime — but it means MCP queries cross the socket for every log read. Fine at human speed;
-   worth revisiting only if something starts polling.
+1. **Where does the firehose harness live?** Settled by building: `bridge/tests/stress/`. It drives
+   the bridge, and that is where it can. One caveat learned the hard way — it asserts
+   `saturated_ticks == 0`, so it is sensitive to whatever else the test process is doing, including
+   work done at collection time by unrelated test files.
+2. **Does `bridge/` live in this repo or its own?** Settled by building: this repo, with `just` as
+   the cross-language front door and `uv` owning everything under `bridge/`.
+3. **Ring-buffer ownership.** `log_buffer.py` holds it in the daemon, which is right for lifetime —
+   but it means MCP queries cross the socket for every read. Still fine at human speed; the cursor
+   makes a poll cheap, and nothing polls it today.
