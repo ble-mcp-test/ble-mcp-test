@@ -11,16 +11,24 @@ default: validate
 
 # --- TypeScript workspace ---
 
-lint-ts:
+# Bootstrap. Every TS recipe depends on this because a fresh clone -- and every
+# new worktree, which is the case that actually bites -- starts without
+# node_modules, and `pnpm run lint` then fails with `eslint: not found` rather
+# than with anything that names the real problem. Idempotent and ~1s when the
+# store is warm. The Python side needs no equivalent: `uv run` syncs its own venv.
+install:
+    pnpm install --frozen-lockfile
+
+lint-ts: install
     pnpm run lint
 
-typecheck-ts:
+typecheck-ts: install
     pnpm run typecheck
 
-test-ts:
+test-ts: install
     pnpm run test:unit
 
-build-ts:
+build-ts: install
     pnpm run build
 
 # --- Python workspace (bridge/) ---

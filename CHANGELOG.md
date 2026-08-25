@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **BREAKING (public API): `forceCleanup()` is gone** from `WebSocketTransport`
+  (exported via `index.ts`) and from the mock GATT server. It never worked — both
+  methods logged `Force cleanup is broken and creates zombies` at callers, and the
+  server-side handler did a normal disconnect rather than a force cleanup. It also
+  waited on a `cleanup_complete` message that nothing in the codebase has ever
+  sent. The Python bridge does not accept `force_cleanup` and will not: the zombie
+  it existed to clear was a Noble artifact, and the 2026-08-24 soak (n=781) wedged
+  twice and recovered both times with no cleanup mechanism present. No replacement
+  is needed; drop the call. (TRA-1162)
+- The `cleanup_session` / `admin_cleanup` handlers in the TypeScript bridge, and
+  the phantom `eviction_warning` / `keepalive_ack` / `scan_result` union members,
+  all of which had no sender, no consumer, or both. (TRA-1162)
+
+### Fixed
+
+- **A takeover warning now reaches the browser.** The bridge sends a `warning`
+  frame mid-handshake to tell a client it displaced another session, and the
+  client's handshake handler branched only on `connected` and `error` — so the
+  announcement arrived and was discarded without a word. Both the handshake
+  handler and the mock's steady-state handler now surface it, and a cross-language
+  test fails if either stops. (TRA-1162)
+- `just validate` now works in a checkout that has never been installed into — a
+  new worktree included, which is the case that actually bit. (TRA-1162)
+- `vitest` no longer collects sibling worktrees' tests as if they were this
+  tree's. `.claude/worktrees/` is gitignored, which does not constrain a glob.
+  (TRA-1162)
+
 ## [0.7.3] - 2025-01-11
 
 ### Added

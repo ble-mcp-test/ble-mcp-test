@@ -7,7 +7,10 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 60000,
-    exclude: ['**/e2e/**', '**/node_modules/**', '**/dist/**'],
+    // '**/.claude/worktrees/**' is load-bearing: that directory is gitignored,
+    // but globs do not consult gitignore, so without it a run collects every
+    // sibling worktree's tests as this tree's own. See tests/unit/vitest-isolation.test.ts.
+    exclude: ['**/e2e/**', '**/node_modules/**', '**/dist/**', '**/.claude/worktrees/**'],
     // Force sequential execution for BLE singleton connection
     pool: 'forks',
     poolOptions: {

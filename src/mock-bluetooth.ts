@@ -305,11 +305,6 @@ class MockBluetoothRemoteGATTServer {
     }
   }
   
-  async forceCleanup(): Promise<void> {
-    console.warn('[Mock] WARNING: Force cleanup is broken and creates zombies');
-    await this.device.transport.forceCleanup();
-  }
-
   async getPrimaryService(serviceUuid: string): Promise<MockBluetoothRemoteGATTService> {
     if (!this.connected) {
       throw new Error('GATT Server not connected');
@@ -374,6 +369,13 @@ class MockBluetoothDevice {
         this.characteristics.forEach(char => {
           char.handleTransportMessage(data);
         });
+      } else if (msg.type === 'warning') {
+        // The handshake handler in ws-transport catches a warning sent before
+        // `connected`; this catches one sent after. Both are needed — without
+        // this branch a post-handshake warning falls past `data` and
+        // `disconnected` onto the floor, and the guard in test_protocol.py
+        // would still be green because the type has a consumer somewhere.
+        console.warn(`[Mock] Server warning: ${msg.warning}`);
       } else if (msg.type === 'disconnected') {
         // Ensure GATT server knows it's disconnected
         if (this.gatt.connected) {

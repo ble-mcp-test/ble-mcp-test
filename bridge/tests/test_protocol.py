@@ -48,10 +48,84 @@ def test_handshake_terminal_types_match_the_typescript_waiter():
     four separate times here. Reading the waiter out of the client source and
     comparing it against this module is what makes the mismatch impossible.
     """
+    branches = _connect_branches()
+    assert branches, "found no message-type comparison in connect(); the check would be vacuous"
+
+    terminal = {t for t, settles in branches.items() if settles}
+    assert terminal == set(p.HANDSHAKE_TERMINAL_TYPES)
+
+
+def test_warning_is_branched_on_but_does_not_settle_the_handshake():
+    """TRA-1162: the interstitial contract, checked on the client rather than asserted.
+
+    `warning` travels mid-handshake -- server.py's _take_over sends it immediately
+    before `connected` to tell a client it displaced somebody. Two ways to get this
+    wrong, and this test fails on both: dropping the branch (the announcement is
+    swallowed, which is what the client did until TRA-1162) or letting it settle
+    the promise (the handshake ends on a non-terminal frame).
+
+    Note it must NOT be added to HANDSHAKE_TERMINAL_TYPES to make the sibling test
+    above pass. That is the tempting fix and it is the wrong one.
+    """
+    branches = _connect_branches()
+    assert p.MSG_WARNING in branches, (
+        "connect() no longer branches on `warning`; a mid-handshake takeover warning "
+        "is being dropped silently again. See ws-transport.ts."
+    )
+    assert not branches[p.MSG_WARNING], "`warning` must not settle the handshake"
+
+
+def test_wire_types_have_a_typescript_consumer():
+    """Every type this server emits must be handled somewhere in the mock client.
+
+    The inverse of the waiter check. A type with no consumer is the shape TRA-1162
+    called the dangerous direction: a lone unconsumed emitter looks like unused
+    code while actually being a silent failure path. After TRA-1155 there is no
+    compiler spanning this seam -- Python emits, TypeScript consumes -- so a rename
+    on either side surfaces as behaviour quietly going missing.
+
+    Both consumer sites count, deliberately. `warning` is handled in connect() for
+    the mid-handshake case and in mock-bluetooth.ts for the post-handshake case;
+    checking only the first would go green while the second still dropped it.
+    """
+    consumed = set(_connect_branches()) | _mock_bluetooth_branches()
+    missing = set(p.SERVER_MESSAGE_TYPES) - consumed
+    assert not missing, (
+        f"this server emits {sorted(missing)} and the TypeScript client branches on "
+        "none of them, so the message is delivered and silently discarded"
+    )
+
+
+def _connect_branches() -> dict[str, bool]:
+    """Every `msg.type === 'x'` in connect(), mapped to whether that branch settles.
+
+    A branch settles if it calls resolve() or reject(); anything else is
+    interstitial. Splitting on the comparisons rather than eyeballing is the point
+    -- "is branched on" and "ends the handshake" are different questions, and
+    conflating them is what made this check reject a correct interstitial branch.
+    """
     body = _ws_transport_connect_body()
-    waited_on = set(re.findall(r"""msg\.type === ['"]([a-z_]+)['"]""", body))
-    assert waited_on, "found no message-type comparison in connect(); the check would be vacuous"
-    assert waited_on == set(p.HANDSHAKE_TERMINAL_TYPES)
+    hits = list(re.finditer(r"""msg\.type === ['"]([a-z_]+)['"]""", body))
+    branches: dict[str, bool] = {}
+    for i, hit in enumerate(hits):
+        end = hits[i + 1].start() if i + 1 < len(hits) else len(body)
+        segment = body[hit.end() : end]
+        branches[hit.group(1)] = "resolve()" in segment or "reject(" in segment
+    return branches
+
+
+def _mock_bluetooth_branches() -> set[str]:
+    """Message types handled by the mock's steady-state transport handler."""
+    root = pathlib.Path(__file__).resolve().parents[2]
+    source = root / "src" / "mock-bluetooth.ts"
+    assert source.is_file(), (
+        f"{source} is missing. It is the post-handshake half of this protocol's "
+        "client. If the mock has moved, point this check at its successor."
+    )
+    text = source.read_text()
+    start = text.index("private setupTransportHandler()")
+    body = text[start : text.index("\n  }", text.index("this.transport.onMessage", start))]
+    return set(re.findall(r"""msg\.type === ['"]([a-z_]+)['"]""", body))
 
 
 def _ws_transport_connect_body() -> str:
