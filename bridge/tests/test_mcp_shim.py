@@ -25,7 +25,6 @@ import sys
 import time
 
 import pytest
-from mcp.server.mcpserver.exceptions import ToolError
 
 from ble_bridge.config import Config, default_socket_path
 from ble_bridge.control import ControlServer
@@ -34,6 +33,15 @@ from ble_bridge.transport import DeviceInfo
 from ble_bridge.ws.ownership import CommandPath
 
 SHIM = pathlib.Path(__file__).resolve().parents[2] / "mcp-server" / "ble_mcp.py"
+
+# Nothing in this module imports the MCP SDK at module scope, deliberately, and the
+# `shim.ToolError` references below are why it does not need to. Importing it here
+# happens at COLLECTION time -- before any test runs -- and the SDK pulls in pydantic
+# and anyio, which is enough work to cost tests/stress/test_firehose.py a saturated
+# tick. That test asserts saturated_ticks == 0 because a saturated tick voids the row
+# as a statement about the relay, so an import in this file was failing a stress test
+# in another one, reproducibly, with nothing in either file to suggest a connection.
+# The SDK is still imported, by _load(), which runs at test time and after firehose.
 
 
 def _load():
@@ -230,7 +238,7 @@ async def test_a_refusal_reaches_the_client_with_its_sentence_intact(wired):
     behaved before BridgeRefused was made a ToolError, verified over real stdio.
     """
     shim, _, _ = wired
-    with pytest.raises(ToolError, match="hexadecimal"):
+    with pytest.raises(shim.ToolError, match="hexadecimal"):
         await shim.build_server().call_tool("search_packets", {"hex_pattern": "zz"})
 
 
@@ -239,7 +247,7 @@ async def test_bridge_down_reaches_the_client_with_its_sentence_intact(shim, tmp
     wedged" are three different things to go and fix, and a caller told only that a
     tool failed would look in the wrong place."""
     monkeypatch.setenv("BLE_MCP_SOCKET_PATH", str(tmp_path / "nothing.sock"))
-    with pytest.raises(ToolError, match="nothing.sock") as exc:
+    with pytest.raises(shim.ToolError, match="nothing.sock") as exc:
         await shim.build_server().call_tool("status", {})
     assert "not start" in str(exc.value).lower()
 
