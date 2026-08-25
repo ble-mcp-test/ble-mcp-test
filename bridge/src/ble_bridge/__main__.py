@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import time
 
 from ble_bridge.config import Config, from_env
+from ble_bridge.control import ControlServer
 from ble_bridge.esphome import transport_factory
 from ble_bridge.habluetooth_runtime import setup_manager
 from ble_bridge.log_buffer import LogBuffer
@@ -55,14 +57,32 @@ async def _run(config: Config, log_buffer: LogBuffer) -> None:
     server = BridgeServer(config, await _select_transport(config), log_buffer=log_buffer)
     await server.start()
 
+    # The MCP surface. Started here rather than inside BridgeServer because it is a
+    # second consumer of the relay's state, not part of the relay: it holds no
+    # device, accepts no writes, and its absence changes nothing about the BLE link.
+    control = ControlServer(
+        config,
+        log_buffer=log_buffer,
+        command_path=server.command_path,
+        started_at=time.monotonic(),
+    )
+    await control.start()
+
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         loop.add_signal_handler(sig, stop.set)
 
-    await stop.wait()
-    logger.info("shutting down")
-    await server.stop()
+    try:
+        await stop.wait()
+        logger.info("shutting down")
+    finally:
+        # In a `finally` so a cancelled or killed daemon still unlinks its socket.
+        # A file left behind with nothing listening is what the next start has to
+        # recognise as stale, and the fewer times it has to make that judgement the
+        # better.
+        await control.stop()
+        await server.stop()
 
 
 def _log_operability(config: Config, log_buffer: LogBuffer) -> None:
