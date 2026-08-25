@@ -16,9 +16,14 @@ There is deliberately no token meaning "nothing reads this". An escape hatch wit
 no subjects is a guard that cannot go red, and the whole point of the exercise is
 that a variable with no reader gets deleted rather than annotated. If a future
 component genuinely needs a variable declared before it is wired up, point the
-marker at where it IS read today -- the way `mcp-server` points at `src/` while
-TRA-1161 is still pending -- or add the token back along with the check that
+marker at where it IS read today, or add the token back along with the check that
 makes it mean something.
+
+This has now fired once for real. `mcp-server` pointed at `src/` while TRA-1161
+was pending; TRA-1161 landed that surface on a unix socket in `bridge/` and
+answered the question the token was asking -- BLE_MCP_HTTP_PORT,
+BLE_MCP_HTTP_TOKEN and BLE_MCP_STDIO_DISABLED died with the HTTP transport rather
+than moving to it, so they and the token were deleted rather than re-pointed.
 """
 
 from __future__ import annotations
@@ -34,21 +39,25 @@ EXAMPLE = REPO / ".env.local.example"
 #: Owner token -> the directories that owner's code lives in. Every token must
 #: name somewhere real: there is no "nothing reads this" option, by design.
 #:
-#: Two of these are TRANSITIONAL and are expected to fail eventually. The target
+#: One of these is TRANSITIONAL and is expected to fail eventually. The target
 #: shape is a clean client/server split -- TypeScript client, Python server -- so
 #: src/ shrinks to mock-bluetooth.ts and its transport, and rust-ble-test/ goes
-#: away. When `mcp-server` fails, TRA-1161 has moved that surface into bridge/;
-#: when `rust-bridge` fails, TRA-1155 has retired the Rust bridge. Neither is a
-#: broken test. Each is the retirement asking whether the variable moved to the new
-#: component or died with the old one, at the moment there is someone around who
-#: knows the answer.
+#: away. When `rust-bridge` fails, TRA-1155 has retired the Rust bridge. That is
+#: not a broken test. It is the retirement asking whether the variable moved to the
+#: new component or died with the old one, at the moment there is someone around
+#: who knows the answer.
+#:
+#: `mcp-server` was the other one and is gone. TRA-1161 rebuilt that surface on a
+#: unix socket in bridge/, and its three BLE_MCP_HTTP_* variables were deleted
+#: rather than re-pointed. The MCP process's own variable, BLE_MCP_SOCKET_PATH, is
+#: owned by `python-bridge`, because the bridge is what reads it to decide where to
+#: listen -- the shim duplicates the rule but never the declaration.
 OWNERS: dict[str, tuple[str, ...]] = {
     "python-bridge": ("bridge/src",),
     # Ships to consumers inside the npm package, not a test-only knob.
     "mock-client": ("src",),
     "e2e-harness": ("tests",),
     # Transitional -- see above.
-    "mcp-server": ("src",),
     "rust-bridge": ("rust-ble-test/src",),
 }
 
