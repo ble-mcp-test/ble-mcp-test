@@ -51,7 +51,7 @@ cd bridge && just hardware   # opt-in, needs a real device
 
 **No test counts here** — every hand-written one has drifted. Run the command.
 
-**Hardware reality — the two halves differ.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: it needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default. The TypeScript e2e tests stay **unexecutable** here — Noble-only, needs a local radio, as does `pnpm run check:device`. Say which stack you mean.
+**Hardware reality.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: it needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default.
 
 **Gitignored is not glob-invisible.** `vitest.config.ts` must exclude `.claude/worktrees/**` or a run collects sibling worktrees' tests; `tests/unit/vitest-isolation.test.ts` guards it.
 
