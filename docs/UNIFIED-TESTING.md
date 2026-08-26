@@ -22,7 +22,7 @@ Based on these checks, it automatically:
 #### For Developers (with dev server):
 ```bash
 # Terminal 1: Start bridge
-cd ble-mcp-test && pnpm start
+cd ble-mcp-test/bridge && uv run python -m ble_bridge
 
 # Terminal 2: Start dev server (injects mock)
 pnpm dev:mock
@@ -34,7 +34,7 @@ pnpm test:e2e:dev
 #### For CI/CD (standalone):
 ```bash
 # Start bridge in background
-cd ble-mcp-test && pnpm start &
+cd ble-mcp-test/bridge && uv run python -m ble_bridge &
 
 # Run tests (will inject mock themselves)
 pnpm test:e2e:ci

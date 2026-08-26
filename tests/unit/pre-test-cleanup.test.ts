@@ -13,7 +13,7 @@ const SCRIPT = path.resolve(HERE, '../../scripts/pre-test-cleanup.js');
  * the guard reads. A flag the fixture merely *interprets* would not appear
  * there and the listener would look unprotected.
  */
-const PROTECTED_MARKER = 'rust-ble-test';
+const PROTECTED_MARKER = 'ble_bridge';
 
 interface Fixture {
   proc: ChildProcess;

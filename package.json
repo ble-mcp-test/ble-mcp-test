@@ -1,30 +1,23 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.7.3",
-  "description": "Complete BLE testing stack: WebSocket bridge server, MCP observability layer, and Web Bluetooth API mock. Test real BLE devices in Playwright/E2E tests without browser support.",
+  "version": "0.8.0",
+  "description": "Web Bluetooth API mock and a Node test-harness client for driving real BLE hardware from headless tests.",
   "keywords": [
-    "mcp",
-    "model-context-protocol",
     "ble",
     "bluetooth",
     "bluetooth-low-energy",
     "web-bluetooth",
-    "testing",
+    "web-bluetooth-mock",
     "mock",
-    "playwright",
+    "testing",
     "e2e",
     "e2e-testing",
-    "bridge",
-    "websocket",
-    "noble",
-    "packet-inspection",
     "ble-testing",
-    "web-bluetooth-mock",
+    "playwright",
+    "websocket",
     "claude",
     "ai",
-    "coding-assistant",
-    "nodejs",
-    "node"
+    "coding-assistant"
   ],
   "author": "Mike Stankavich <mike@trakrf.id> (https://trakrf.id)",
   "license": "MIT",
@@ -43,13 +36,8 @@
     "access": "public"
   },
   "type": "module",
-  "main": "./dist/index.js",
   "browser": "./dist/web-ble-mock.bundle.js",
-  "bin": {
-    "ble-mcp-test": "dist/start-server.js"
-  },
   "exports": {
-    ".": "./dist/index.js",
     "./browser": "./dist/web-ble-mock.bundle.js",
     "./node": {
       "types": "./dist/node/index.d.ts",
@@ -66,21 +54,13 @@
     "build": "tsc && pnpm run build:browser",
     "build:browser": "node scripts/build-browser-bundle.js",
     "dev": "tsc --watch",
-    "start": "node dist/start-server.js",
-    "start:http": "node dist/start-server.js --mcp-http",
-    "start:ci": "BLE_MCP_HTTP_TOKEN=test-token node dist/start-server.js --mcp-http",
-    "metrics": "node scripts/view-metrics.js",
-    "restart-bluetooth": "node scripts/restart-bluetooth.js",
-    "check:device": "node scripts/check-device-available.js",
-    "check:health": "node scripts/check-device-available.js && echo '✅ Device is ready for use!'",
     "pretest": "node scripts/pre-test-cleanup.js",
     "test": "pnpm run pretest && vitest run tests/unit tests/integration",
     "test:run": "pnpm run pretest && vitest run",
     "test:watch": "vitest",
-    "test:e2e": "pnpm run pretest && pnpm exec playwright test --grep-invert 'idle timeout' && ./scripts/test-idle-timeout-e2e.sh",
-    "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test --grep-invert 'idle timeout' && ./scripts/test-idle-timeout-e2e.sh",
-    "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test --grep-invert 'idle timeout' && ./scripts/test-idle-timeout-e2e.sh",
-    "test:e2e:idle": "./scripts/test-idle-timeout-e2e.sh",
+    "test:e2e": "pnpm run pretest && pnpm exec playwright test",
+    "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test",
+    "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
     "test:stress": "pnpm run pretest && vitest run tests/stress",
     "stress:firehose": "FIREHOSE_BASELINE=1 vitest run tests/stress/firehose-baseline.test.ts",
     "test:integration": "CHECK_BLE_DEVICE=true pnpm run pretest && vitest run tests/integration",
@@ -90,15 +70,10 @@
     "typecheck": "tsc --noEmit",
     "typecheck:stress": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test --grep-invert 'idle timeout'"
+    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "@stoprocent/noble": "^2.3.5",
-    "cors": "^2.8.5",
-    "express": "^4.18.2",
-    "ws": "^8.16.0",
-    "zod": "^3.25.76"
+    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",

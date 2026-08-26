@@ -80,7 +80,6 @@ test('my test', async ({ page }) => {
 - ✅ Real device communication
 
 ### What We Don't Test
-- ❌ Bridge server internals (unit tests)
-- ❌ Noble.js library (upstream)
+- ❌ Bridge internals (bridge/tests, in Python)
 - ❌ Web Bluetooth spec compliance (browser)
 - ❌ BLE hardware protocols (device-specific)

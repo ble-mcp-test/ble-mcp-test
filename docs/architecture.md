@@ -2,197 +2,96 @@
 
 ## Overview
 
-ble-mcp-test is designed around extreme simplicity. The core bridge components total under 1000 lines, implementing a minimal WebSocket-to-BLE bridge with Web Bluetooth API mocking.
+Browser-based E2E tests drive **real BLE hardware** from headless environments —
+CI, VMs, containers, agent sessions.
 
-## Core Components
-
-### 1. Bridge Server (`bridge-server.ts`)
-- **Purpose**: WebSocket server that tunnels BLE commands
-- **Lines**: ~440
-- **State Machine**: `ready → connecting → active → disconnecting`
-- **Key Features**:
-  - One connection at a time (prevents race conditions)
-  - Atomic state transitions
-  - 1-second recovery period after clean disconnection (5s+ for failures)
-  - Escalating cleanup system for stuck states
-
-### 2. Noble Transport (integrated in bridge-server.ts)
-- **Purpose**: Direct Noble.js usage for BLE operations
-- **Lines**: Integrated into bridge
-- **Responsibilities**:
-  - Device scanning and connection
-  - Service/characteristic discovery
-  - Data read/write operations
-  - Notification handling
-
-### 3. Web Bluetooth Mock (`mock-bluetooth.ts`)
-- **Purpose**: Drop-in replacement for navigator.bluetooth
-- **Lines**: ~370
-- **Features**:
-  - Implements Web Bluetooth API surface
-  - Forwards calls to bridge via WebSocket
-  - Automatic retry logic for busy states
-  - Test notification injection
-
-### 4. WebSocket Transport (`ws-transport.ts`)
-- **Purpose**: Client-side WebSocket communication
-- **Lines**: ~150
-- **Handles**:
-  - Connection management
-  - Message serialization
-  - Error handling
-  - Force cleanup requests
-
-## State Management
-
-### Bridge State Machine
+What this project mocks is the `navigator.bluetooth` **Web API**, not the
+hardware. Commands travel browser → mock → WebSocket → bridge → real device, and
+the responses come back the same way. If no device is reachable, connections
+fail. That is correct behaviour, not a gap in the mock.
 
 ```
-         ┌─────────┐
-         │  ready  │◄────────────┐
-         └────┬────┘             │
-              │                  │ 1s recovery
-              │ connect          │
-         ┌────▼────┐             │
-         │connecting│            │
-         └────┬────┘             │
-              │                  │
-              │ success          │
-         ┌────▼────┐             │
-         │ active  │             │
-         └────┬────┘             │
-              │                  │
-              │ disconnect       │
-         ┌────▼──────┐           │
-         │disconnecting├─────────┘
-         └───────────┘
+[Playwright/browser] → [mock-bluetooth.ts] → (WebSocket) → [Python bridge]
+                                                                 ↓ TCP
+                                                        [ESPHome proxy, ESP32-S3]
+                                                                 ↓ BLE
+                                                            [BLE device]
 ```
 
-### Escalating Cleanup System
+There is **no local-radio path**. The host running the tests needs no Bluetooth
+stack; it reaches the reader over TCP through the ESPHome proxy. This is what
+lets the suite run in a container.
 
-The bridge implements a 3-level cleanup system for stuck "disconnecting" states:
+Device-agnostic by design: any GATT device works, configured by UUID environment
+variables. CS108 UHF RFID is the reference device, not a requirement.
 
-1. **Level 1 (3s)**: Gentle cleanup - clear timers, attempt graceful disconnect
-2. **Level 2 (8s)**: Aggressive cleanup - force Noble disconnect, clear all state
-3. **Level 3 (13s)**: Nuclear option - hard reset everything, force ready state
+## What lives where
 
-## Protocol Design
+This repository publishes **two clients**. The server is Python and lives in
+`bridge/`, which npm never sees.
 
-### WebSocket JSON Protocol
+| Component | Path | Role |
+| -- | -- | -- |
+| Browser mock | `src/mock-bluetooth.ts` | Replaces `navigator.bluetooth`. Published as `ble-mcp-test/browser`. |
+| Mock transport | `src/ws-transport.ts` | The mock's WebSocket client. |
+| Shared constants | `src/constants.ts` | UUIDs and defaults. |
+| Manifest helper | `src/package-metadata.ts` | Resolves name/version; both clients stamp `_mv` onto the connect URL. |
+| Node client | `src/node/` | Test-harness client for driving the bridge from Node. Published as `ble-mcp-test/node`. |
+| Bridge | `bridge/` | The Python WebSocket relay. Not published to npm. |
 
-Simple request/response + event streaming:
+`mock-bluetooth.ts` imports exactly one local module, `ws-transport.ts`, which
+imports `constants.ts` and `package-metadata.ts`. That is the whole browser
+closure.
 
-```typescript
-// Client → Server
-{ type: 'data', data: number[] }           // Send data to device
-{ type: 'force_cleanup', token?: string }  // Request cleanup
+### Two clients, both supported
 
-// Server → Client  
-{ type: 'connected', device: string, token: string }
-{ type: 'error', error: string }
-{ type: 'data', data: number[] }
-{ type: 'disconnected' }
-```
+The **browser mock** is the reason this project exists: it gives Playwright a
+`navigator.bluetooth` to drive, so a web app under test talks to real hardware
+without a browser that supports Web Bluetooth.
 
-### Connection URL Parameters
+The **Node client** (`src/node/`) is a separate entry point for integration
+tests that drive a device's protocol directly, with no browser involved. It is a
+plain `ws` client — it does not care what language answers, only that the wire
+protocol holds. `trakrf/platform` is its live consumer.
 
-Configuration via query string:
-- `device` - Device name prefix to scan for (optional as of v0.5.8)
-- `service` - BLE service UUID (required)
-- `write` - Write characteristic UUID (required)
-- `notify` - Notify characteristic UUID (required)
+## Ownership model
 
-Examples:
-- With device filter: `ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901`
-- Without device filter: `ws://localhost:8080?service=9800&write=9900&notify=9901` (v0.5.8+)
+The bridge holds **one writer slot** — not a pool, and not a registry keyed on
+session or device. A second key would mean a second writer on the one physical
+reader the process fronts.
 
-## Design Decisions
+- **One writer at a time.** A second writer is refused with `Device is busy`
+  naming the holder — *including when both connections carry the same session
+  id*. The session id is a diagnostic label, not a lock.
+- **Observers** (`role=observer`) attach read-only to the writer's notification
+  stream. They build no transport and hold no device.
+- **Takeover** (`force=true`) displaces the current writer, which is told why its
+  stream ended.
+- **Release is immediate.** When a writer's socket closes, the device link is
+  released. No grace period, no pooling, no recovery window. A bridge that is
+  merely running holds no radio.
 
-### Why One Connection?
+Because release completes when the *server* processes the close, a client that
+disconnects fire-and-forget can race its own next connect and be refused as busy
+by its own session. Await the disconnect.
 
-Supporting multiple simultaneous connections would require:
-- Connection multiplexing and routing
-- State tracking per connection
-- Complex cleanup coordination
-- Race condition prevention
+Why single-writer rather than pooling: with no op-code correlation, two writers
+on one reader means client A's response settles client B's pending command. A
+wrong answer, delivered promptly, wearing the shape of a right one — and neither
+client is slow or sees an error.
 
-By limiting to one connection:
-- State machine stays simple
-- No routing logic needed
-- Predictable behavior
-- Rock-solid reliability
+## Protocol
 
-### Why Recovery Period?
+The wire protocol is specified in
+[`design/2026-08-23-ws-protocol-spec.md`](design/2026-08-23-ws-protocol-spec.md),
+which is the acceptance criterion for the bridge. It is not restated here: two
+copies of a protocol drift, and only one of them gets checked.
 
-BLE on Linux (via BlueZ) needs time to:
-- Clean up kernel resources
-- Reset adapter state
-- Clear device cache
-- Prevent "Device or resource busy" errors
+`docs/API.md` documents the two client APIs and the session semantics above.
 
-The recovery period ensures stable reconnections:
-- **Clean disconnects**: 1 second (v0.4.3+)
-- **Failed connections**: 5+ seconds with exponential backoff
+## Design records
 
-### Why No Reconnection Logic?
-
-Reconnection belongs in the application layer because:
-- Apps know their specific retry requirements
-- Different use cases need different strategies
-- Keeps bridge complexity minimal
-- Easier to debug when it's explicit
-
-## Security Considerations
-
-### Current Limitations
-- No authentication on WebSocket
-- No encryption beyond WSS
-- Trusts all incoming commands
-- No rate limiting
-
-### Recommended Deployment
-1. Run on isolated network
-2. Use firewall rules to restrict access
-3. Enable HTTPS/WSS in production
-4. Add authentication layer if needed
-
-## Performance Characteristics
-
-### Throughput
-- WebSocket message overhead: ~100 bytes/message
-- Noble.js overhead: ~50μs per operation
-- Typical round-trip: 10-50ms (mostly BLE latency)
-- Maximum practical throughput: ~100 messages/second
-
-### Memory Usage
-- Base Node.js: ~30MB
-- With Noble.js loaded: ~50MB
-- Per connection overhead: ~1MB
-- Log buffer (10k entries): ~10MB
-
-### CPU Usage
-- Idle: <1%
-- Active connection: 2-5%
-- During scanning: 5-10%
-- Stress test peaks: 15-20%
-
-## Extension Points
-
-While designed for simplicity, the architecture allows:
-
-1. **Custom Bridge Implementations**: Implement the same WebSocket protocol
-2. **Alternative Transports**: Replace WebSocket with TCP, IPC, etc.
-3. **Mock Enhancements**: Add more Web Bluetooth API surface
-4. **Protocol Extensions**: Add new message types for special features
-
-
-## Future Considerations
-
-If complexity is needed, it should be added as optional layers:
-
-1. **Connection Multiplexing**: Separate proxy service
-2. **Device Management**: External orchestration
-3. **Monitoring**: OpenTelemetry integration
-4. **Security**: Reverse proxy with auth
-
-The core bridge should remain simple and reliable.
+`docs/design/` holds dated ADRs — the Python replatform, the transport-lifecycle
+decision, the choice of `bleak-esphome` over raw `aioesphomeapi`, and the mock
+lifecycle realignment. They are point-in-time records: read them for the
+reasoning, and verify against the code before acting on them.

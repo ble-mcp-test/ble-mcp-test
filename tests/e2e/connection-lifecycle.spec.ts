@@ -41,31 +41,30 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
     console.log('[TEST] Sequential reconnections test passed');
   });
 
-  test('should handle rapid reconnections without delays', async ({ page }) => {
-    // Tests rapid successive commands to verify session pooling
+  test('should handle back-to-back connect/disconnect cycles with no delay', async ({ page }) => {
+    // The bridge holds ONE writer slot (TRA-1159), not a pool keyed on session.
+    // What this covers is that releasing the command path is immediate enough to
+    // reclaim it on the very next call, with no grace period to hide behind.
     await setupMockPage(page, '<html><body>Rapid Reconnection Test</body></html>');
 
-    console.log('[TEST] Testing session pooling with rapid commands');
-    
-    // Rapid successive commands to verify pooling
+    console.log('[TEST] Testing immediate command-path reclaim');
+
     const result1 = await testCommandHelper(page);
     console.log('First rapid command result:', result1);
-    
-    // No delay - test immediate reconnection
+
+    // No delay - the previous helper released on its way out, so this must work
     const result2 = await testCommandHelper(page);
     console.log('Second rapid command result:', result2);
-    
-    // Small delay - test grace period
+
     await new Promise(resolve => setTimeout(resolve, 500));
     const result3 = await testCommandHelper(page);
     console.log('Third rapid command result:', result3);
 
-    // All commands should work if pooling is working
     expect(result1).toBe(true);
-    expect(result2).toBe(true); 
+    expect(result2).toBe(true);
     expect(result3).toBe(true);
-    
-    console.log('[TEST] Rapid reconnections test passed - session pooling working');
+
+    console.log('[TEST] Rapid reconnections test passed - command path reclaimed each time');
   });
 
   test('should handle explicit disconnect and reconnect cycles', async ({ page }) => {
@@ -147,9 +146,9 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
     console.log('[TEST] Explicit disconnect/reconnect test passed');
   });
 
-  test('should maintain Noble state integrity after multiple disconnect cycles', async ({ page }) => {
-    // Tests that Noble's internal state remains intact after multiple disconnect cycles
-    await setupMockPage(page, '<html><body>Noble State Integrity Test</body></html>');
+  test('should stay reconnectable after multiple disconnect cycles', async ({ page }) => {
+    // Tests that the transport stays usable after repeated disconnect cycles.
+    await setupMockPage(page, '<html><body>Reconnect Integrity Test</body></html>');
 
     const result = await page.evaluate(async ({ config }) => {
       const results: any = { 
@@ -184,8 +183,8 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
         
-        // Final connection to verify Noble still works after all cycles
-        console.log('[TEST] Final connection to verify Noble state...');
+        // Final connection to verify the transport still works after all cycles
+        console.log('[TEST] Final connection to verify transport state...');
         const finalDevice = await navigator.bluetooth.requestDevice({
           filters: [{ services: [config.service] }]
         });
@@ -208,9 +207,7 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
       } catch (error) {
         results.error = {
           message: error.message,
-          stack: error.stack,
-          isNobleStateError: error.message?.includes('_peripherals.get is not a function') ||
-                            error.message?.includes('Cannot read properties of undefined')
+          stack: error.stack
         };
         console.error('[TEST] Error:', error);
       }
@@ -218,7 +215,7 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
       return results;
     }, { config: getBleConfig() });
 
-    // Verify all cycles succeeded and Noble state is intact
+    // Verify all cycles succeeded and the transport is still usable
     expect(result.error).toBeUndefined();
     expect(result.connections).toHaveLength(3);
     result.connections.forEach((conn: any) => {
@@ -231,6 +228,6 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
     const canWriteAfterCycles = await testCommandHelper(page);
     expect(canWriteAfterCycles).toBe(true);
     
-    console.log('[TEST] Multiple disconnect cycles test passed - Noble state integrity maintained');
+    console.log('[TEST] Multiple disconnect cycles test passed - transport still reconnectable');
   });
 });

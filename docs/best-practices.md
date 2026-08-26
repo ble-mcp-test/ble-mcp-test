@@ -30,7 +30,7 @@ BLE_MCP_MOCK_CLEANUP_DELAY=1100
 ### In Your Tests
 
 ```javascript
-import { injectWebBluetoothMock } from 'ble-mcp-test';
+import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 import * as dotenv from 'dotenv';
 
 // Load environment variables

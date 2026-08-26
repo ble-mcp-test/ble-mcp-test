@@ -175,22 +175,30 @@ export async function testCommandHelper(page: Page): Promise<boolean> {
       const writeChar = await service.getCharacteristic('9900');
       const notifyChar = await service.getCharacteristic('9901');
       
-      const result = await testCommand({
-        device,
-        writeCharacteristic: writeChar,
-        notifyCharacteristic: notifyChar,
-        command: new Uint8Array(commandBytes),
-        timeout: 2000,
-        validateResponse: (data: Uint8Array) => {
-          if (data.length !== validation.expectedLength) return false;
-          for (const [index, value] of Object.entries(validation.expectedBytes)) {
-            if (data[Number(index)] !== value) return false;
+      try {
+        const result = await testCommand({
+          device,
+          writeCharacteristic: writeChar,
+          notifyCharacteristic: notifyChar,
+          command: new Uint8Array(commandBytes),
+          timeout: 2000,
+          validateResponse: (data: Uint8Array) => {
+            if (data.length !== validation.expectedLength) return false;
+            for (const [index, value] of Object.entries(validation.expectedBytes)) {
+              if (data[Number(index)] !== value) return false;
+            }
+            return true;
           }
-          return true;
-        }
-      });
-      
-      return result.success;
+        });
+
+        return result.success;
+      } finally {
+        // Release the command path. The bridge holds ONE writer slot -- not a
+        // registry keyed on session -- so a helper that connects and does not
+        // disconnect makes its own next call fail with "Device is busy",
+        // naming its own session as the holder.
+        await device.gatt!.disconnect();
+      }
     } catch (error) {
       console.error('[testCommandHelper] Exception:', error);
       return false;
@@ -230,18 +238,22 @@ export async function testSimulateNotification(page: Page, testBytes: number[] =
         receivedData = Array.from(data);
       });
       
-      // Test simulateNotification on the REAL characteristic
-      await simulateNotification({
-        characteristic: notifyChar,  // Real MockBluetoothRemoteGATTCharacteristic!
-        data: new Uint8Array(bytes)
-      });
-      
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const success = bytes.length === receivedData.length && 
-             bytes.every((byte, index) => byte === receivedData[index]);
-      
-      return success;
+      try {
+        // Test simulateNotification on the REAL characteristic
+        await simulateNotification({
+          characteristic: notifyChar,  // Real MockBluetoothRemoteGATTCharacteristic!
+          data: new Uint8Array(bytes)
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        return bytes.length === receivedData.length &&
+               bytes.every((byte, index) => byte === receivedData[index]);
+      } finally {
+        // See testCommandHelper: one writer slot, so release it before the
+        // caller's next invocation asks for it again.
+        await server.disconnect();
+      }
     } catch (error: any) {
       console.error('testSimulateNotification error:', error);
       return false;

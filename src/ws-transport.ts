@@ -50,7 +50,7 @@ export class WebSocketTransport {
       version = __PACKAGE_VERSION__;
     } else {
       // Dynamic import for Node.js environment only
-      const { getPackageMetadata } = await import('./utils.js');
+      const { getPackageMetadata } = await import('./package-metadata.js');
       version = getPackageMetadata().version;
     }
     url.searchParams.set('_mv', version);

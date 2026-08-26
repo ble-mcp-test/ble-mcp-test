@@ -64,7 +64,7 @@
 ### Full Test Suite Example
 ```javascript
 import { test, expect } from '@playwright/test';
-import { injectWebBluetoothMock } from 'ble-mcp-test';
+import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 
 test.describe('BLE Device Tests', () => {
     test.beforeEach(async ({ page }) => {

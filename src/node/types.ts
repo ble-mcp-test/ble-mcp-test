@@ -9,7 +9,7 @@ export interface BridgeMessage {
 }
 
 export interface BridgeResponse {
-  type: 'connected' | 'disconnected' | 'scan_result' | 'notification' | 'error' | 'ack' | 'data';
+  type: 'connected' | 'disconnected' | 'scan_result' | 'notification' | 'error' | 'data';
   id?: string;
   device?: string;
   characteristic?: string;

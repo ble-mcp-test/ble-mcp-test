@@ -2,8 +2,6 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    globalTeardown: './tests/global-teardown.ts',
-    setupFiles: ['./tests/vitest-setup.ts'],
     globals: true,
     environment: 'node',
     testTimeout: 60000,
