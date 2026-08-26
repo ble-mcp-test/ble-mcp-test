@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { getPackageMetadata } from '../../src/node/package-metadata.js';
+import { getPackageMetadata } from '../../src/package-metadata.js';
 
 const manifest = JSON.parse(
   readFileSync(new URL('../../package.json', import.meta.url), 'utf-8')
@@ -17,7 +17,7 @@ const manifest = JSON.parse(
  * rather than at import -- a filesystem error naming package.json, surfacing in
  * a consumer's specs, saying nothing about this package.
  *
- * Covers the SOURCE mode only: vitest imports the TS from `src/node/` directly.
+ * Covers the SOURCE mode only: vitest imports the TS from `src/` directly.
  * The compiled `dist/node/` resolution is NOT covered here, because `validate`
  * has no `build` step and `dist/` need not exist when this runs.
  */
