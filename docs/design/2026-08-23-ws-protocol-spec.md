@@ -320,6 +320,37 @@ nothing about *when it comes free*. Four e2e specs asserted the retired session-
 commands should work if pooling is working"* — and nothing in the governing document contradicted
 them. A contract that is silent on a point does not refute a test that assumes the wrong answer.
 
+### A second bridge is refused, not queued, and does not take the link
+
+**Added 2026-08-26, measured on hardware (TRA-1174).** This was the ticket's longest-standing
+unverified bullet: two bridges reaching the same ESP32 proxy for the same MAC — refuse, queue, or
+take the link?
+
+**Refuse.** Six trials, roles interleaved, one discarded warm-up. The second bridge fails at
+`ADVERTISEMENT_TIMEOUT_S` (30s) every time, and **the holder is never disturbed** — it keeps the
+device and is released only by its own idle timer.
+
+The refusal is a normal `error` frame carrying the transport's own diagnosis:
+
+> `device …:A7 was not heard advertising to proxy …:6053 within 30s. A peripheral already held in
+> another connection does not advertise, so this most often means it is in use rather than absent.`
+
+**Which timeout fires is the signal.** An advertisement timeout means *in use or absent*; a connect
+timeout would mean only *something failed*. Do not collapse them.
+
+Two consequences for the cross-container question:
+
+- **Safety already holds.** A second container cannot take the reader — the physical layer refuses
+  it. No shared lock record is required to prevent the two-writer hazard.
+- **The proxy is not the constraint.** It advertises `limit=4` slots, so both bridges connect to it
+  happily; contention is at the single-connection peripheral, not the ESP32.
+
+**Observed but unexplained, recorded rather than smoothed over:** while a challenger is attempting,
+the holder's idle release runs **20s late** — 65.02s against a 45s timeout, in five of five trials,
+reproducing to two decimal places; 45.02s when no challenger is present. `CONNECT_TIMEOUT_S` is
+20.0. So the two processes are **not** fully isolated: one can move the other's timers. Mechanism
+not established.
+
 ### Idle release
 
 **Added 2026-08-26.** Client-visible and previously undocumented.
