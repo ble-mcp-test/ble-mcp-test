@@ -5,6 +5,7 @@ description = "WebSocket relay for browser E2E tests against real BLE hardware"
 requires-python = ">=3.12"
 dependencies = [
     "bleak-esphome>=4.0.0",
+    "python-dotenv>=1.0.0",
     "websockets>=14.0",
 ]
 

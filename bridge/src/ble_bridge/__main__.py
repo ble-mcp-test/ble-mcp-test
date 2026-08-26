@@ -12,33 +12,56 @@ import logging
 import signal
 import time
 
+from dotenv import find_dotenv, load_dotenv
+
 from ble_bridge.config import Config, from_env
 from ble_bridge.control import ControlServer
 from ble_bridge.esphome import transport_factory
 from ble_bridge.habluetooth_runtime import setup_manager
 from ble_bridge.log_buffer import LogBuffer
 from ble_bridge.logging_setup import configure as configure_logging
-from ble_bridge.transport import StubTransport, TransportFactory
+from ble_bridge.transport import TransportFactory
 from ble_bridge.ws.server import BridgeServer
 
 logger = logging.getLogger("ble_bridge")
 
 
-async def _select_transport(config: Config) -> TransportFactory:
-    """Real device if one is configured, stub if none is -- and say which, loudly.
+def _load_env_file() -> str | None:
+    """Read `.env.local` ourselves rather than trusting the launching shell.
 
-    The stub is not a fallback. It is reached only when NO proxy and NO device
-    are configured at all, because `config.from_env` refuses a half-configured
-    pair rather than handing one back. That distinction is the whole point: a
-    bridge that quietly relays nothing has every symptom of a dead reader, and
-    an operator will spend the evening on the radio.
+    direnv hooks `PROMPT_COMMAND`, which a one-shot agent tool shell never fires,
+    so `cd`-ing into this repo does not load its `.envrc`: the process inherits
+    whatever environment the *session* started with, from whichever repo that
+    was. That is not fixable by launching from the right directory, because the
+    directory is already right. Reading the file removes the dependency.
+
+    Searches upward from the working directory, so `uv run ble-bridge` from
+    `bridge/` finds the repo root. A real environment variable wins over the
+    file, so overriding for a single run still works. Returns the path used, or
+    None -- absence is not an error here; `_select_transport` is the guard.
+    """
+    path = find_dotenv(".env.local", usecwd=True)
+    if not path:
+        return None
+    load_dotenv(path)
+    return path
+
+
+async def _select_transport(config: Config) -> TransportFactory:
+    """A real device, or nothing at all.
+
+    There is deliberately no stub fallback. A bridge that quietly relays nothing
+    has every symptom of a dead reader, and worse: because trigger injection is
+    mock-side, a browser suite passes green against it. That is a false hardware
+    verification, which is more expensive than any startup failure.
     """
     if config.esphome is None:
-        logger.warning(
-            "running with the STUB transport: no real BLE device will be reached. "
-            "Set ESPHOME_PROXY_HOST and BLE_MCP_DEVICE_MAC to reach one."
+        raise SystemExit(
+            "no BLE device configured: set ESPHOME_PROXY_HOST and "
+            "BLE_MCP_DEVICE_MAC (the bridge reads .env.local from the repo "
+            "root). Refusing to start -- a bridge that relays nothing passes "
+            "tests that never reached a radio."
         )
-        return lambda _params: StubTransport()
 
     await setup_manager()
     logger.info(
@@ -114,6 +137,10 @@ def _log_operability(config: Config, log_buffer: LogBuffer) -> None:
 
 
 def main() -> None:
+    # The file is read before anything looks at the environment, or the values in
+    # it are not there to be read.
+    _load_env_file()
+
     # Configuration is read BEFORE logging is set up, so the level the operator
     # asked for governs the very first line. The other order is how the level came
     # to be hardcoded here in the first place.
