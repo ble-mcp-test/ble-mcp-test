@@ -83,6 +83,19 @@ export interface BluetoothTesting {
    * "is someone driving it, who, and for how long".
    */
   getReaderState(): Promise<ReaderState | null>;
+  /**
+   * Force what `getAvailability()` reports, or `null` to go back to asking.
+   *
+   * TRA-35's original request: exercise the no-adapter path without unplugging
+   * anything. It lands *after* the real reading deliberately -- a knob that
+   * forces `false` is only meaningful once `true` means something, and building
+   * it first would have produced another constant wearing a different value.
+   *
+   * Per mock instance, off unless set, and clearable back to the real reading
+   * rather than to the opposite constant. Those three are what keep it from
+   * becoming the hardcoded `true` this method used to be.
+   */
+  setAvailability(value: boolean | null): void;
   utils: TestingUtils;
 }
 
@@ -464,8 +477,26 @@ export class MockBluetooth {
     this.bleConfig = bleConfig;
   }
 
+  /**
+   * Set only by `testing.setAvailability`. `null` means "ask the bridge", which
+   * is the default and the only state a run reaches without opting in.
+   */
+  private availabilityOverride: boolean | null = null;
+
   public readonly testing: BluetoothTesting = {
     getReaderState: async (): Promise<ReaderState | null> => this.fetchStatus(),
+
+    setAvailability: (value: boolean | null): void => {
+      this.availabilityOverride = value;
+      if (value !== null) {
+        // Say so. A forced reading that is silent is indistinguishable from a
+        // real one, and this method exists because that was the old bug.
+        console.warn(
+          `[MockBluetooth] getAvailability() is forced to ${value} until ` +
+            'setAvailability(null) clears it; the bridge is not being consulted.'
+        );
+      }
+    },
 
     testCommand: async (options: TestCommandOptions): Promise<TestResult> => {
       // Input validation first
@@ -676,6 +707,11 @@ export class MockBluetooth {
    * red, reporting an available adapter with no bridge running at all.
    */
   async getAvailability(): Promise<boolean> {
+    if (this.availabilityOverride !== null) {
+      // Deliberately before the fetch: a test simulating "no Bluetooth here"
+      // should not need a bridge running to do it.
+      return this.availabilityOverride;
+    }
     try {
       const res = await fetch(this.statusUrl, { signal: AbortSignal.timeout(2000) });
       // Any HTTP answer means something is listening and speaking for the
