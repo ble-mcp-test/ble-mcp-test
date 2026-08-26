@@ -393,17 +393,48 @@ The mock implements the following Web Bluetooth API methods:
 
 ### BluetoothRemoteGATTServer
 - `connect()` - Connect to device
-- `disconnect()` - Disconnect from device
-- `getPrimaryService(uuid)` - Get a service
+- `disconnect()` - Disconnect from device. **Returns a Promise; await it.** See below.
+- `getPrimaryService(uuid)` - Get a service. Returns the same instance per UUID.
 
 ### BluetoothRemoteGATTService
-- `getCharacteristic(uuid)` - Get a characteristic
+- `getCharacteristic(uuid)` - Get a characteristic. Returns the same instance per UUID.
 
 ### BluetoothRemoteGATTCharacteristic
 - `writeValue(data)` - Write data to characteristic
-- `startNotifications()` - Enable notifications
+- `startNotifications()` - Enable notifications. **Required before anything is delivered.**
+- `stopNotifications()` - Disable notifications. Rejects if nothing was subscribed.
 - `addEventListener('characteristicvaluechanged', handler)` - Listen for notifications
-- Available via `navigator.bluetooth.testing.simulateNotification()` - Inject test notifications
+- Inject test notifications via `navigator.bluetooth.testing.simulateNotification()`
+
+### Where the mock deliberately differs from Web Bluetooth
+
+Two divergences are permanent and load-bearing. Both exist because the mock has a
+resource the real API does not: a **single writer slot on a shared bridge**.
+
+**`disconnect()` returns a Promise. Real Web Bluetooth returns `void`.**
+
+`connected` flips to `false` synchronously, before any await, exactly as a real GATT
+server's does. But the bridge's command path is released when the **server** processes
+the socket close, not when the flag flips — so a fire-and-forget disconnect lets your
+next `connect()` race ahead of the release and be refused as `Device is busy` **by your
+own previous session**. There is no way to expose that moment without something
+awaitable.
+
+Returning `void` for fidelity's sake would make the mock look more like Web Bluetooth
+while making that race unfixable from the consumer's side. Code that must run against
+both the mock and a real radio can write:
+
+```js
+await Promise.resolve(device.gatt.disconnect());  // no-op for void, real await for the mock
+```
+
+**Notifications are gated on the subscription, and the testing API is not.**
+
+`handleTransportMessage` drops frames for an unsubscribed characteristic silently,
+because that is what a radio does. `navigator.bluetooth.testing.simulateNotification`
+instead **throws** on an unsubscribed characteristic: calling it is a test author
+explicitly asking for delivery, and swallowing that request would leave no event, no
+error, and an assertion on an empty array passing for the wrong reason.
 
 ## Mock Configuration API (v0.4.3+)
 
