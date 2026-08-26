@@ -50,6 +50,11 @@ class FakeSession:
         self._maybe_fail("open_proxy")
         self.proxy_reachable = True
 
+    async def held_by_another_client(self) -> bool | None:
+        # Unknown, so every pre-existing test exercises the fall-through path
+        # rather than the new short-circuit.
+        return None
+
     async def await_advertisement(self, timeout: float) -> None:
         self.calls.append("await_advertisement")
         self._maybe_fail("await_advertisement")

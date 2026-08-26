@@ -274,7 +274,23 @@ class BridgeServer:
         transport.set_data_callback(on_data)
 
         try:
-            device = await transport.connect()
+            try:
+                device = await transport.connect()
+            except TransportError as exc:
+                # Say why. `_refuse` states the rule -- "never close silently" --
+                # and letting this escape breaks it at the one moment it costs
+                # most: the message the transport composed is the only thing that
+                # tells a blocked operator to go and ask who has the reader
+                # rather than go looking for a reader that is missing.
+                #
+                # Measured on hardware 2026-08-26 (TRA-1174): a second bridge on
+                # the same ESP32 is refused after the 30s advertisement timeout
+                # with exactly that diagnosis, and the client used to receive
+                # `1011 internal error` instead. 1011 means "a condition with no
+                # message"; there is a message.
+                logger.warning("session %s could not connect: %s", params.session, exc)
+                await _refuse(ws, str(exc))
+                return
             claim.ready(device)
             await ws.send(p.encode_connected(device.name))
             logger.info("session %s owns the command path on %s", params.session, device.name)

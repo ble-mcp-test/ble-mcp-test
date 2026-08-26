@@ -62,6 +62,46 @@ ADVERTISEMENT_TIMEOUT_S = 30.0
 #: How long to wait for the BLE link itself once the proxy has heard the device.
 CONNECT_TIMEOUT_S = 20.0
 
+#: How long to wait for the proxy's first slot report before giving up on it.
+#: Short on purpose: this is an optimisation over the advertisement wait, and
+#: falling through costs 30s rather than being wrong.
+ALLOCATION_REPORT_TIMEOUT_S = 2.0
+
+
+def occupancy_from_allocations(
+    device_mac: str, *, limit: int, free: int, allocated: list[int]
+) -> bool | None:
+    """Is `device_mac` already connected to this proxy? None means "it did not say".
+
+    The proxy pushes the list of addresses it holds, so "is this device taken"
+    has a definite answer that does not depend on the peripheral's advertising
+    behaviour -- which matters because the advertisement-timeout inference only
+    works for single-connection devices. A multi-connect peripheral keeps
+    advertising while connected, and the inference silently stops working.
+
+    **Three ways the list can fail to mean what it looks like, all returning
+    None rather than False.** An empty list is not evidence of an empty proxy:
+
+    * `limit == 0` -- no slot report has arrived yet.
+    * `used > 0` with an empty list -- this firmware reports free/limit but not
+      the addresses. bleak_esphome: "older firmware reports free/limit with no
+      allocated at all, which looks like an empty list."
+    * `len(allocated) != used` -- the proxy's own accounting disagrees with
+      itself, which bleak_esphome warns about separately. Not something to
+      reason from.
+
+    Returning None for all three is the whole point: the caller falls through to
+    the advertisement wait, which is slower and already correct. Reading absence
+    of evidence as "free" would admit a second writer on exactly the firmware
+    that cannot warn anyone about it.
+    """
+    if limit <= 0:
+        return None
+    used = limit - free
+    if len(allocated) != used:
+        return None
+    return int(device_mac.replace(":", ""), 16) in allocated
+
 
 @dataclass(frozen=True)
 class GattTarget:
@@ -113,6 +153,8 @@ class ProxySession(Protocol):
     def device_connected(self) -> bool: ...
 
     async def open_proxy(self) -> None: ...
+
+    async def held_by_another_client(self) -> bool | None: ...
 
     async def await_advertisement(self, timeout: float) -> None: ...
 
@@ -179,6 +221,17 @@ class EsphomeTransport:
         sink = NotifySink(self._callback, description=self._description)
         try:
             await self._session.open_proxy()
+
+            # Ask before inferring. The advertisement wait below reaches the same
+            # answer for a single-connection peripheral, 30s later, and does not
+            # reach it at all for a multi-connect one.
+            if await self._session.held_by_another_client():
+                raise TransportError(
+                    f"{self._description}: the proxy reports this device is already "
+                    "connected to another client. It is in use, not absent; nothing "
+                    "was disturbed."
+                )
+
             logger.info("%s: proxy reachable; waiting to hear the device", self._description)
 
             await self._session.await_advertisement(self._advertisement_timeout)
@@ -342,14 +395,16 @@ class BleakEsphomeSession:
         )
         await self._client.connect(login=True)
 
-    async def await_advertisement(self, timeout: float) -> None:
-        """Register a scanner and wait to hear the target.
+    async def _ensure_scanner(self) -> None:
+        """Register the proxy scanner once. Idempotent.
 
-        The wait is on the scanner's own view rather than on a connect attempt,
-        because the two failures are worth telling apart: a device that never
-        advertises is absent or already held by someone else, which is a
-        different conversation from a device that advertises and refuses.
+        Split out because two callers need it and they need it at different
+        times: the occupancy check wants it before the advertisement wait, and
+        the advertisement wait needs it whether or not the check ran.
         """
+        if self._client_data is not None:
+            return
+
         from bleak_esphome import connect_scanner
 
         from ble_bridge.habluetooth_runtime import ensure_manager
@@ -363,6 +418,50 @@ class BleakEsphomeSession:
         # awaiting it raises TypeError on the happy path.
         self._unsetup_scanner = scanner.async_setup()
         self._unregister_scanner = manager.async_register_scanner(scanner)
+
+    async def held_by_another_client(self) -> bool | None:
+        """Ask the proxy whether it already holds this device. None means unknown.
+
+        `connect_scanner` subscribes to the proxy's connection-slot reports, so
+        the answer arrives by push and is live on the bluetooth device object.
+        It is not available instantly, hence the short bounded wait -- and if it
+        never arrives, unknown is the honest answer and the caller falls through.
+        """
+        await self._ensure_scanner()
+        device = self._client_data.bluetooth_device
+
+        deadline = asyncio.get_running_loop().time() + ALLOCATION_REPORT_TIMEOUT_S
+        while asyncio.get_running_loop().time() < deadline:
+            if device.ble_connections_limit > 0:
+                break
+            await asyncio.sleep(0.05)
+
+        verdict = occupancy_from_allocations(
+            self._config.device_mac,
+            limit=device.ble_connections_limit,
+            free=device.ble_connections_free,
+            allocated=list(device.ble_allocations),
+        )
+        logger.debug(
+            "proxy occupancy for %s: %s (limit=%s free=%s allocated=%s)",
+            self._config.device_mac,
+            {True: "held", False: "free", None: "unknown"}[verdict],
+            device.ble_connections_limit,
+            device.ble_connections_free,
+            device.ble_allocations,
+        )
+        return verdict
+
+    async def await_advertisement(self, timeout: float) -> None:
+        """Register a scanner and wait to hear the target.
+
+        The wait is on the scanner's own view rather than on a connect attempt,
+        because the two failures are worth telling apart: a device that never
+        advertises is absent or already held by someone else, which is a
+        different conversation from a device that advertises and refuses.
+        """
+        await self._ensure_scanner()
+        scanner = self._client_data.scanner
 
         wanted = self._config.device_mac.upper()
         deadline = asyncio.get_running_loop().time() + timeout

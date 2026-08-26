@@ -4,10 +4,20 @@
 `2026-08-23-python-bridge-rewrite.md`, which named "match the full protocol" as the port's acceptance
 criterion. That criterion was a *count*; this is the contract.
 
-**Provenance.** Everything here is read from `src/ws-handler.ts`, `src/ws-transport.ts`,
+**Provenance.** Everything in §§1-5 is read from `src/ws-handler.ts`, `src/ws-transport.ts`,
 `src/bridge-server.ts`, `src/ble-session.ts`, `src/mock-bluetooth.ts` and `src/node/`. Where a claim
 is inference rather than observed behaviour it is marked **[inferred]**. Nothing here comes from
 `docs/`.
+
+**Amended 2026-08-26 (TRA-1174).** §6 gains *Release timing* and *Idle release*; §7 is new. Those
+are read from `bridge/`, not from the deleted TypeScript — the TS bridge is gone as of TRA-1163, so
+this document is now the specification of the Python bridge rather than a port target derived from
+its predecessor. Each addition says what prompted it.
+
+Two of the three were absent because nothing had gone wrong in them yet. **Release timing was
+absent, and four e2e specs encoded a contradictory assumption for months with nothing to contradict
+them** — the document specified who may claim the path but never when it comes free, so a test
+asserting the retired pooling behaviour read as plausible.
 
 ---
 
@@ -282,12 +292,149 @@ rule that fires on only one side is not a rule.
 that set back out of `ws-transport.ts` rather than trusting this document. Either side moving now
 fails as an assertion instead of as a timeout.
 
+### Release timing — the path comes free when the SERVER processes the close
+
+**Added 2026-08-26.** Previously unspecified, and its absence was expensive.
+
+An ordinary disconnect releases the command path. There is no grace period, no pooling and no
+recovery window: a bridge that is merely running holds no radio. But the release lands when the
+**server** processes the socket close, not when the client's `disconnect()` returns.
+
+So a client that disconnects fire-and-forget can race its own next connect and be refused as busy
+**naming its own session id** — which reads as an ownership bug and is a lifecycle one. Measured
+during TRA-1163:
+
+```
+owns     21.733
+refused  21.846   <- 6ms BEFORE the release
+released 21.852
+```
+
+**Clients must await disconnect before reconnecting.** `MockBluetoothRemoteGATTServer.disconnect()`
+is `async` for this reason; the e2e helpers in `tests/e2e/test-config.ts` await it, and did not
+before.
+
+Why this needed writing down: §6 above specifies *who may claim* the path in detail, and said
+nothing about *when it comes free*. Four e2e specs asserted the retired session-pooling behaviour —
+`'should handle rapid reconnections without delays'` among them, whose own comment read *"All
+commands should work if pooling is working"* — and nothing in the governing document contradicted
+them. A contract that is silent on a point does not refute a test that assumes the wrong answer.
+
+### A second bridge is refused, not queued, and does not take the link
+
+**Added 2026-08-26, measured on hardware (TRA-1174).** This was the ticket's longest-standing
+unverified bullet: two bridges reaching the same ESP32 proxy for the same MAC — refuse, queue, or
+take the link?
+
+**Refuse.** Six trials, roles interleaved, one discarded warm-up. The second bridge fails at
+`ADVERTISEMENT_TIMEOUT_S` (30s) every time, and **the holder is never disturbed** — it keeps the
+device and is released only by its own idle timer.
+
+The refusal is a normal `error` frame carrying the transport's own diagnosis:
+
+> `device …:A7 was not heard advertising to proxy …:6053 within 30s. A peripheral already held in
+> another connection does not advertise, so this most often means it is in use rather than absent.`
+
+**Since 2026-08-26 the refusal is immediate, not inferred.** The bridge asks the proxy which
+addresses it already holds (`aioesphomeapi` pushes `allocated`) before falling back to the
+advertisement wait. Measured on hardware: **0.16s instead of 30.25s**, with the reason stated —
+*"the proxy reports this device is already connected to another client. It is in use, not absent;
+nothing was disturbed."*
+
+The advertisement wait remains the fallback, and must: an empty `allocated` list means either
+"nothing held" **or** "this firmware does not report the list", and the two are indistinguishable.
+The check refuses only on positive evidence and otherwise falls through.
+
+**Which timeout fires is the signal.** An advertisement timeout means *in use or absent*; a connect
+timeout would mean only *something failed*. Do not collapse them.
+
+Two consequences for the cross-container question:
+
+- **Safety already holds.** A second container cannot take the reader — the physical layer refuses
+  it. No shared lock record is required to prevent the two-writer hazard.
+- **The proxy is not the constraint.** It advertises `limit=4` slots, so both bridges connect to it
+  happily; contention is at the single-connection peripheral, not the ESP32.
+
+**Observed but unexplained, recorded rather than smoothed over:** while a challenger is attempting,
+the holder's idle release runs **20s late** — 65.02s against a 45s timeout, in five of five trials,
+reproducing to two decimal places; 45.02s when no challenger is present. `CONNECT_TIMEOUT_S` is
+20.0. So the two processes are **not** fully isolated: one can move the other's timers. Mechanism
+not established.
+
+### Idle release
+
+**Added 2026-08-26.** Client-visible and previously undocumented.
+
+A writer that sends nothing for `BLE_MCP_IDLE_TIMEOUT` seconds (default 600; `0` disables) has its
+device link and command path released and is told so in an `error` frame.
+
+**Only frames from the client renew the lease.** Device notifications never do — the reader emits
+unprompted traffic on its own timers, so an abandoned session would otherwise renew its own lease
+forever, which is the failure this timeout exists to prevent.
+
 ### Known limit
 
 Subscriber queues are unbounded, matching the owner queue that predates this. An observer that
 stops reading grows memory. Bounding it would mean either blocking the transport callback or
 dropping notifications silently, and both are worse; the honest resolution is a measured decision
 alongside the firehose work rather than a guess.
+
+---
+
+## 7. The HTTP surface on the WebSocket port
+
+**Added 2026-08-26 (TRA-1174).** Both behaviours below are contracts a consumer already depends on.
+The first was an accident of the `websockets` library that platform came to rely on; it is now
+pinned by a test in this repo, and stating it here is what makes it a promise rather than an
+observation.
+
+### Non-upgrade requests get `426 Upgrade Required`
+
+Any plain HTTP request to a path other than `/status` falls through to the WebSocket handshake and
+is answered `426`. This is a **guarantee, not an implementation detail**.
+
+`trakrf/platform`'s `frontend/scripts/dev-bridge.js` probes the WS port over plain HTTP and treats
+*any* HTTP status as "listening" and connection-refused as "not running". Narrowing this — answering
+404, or serving something else on `/` — breaks that probe. `bridge/tests/test_status_endpoint.py::
+test_every_other_path_still_gets_426` fails if it changes.
+
+### `GET /status` — the read path for non-holders
+
+Returns `200` with a JSON body describing the command path:
+
+```json
+{ "held": true, "session": "ble-mcp-e2e-mssb", "acquired_at": "2026-08-26T15:42:10Z",
+  "held_seconds": 91, "ready": true, "device_name": "CS108Reader2603A7",
+  "device_id": "…", "observer_count": 0, "version": "0.1.0" }
+```
+
+`held: false` reports `session`, `acquired_at` and `held_seconds` as `null`.
+
+**Why HTTP rather than a WebSocket frame.** `navigator.bluetooth.getAvailability()` runs in a
+browser before any connection exists. Asking over WebSocket would mean opening a connection to
+discover whether opening a connection is possible, and the MCP control socket is a unix socket a
+browser cannot reach.
+
+**`ready` distinguishes claimed-but-connecting from driving the device.** A claim exists from the
+instant it is taken, before `connect()` returns; those are different situations to walk in on.
+
+**There is deliberately no heartbeat and no TTL.** The port answering *is* the liveness signal — a
+dead bridge refuses the connection. A TTL exists to expire a record that can outlive its writer, and
+this record cannot: it **is** the writer. **That argument does not generalise.** A lock record shared
+across bridge processes has an independent lifetime and genuinely can outlive its holder, so the
+cross-container half of TRA-1174 must solve the expiry problem this half designs out.
+
+### CORS is derived from the bind
+
+`Access-Control-Allow-Origin: *` and `Access-Control-Allow-Methods: GET` are emitted **only when
+bound to loopback**. Off loopback the headers are absent entirely, so a browser cannot read the
+endpoint cross-origin.
+
+Conditional rather than static on purpose. `mcp-http-transport.ts:23` set `origin: '*'` on a
+`0.0.0.0` bind and TRA-1161 deleted it — the hazard there was never `*` alone, it was `*`
+**co-occurring** with a wide bind. Neither half is dangerous by itself, which is why that
+combination survived review. Deriving the header from the bind makes the unsafe combination
+unrepresentable rather than warned about.
 
 ---
 
