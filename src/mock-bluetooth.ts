@@ -297,7 +297,10 @@ class MockBluetoothRemoteGATTServer {
       return; // Already disconnected
     }
     
-    // Just disconnect the WebSocket - leave BLE connection pooled
+    // Closing the WebSocket is what releases the bridge's command path -- there
+    // is no pool behind it. Callers must AWAIT this: the release lands when the
+    // server processes the close, so a fire-and-forget disconnect lets the next
+    // connect race ahead of it and be refused as busy by its own session.
     try {
       await this.device.transport.disconnect();
     } catch (error) {
