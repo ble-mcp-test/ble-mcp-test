@@ -142,14 +142,36 @@ export class MockBluetoothRemoteGATTCharacteristic {
     // Responses come through notifications
   }
 
+  /**
+   * Whether this characteristic is subscribed. A real one delivers nothing until
+   * it is, and the mock used to deliver regardless -- which let a consumer forget
+   * to subscribe and still pass here, then receive nothing on a real radio.
+   */
+  private subscribed = false;
+
+  /** Public, because the testing API has to refuse a notification nobody subscribed to. */
+  get isSubscribed(): boolean {
+    return this.subscribed;
+  }
+
   async startNotifications(): Promise<MockBluetoothRemoteGATTCharacteristic> {
-    // Notifications are automatically started by WebSocketTransport
+    this.subscribed = true;
     return this;
   }
 
   async stopNotifications(): Promise<MockBluetoothRemoteGATTCharacteristic> {
-    // In a real implementation, this would stop notifications
-    // For our mock, we don't need to do anything special
+    if (!this.subscribed) {
+      // Rejecting with the situation NAMED, not a bare throw. platform wraps
+      // this call in a catch that is dead today because the method is a no-op;
+      // making it a real gate makes that catch reachable, and "already stopped"
+      // versus "transport gone" is a different debugging session for whoever
+      // eventually unwraps it.
+      throw new Error(
+        `Characteristic ${this.uuid} is not subscribed: stopNotifications() ` +
+          'was called without a preceding startNotifications().'
+      );
+    }
+    this.subscribed = false;
     return this;
   }
 
@@ -187,21 +209,27 @@ export class MockBluetoothRemoteGATTCharacteristic {
 
   // Called by the device when transport receives data
   handleTransportMessage(data: Uint8Array): void {
+    // The gate belongs here, not on the handler list. An unsubscribed
+    // characteristic with listeners attached is exactly the case a real radio
+    // delivers nothing to, and the case this mock used to deliver to anyway.
+    if (!this.subscribed) return;
     if (this.notificationHandlers.length > 0) {
       this.triggerNotification(data);
     }
   }
 
   private triggerNotification(data: Uint8Array): void {
-    // Create a mock event with the data matching Web Bluetooth API structure
+    // A real DataView, not a duck-typed stand-in. The old shape carried
+    // buffer/byteLength/byteOffset/getUint8 and satisfied any structural check
+    // while failing anything that called a method it had not thought to fake --
+    // getUint16, getFloat32, or an `instanceof` test.
+    //
+    // The three-arg form is load-bearing: `new DataView(data.buffer)` alone
+    // would expose the whole backing buffer, so a subarray payload would deliver
+    // bytes the sender never sent.
     const mockEvent = {
       target: {
-        value: {
-          buffer: data.buffer,
-          byteLength: data.byteLength,
-          byteOffset: data.byteOffset,
-          getUint8: (index: number) => data[index]
-        }
+        value: new DataView(data.buffer, data.byteOffset, data.byteLength)
       }
     };
     
@@ -214,14 +242,31 @@ export class MockBluetoothRemoteGATTCharacteristic {
 
 // Mock BluetoothRemoteGATTService
 class MockBluetoothRemoteGATTService {
+  /**
+   * One characteristic instance per UUID, for the lifetime of this service.
+   *
+   * A real `getCharacteristic` returns the same object for the same UUID, and
+   * the mock used to mint a new one per call. That was not merely wasteful: the
+   * device's `characteristics` Map is a fan-out registry keyed by UUID, so the
+   * second instance EVICTED the first from it. The first reference kept its
+   * event listeners and silently stopped receiving frames -- no error, nowhere.
+   *
+   * Caching here fixes both at once: identity matches the real API, and there is
+   * only ever one registration to evict.
+   */
+  private characteristics = new Map<string, MockBluetoothRemoteGATTCharacteristic>();
+
   constructor(
     public server: MockBluetoothRemoteGATTServer,
     public uuid: string
   ) {}
 
   async getCharacteristic(characteristicUuid: string): Promise<MockBluetoothRemoteGATTCharacteristic> {
-    // Return mock characteristic
-    return new MockBluetoothRemoteGATTCharacteristic(this, characteristicUuid);
+    const existing = this.characteristics.get(characteristicUuid);
+    if (existing) return existing;
+    const characteristic = new MockBluetoothRemoteGATTCharacteristic(this, characteristicUuid);
+    this.characteristics.set(characteristicUuid, characteristic);
+    return characteristic;
   }
 }
 
@@ -332,6 +377,15 @@ class MockBluetoothRemoteGATTServer {
     if (!this.connected) {
       return; // Already disconnected
     }
+
+    // Synchronous with respect to `connected`, matching a real GATT server: the
+    // flag flips before any await, so a consumer checking it in a teardown path
+    // never sees a server that has already gone reporting itself present.
+    //
+    // The transport close is still awaited below -- the command path is released
+    // when the SERVER processes the socket close, so callers must still await
+    // this method before reconnecting or they race their own release.
+    this.connected = false;
     
     // Closing the WebSocket is what releases the bridge's command path -- there
     // is no pool behind it. Callers must AWAIT this: the release lands when the
@@ -354,11 +408,18 @@ class MockBluetoothRemoteGATTServer {
     }
   }
   
+  /** One service instance per UUID -- see the note on the characteristic cache. */
+  private services = new Map<string, MockBluetoothRemoteGATTService>();
+
   async getPrimaryService(serviceUuid: string): Promise<MockBluetoothRemoteGATTService> {
     if (!this.connected) {
       throw new Error('GATT Server not connected');
     }
-    return new MockBluetoothRemoteGATTService(this, serviceUuid);
+    const existing = this.services.get(serviceUuid);
+    if (existing) return existing;
+    const service = new MockBluetoothRemoteGATTService(this, serviceUuid);
+    this.services.set(serviceUuid, service);
+    return service;
   }
 }
 
@@ -550,6 +611,30 @@ export class MockBluetooth {
       });
       
       const characteristic = options.characteristic as any;
+
+      // A simulated notification is an INSTRUCTION, not a device event, and that
+      // is why it does not share handleTransportMessage's silent drop. A frame
+      // arriving for an unsubscribed characteristic is something a radio really
+      // does, so the transport path swallows it. A test author calling this
+      // method has explicitly asked for delivery, and swallowing that request
+      // would make this API a check that cannot go red -- it would deliver
+      // nothing, report nothing, and the test would pass having asserted on an
+      // empty list.
+      //
+      // So the two paths agree where it matters (a subscribed characteristic
+      // receives an indistinguishable event) and diverge deliberately where the
+      // caller is one of ours to help.
+      if (
+        characteristic instanceof MockBluetoothRemoteGATTCharacteristic &&
+        !characteristic.isSubscribed
+      ) {
+        throw new Error(
+          `Cannot simulate a notification on characteristic ${characteristic.uuid}: ` +
+            'it is not subscribed. Call startNotifications() first -- a real ' +
+            'characteristic delivers nothing until you do, so a test that skips ' +
+            'it would pass here and receive silence on hardware.'
+        );
+      }
 
       // Respect the byte range: `data` may be a view into a larger buffer, and
       // `new DataView(buf)` would hand the app the whole thing.

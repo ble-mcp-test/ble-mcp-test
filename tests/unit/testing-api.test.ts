@@ -35,7 +35,13 @@ async function realDevice() {
 async function realCharacteristic(uuid = '9800'): Promise<MockBluetoothRemoteGATTCharacteristic> {
   const device = await realDevice();
   const service = await device.gatt.getPrimaryService('9800');
-  return service.getCharacteristic(uuid);
+  const characteristic = await service.getCharacteristic(uuid);
+  // TRA-1153 item 2 made the subscription real: nothing is delivered until this
+  // is called, on the transport path or through the testing API. Subscribing in
+  // the helper keeps these tests about notification DELIVERY rather than about
+  // the gate, which mock-lifecycle.test.ts owns.
+  await characteristic.startNotifications();
+  return characteristic;
 }
 
 /** Record every notification a real characteristic delivers, as plain bytes. */
@@ -277,6 +283,8 @@ describe('MockBluetooth Testing API', () => {
     it('delivers a simulated notification identically to a real transport frame', async () => {
       // The whole premise of the testing API: an injected notification is
       // indistinguishable, at the handler, from one that arrived over the wire.
+      // Scoped to a SUBSCRIBED characteristic since TRA-1153 -- see the pin below
+      // for the unsubscribed case, where the two deliberately diverge.
       const characteristic = await realCharacteristic();
       const received = collectNotifications(characteristic);
       const frame = new Uint8Array([0xA7, 0xB3, 0x05, 0x00]);
@@ -286,6 +294,29 @@ describe('MockBluetooth Testing API', () => {
 
       expect(received).toHaveLength(2);
       expect(received[0]).toEqual(received[1]);
+    });
+
+    it('refuses to simulate on an unsubscribed characteristic, where the wire stays silent', async () => {
+      // The one place the two paths deliberately disagree. A frame arriving for
+      // an unsubscribed characteristic is something a radio really does, so the
+      // transport path drops it silently. Calling this METHOD is a test author
+      // asking for delivery, and dropping that silently would make the testing
+      // API a check that cannot go red: no event, no error, and an assertion on
+      // an empty array passing for the wrong reason.
+      const device = await realDevice();
+      const service = await device.gatt.getPrimaryService('9800');
+      const characteristic = await service.getCharacteristic('9800');
+      const received = collectNotifications(characteristic);
+
+      characteristic.handleTransportMessage(new Uint8Array([0xA7]));
+      expect(received).toEqual([]); // the wire: silent, as on hardware
+
+      await expect(
+        mockBluetooth.testing.simulateNotification({
+          characteristic,
+          data: new Uint8Array([0xA7])
+        })
+      ).rejects.toThrow(/not subscribed/i); // the instruction: named
     });
 
     it('delivers to every registered handler, and stops after removeEventListener', async () => {
@@ -337,37 +368,43 @@ describe('MockBluetooth Testing API', () => {
   // startNotifications a real gate. These pin what the class does TODAY so that
   // change shows up as a deliberate diff rather than as silence in a consumer.
   describe('real characteristic identity', () => {
-    it('returns a distinct instance from every getCharacteristic call', async () => {
+    // These two were written by TRA-1166 asserting the OPPOSITE, deliberately, so
+    // that TRA-1153 would have to change them on purpose rather than by accident.
+    // This is that moment: item 1 made identity stable, and both pins inverted.
+
+    it('returns the same instance from every getCharacteristic call', async () => {
       const device = await realDevice();
       const service = await device.gatt.getPrimaryService('9800');
 
       const first = await service.getCharacteristic('9800');
       const second = await service.getCharacteristic('9800');
 
-      // Identity is NOT stable today. A subscription gate keyed to the instance
-      // would therefore be unset on a twin that the caller believes is the same
-      // characteristic.
-      expect(second).not.toBe(first);
+      // Identity is stable, which is what a real getCharacteristic does and what
+      // lets a subscription gate be keyed to the instance at all.
+      expect(second).toBe(first);
     });
 
-    it('routes transport frames only to the most recent instance for a UUID', async () => {
-      // MockBluetoothDevice.registerCharacteristic is a Map keyed by UUID, so a
-      // second getCharacteristic evicts the first from the routing table. The
-      // earlier reference keeps its listeners and silently stops receiving.
+    it('keeps routing transport frames to a reference taken before a second lookup', async () => {
+      // The bug, now fixed. MockBluetoothDevice.registerCharacteristic is a Map
+      // keyed by UUID -- a fan-out registry, not the identity cache it resembles
+      // -- so a second getCharacteristic used to evict the first from it. The
+      // earlier reference kept its listeners and silently stopped receiving.
       const device = await realDevice();
       const service = await device.gatt.getPrimaryService('9800');
 
       const first = await service.getCharacteristic('9800');
+      await first.startNotifications();
       const firstReceived = collectNotifications(first);
-      const second = await service.getCharacteristic('9800');
+      const second = await service.getCharacteristic('9800'); // used to evict
       const secondReceived = collectNotifications(second);
 
       // Drive the device's real routing path. No socket is ever opened, so the
       // handler the device registered on the transport is invoked directly.
       (device.transport as any).messageHandler({ type: 'data', data: [0x01, 0x02] });
 
+      // Same object, so both sinks are just two listeners on one characteristic.
+      expect(firstReceived).toEqual([[0x01, 0x02]]);
       expect(secondReceived).toEqual([[0x01, 0x02]]);
-      expect(firstReceived).toEqual([]);
     });
   });
 
