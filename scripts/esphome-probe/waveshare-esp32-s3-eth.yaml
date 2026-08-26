@@ -67,8 +67,17 @@ bluetooth_proxy:
 # rather than reading its post-reboot numbers as data.
 #
 # NOTE: computing these costs loop time itself, so the instrument perturbs what it
-# measures. Treat anything measured before this flash as a different arm, and stamp
-# results with the firmware version (device_info returns it on every connect).
+# measures. Treat anything measured before this flash as a different arm.
+#
+# Stamp every result with all THREE of these -- they identify different things and
+# no two of them cover the third:
+#   config_hash       0x8647f1e2  <- the YAML  (emitted by `esphome compile`)
+#   compilation_time  ...         <- the build event   (device_info, every connect)
+#   esphome_version   ...         <- the toolchain     (device_info, every connect)
+# A pure toolchain bump moves the version and the compile time and leaves the hash
+# UNCHANGED, so the hash alone cannot see it -- which is not hypothetical: this very
+# flash carried an unintended 2026.8.0 -> 2026.8.1 bump because the local toolchain
+# had moved.
 debug:
   update_interval: 10s
 
