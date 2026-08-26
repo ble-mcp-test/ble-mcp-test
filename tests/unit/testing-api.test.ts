@@ -4,7 +4,49 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { MockBluetooth, injectWebBluetoothMock } from '../../src/mock-bluetooth.js';
+import {
+  MockBluetooth,
+  MockBluetoothRemoteGATTCharacteristic,
+  injectWebBluetoothMock
+} from '../../src/mock-bluetooth.js';
+
+/**
+ * Build a real MockBluetoothRemoteGATTCharacteristic through the chain
+ * production uses: requestDevice -> gatt -> getPrimaryService -> getCharacteristic.
+ *
+ * Nothing here opens a socket. WebSocketTransport's constructor only stores the
+ * URL and onMessage only stores a callback, so the whole chain runs offline --
+ * which is what makes a real instance affordable in a unit test.
+ */
+async function realDevice() {
+  const bluetooth = new MockBluetooth('ws://localhost:8080', {
+    sessionId: 'test',
+    service: '9800',
+    timeout: 5000,
+    onMultipleDevices: 'error'
+  });
+  const device = await bluetooth.requestDevice();
+  // getPrimaryService guards on this flag. Connecting for real would need a live
+  // bridge, and the notification path never touches the transport.
+  device.gatt.connected = true;
+  return device;
+}
+
+async function realCharacteristic(uuid = '9800'): Promise<MockBluetoothRemoteGATTCharacteristic> {
+  const device = await realDevice();
+  const service = await device.gatt.getPrimaryService('9800');
+  return service.getCharacteristic(uuid);
+}
+
+/** Record every notification a real characteristic delivers, as plain bytes. */
+function collectNotifications(characteristic: MockBluetoothRemoteGATTCharacteristic): number[][] {
+  const received: number[][] = [];
+  characteristic.addEventListener('characteristicvaluechanged', (event: any) => {
+    const view = event.target.value;
+    received.push(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
+  });
+  return received;
+}
 
 describe('MockBluetooth Testing API', () => {
   let mockCharacteristic: any;
@@ -12,12 +54,13 @@ describe('MockBluetooth Testing API', () => {
   let mockBluetooth: MockBluetooth;
   
   beforeEach(() => {
-    // Mock characteristic setup
+    // Stub characteristic for the testCommand tests, which are about
+    // testCommand's own timeout/validation logic rather than about delivery.
+    // The notification path is covered against a real instance further down.
     mockCharacteristic = {
       writeValue: vi.fn().mockResolvedValue(undefined),
       addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      triggerNotification: vi.fn() // Mock the internal triggerNotification method
+      removeEventListener: vi.fn()
     };
     
     testDevice = { gatt: { connected: true } };
@@ -149,101 +192,209 @@ describe('MockBluetooth Testing API', () => {
     });
   });
 
-  describe('simulateNotification', () => {
-    it('should simulate notification successfully', async () => {
-      const testData = new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]);
-      
-      await mockBluetooth.testing.simulateNotification({
-        characteristic: mockCharacteristic,
-        data: testData
-      });
-      
-      expect(mockCharacteristic.triggerNotification).toHaveBeenCalledWith(testData);
+  // These run against a REAL MockBluetoothRemoteGATTCharacteristic built by the
+  // same chain production uses. A stub cannot fail when the implementation
+  // breaks — it only ever reports back the shape the test author assumed.
+  describe('simulateNotification, against the real characteristic', () => {
+    it('builds a real MockBluetoothRemoteGATTCharacteristic, not a stub', async () => {
+      const characteristic = await realCharacteristic();
+
+      // If this ever regresses to a plain object, every assertion below stops
+      // being a claim about the production class.
+      expect(characteristic).toBeInstanceOf(MockBluetoothRemoteGATTCharacteristic);
+      expect(typeof characteristic.dispatchEvent).toBe('function');
     });
 
-    it('should handle delay in simulation', async () => {
-      const testData = new Uint8Array([0xA7, 0xB3, 0x01, 0x00]);
-      const startTime = Date.now();
-      
-      await mockBluetooth.testing.simulateNotification({
-        characteristic: mockCharacteristic,
-        data: testData,
-        delay: 50
-      });
-      
-      const elapsedTime = Date.now() - startTime;
-      expect(elapsedTime).toBeGreaterThanOrEqual(45); // Allow some tolerance
-      expect(mockCharacteristic.triggerNotification).toHaveBeenCalledWith(testData);
-    });
-
-    it('should throw error if characteristic does not support simulation', async () => {
-      const badChar = {}; // No triggerNotification or simulateNotification methods
-      
-      await expect(mockBluetooth.testing.simulateNotification({
-        characteristic: badChar as any,
-        data: new Uint8Array([0x01, 0x02])
-      })).rejects.toThrow('Unable to simulate notification');
-    });
-
-    it('should prefer dispatchEvent, which is what the real characteristic exposes', async () => {
-      // MockBluetoothRemoteGATTCharacteristic.triggerNotification is PRIVATE;
-      // dispatchEvent is its public surface and the standard Web Bluetooth path.
-      // The stubs above only have triggerNotification, so without this test the
-      // production path would have no coverage at all.
-      let dispatched: any = null;
-      const realShapedChar = {
-        uuid: '2a01',
-        dispatchEvent: vi.fn((event: any) => { dispatched = event; return true; }),
-        triggerNotification: vi.fn()
-      };
+    it('delivers the payload to a handler registered via addEventListener', async () => {
+      const characteristic = await realCharacteristic();
+      const received = collectNotifications(characteristic);
 
       await mockBluetooth.testing.simulateNotification({
-        characteristic: realShapedChar as any,
-        data: new Uint8Array([0xA7, 0xB3, 0x04])
+        characteristic,
+        data: new Uint8Array([0xA7, 0xB3, 0x01, 0xFF])
       });
 
-      expect(realShapedChar.dispatchEvent).toHaveBeenCalled();
-      expect(realShapedChar.triggerNotification).not.toHaveBeenCalled();
-
-      // The real class reads target.value as a DataView and converts it back to
-      // a Uint8Array via buffer/byteOffset/byteLength — assert that exact shape.
-      const view = dispatched.target.value as DataView;
-      expect(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
-        .toEqual([0xA7, 0xB3, 0x04]);
+      expect(received).toEqual([[0xA7, 0xB3, 0x01, 0xFF]]);
     });
 
-    it('should preserve the byte range when data is a view into a larger buffer', async () => {
-      // `new DataView(data.buffer)` ignores byteOffset/byteLength and hands the
-      // app the whole backing buffer. Firehose payloads are subarrays.
-      let dispatched: any = null;
-      const char = {
-        uuid: '2a01',
-        dispatchEvent: vi.fn((event: any) => { dispatched = event; return true; })
-      };
+    it('preserves the byte range when the payload is a view into a larger buffer', async () => {
+      // The bug this pins: `new DataView(data.buffer)` ignores byteOffset and
+      // byteLength, so a subarray payload delivered the whole backing buffer.
+      // Firehose payloads are subarrays.
+      const characteristic = await realCharacteristic();
+      const received = collectNotifications(characteristic);
 
       const backing = new Uint8Array([0xFF, 0xFF, 0x01, 0x02, 0x03, 0xFF]);
       await mockBluetooth.testing.simulateNotification({
-        characteristic: char as any,
+        characteristic,
         data: backing.subarray(2, 5)
       });
 
-      const view = dispatched.target.value as DataView;
-      expect(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)))
-        .toEqual([0x01, 0x02, 0x03]);
+      expect(received).toEqual([[0x01, 0x02, 0x03]]);
     });
 
-    it('should work with legacy simulateNotification method', async () => {
+    it('reaches the handler through dispatchEvent, the public path', async () => {
+      // triggerNotification is private; dispatchEvent is the surface the Web
+      // Bluetooth API actually exposes. Spy without replacing the behaviour, so
+      // the delivery assertion still exercises the real implementation.
+      const characteristic = await realCharacteristic();
+      const received = collectNotifications(characteristic);
+      const dispatchEvent = vi.spyOn(characteristic, 'dispatchEvent');
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic,
+        data: new Uint8Array([0xA7, 0xB3, 0x04])
+      });
+
+      expect(dispatchEvent).toHaveBeenCalledTimes(1);
+      expect(dispatchEvent.mock.calls[0][0].type).toBe('characteristicvaluechanged');
+      expect(received).toEqual([[0xA7, 0xB3, 0x04]]);
+    });
+
+    it('hands the handler a DataView-shaped value, which is what consumers read', async () => {
+      // platform reads event.target.value as a DataView --
+      // `new Uint8Array(value.buffer, value.byteOffset, value.byteLength)` and
+      // getUint8. Pin that calling convention here rather than discovering a
+      // mismatch against hardware, where it presents as silence.
+      const characteristic = await realCharacteristic();
+      let value: any = null;
+      characteristic.addEventListener('characteristicvaluechanged', (event: any) => {
+        value = event.target.value;
+      });
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic,
+        data: new Uint8Array([0xA7, 0xB3, 0x02])
+      });
+
+      expect(value).not.toBeNull();
+      expect(typeof value.byteOffset).toBe('number');
+      expect(value.byteLength).toBe(3);
+      expect(value.getUint8(0)).toBe(0xA7);
+      expect(value.getUint8(2)).toBe(0x02);
+    });
+
+    it('delivers a simulated notification identically to a real transport frame', async () => {
+      // The whole premise of the testing API: an injected notification is
+      // indistinguishable, at the handler, from one that arrived over the wire.
+      const characteristic = await realCharacteristic();
+      const received = collectNotifications(characteristic);
+      const frame = new Uint8Array([0xA7, 0xB3, 0x05, 0x00]);
+
+      characteristic.handleTransportMessage(frame);
+      await mockBluetooth.testing.simulateNotification({ characteristic, data: frame });
+
+      expect(received).toHaveLength(2);
+      expect(received[0]).toEqual(received[1]);
+    });
+
+    it('delivers to every registered handler, and stops after removeEventListener', async () => {
+      const characteristic = await realCharacteristic();
+      const first: number[][] = [];
+      const second: number[][] = [];
+      const handlerFor = (sink: number[][]) => (event: any) => {
+        const view = event.target.value;
+        sink.push(Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength)));
+      };
+      const secondHandler = handlerFor(second);
+
+      characteristic.addEventListener('characteristicvaluechanged', handlerFor(first));
+      characteristic.addEventListener('characteristicvaluechanged', secondHandler);
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic,
+        data: new Uint8Array([0x01])
+      });
+
+      characteristic.removeEventListener('characteristicvaluechanged', secondHandler);
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic,
+        data: new Uint8Array([0x02])
+      });
+
+      expect(first).toEqual([[0x01], [0x02]]);
+      expect(second).toEqual([[0x01]]);
+    });
+
+    it('applies the delay before delivering', async () => {
+      const characteristic = await realCharacteristic();
+      const received = collectNotifications(characteristic);
+      const startTime = Date.now();
+
+      await mockBluetooth.testing.simulateNotification({
+        characteristic,
+        data: new Uint8Array([0xA7, 0xB3, 0x01, 0x00]),
+        delay: 50
+      });
+
+      expect(Date.now() - startTime).toBeGreaterThanOrEqual(45); // timer tolerance
+      expect(received).toEqual([[0xA7, 0xB3, 0x01, 0x00]]);
+    });
+  });
+
+  // Characteristic identity is about to change under TRA-1153, which makes
+  // startNotifications a real gate. These pin what the class does TODAY so that
+  // change shows up as a deliberate diff rather than as silence in a consumer.
+  describe('real characteristic identity', () => {
+    it('returns a distinct instance from every getCharacteristic call', async () => {
+      const device = await realDevice();
+      const service = await device.gatt.getPrimaryService('9800');
+
+      const first = await service.getCharacteristic('9800');
+      const second = await service.getCharacteristic('9800');
+
+      // Identity is NOT stable today. A subscription gate keyed to the instance
+      // would therefore be unset on a twin that the caller believes is the same
+      // characteristic.
+      expect(second).not.toBe(first);
+    });
+
+    it('routes transport frames only to the most recent instance for a UUID', async () => {
+      // MockBluetoothDevice.registerCharacteristic is a Map keyed by UUID, so a
+      // second getCharacteristic evicts the first from the routing table. The
+      // earlier reference keeps its listeners and silently stops receiving.
+      const device = await realDevice();
+      const service = await device.gatt.getPrimaryService('9800');
+
+      const first = await service.getCharacteristic('9800');
+      const firstReceived = collectNotifications(first);
+      const second = await service.getCharacteristic('9800');
+      const secondReceived = collectNotifications(second);
+
+      // Drive the device's real routing path. No socket is ever opened, so the
+      // handler the device registered on the transport is invoked directly.
+      (device.transport as any).messageHandler({ type: 'data', data: [0x01, 0x02] });
+
+      expect(secondReceived).toEqual([[0x01, 0x02]]);
+      expect(firstReceived).toEqual([]);
+    });
+  });
+
+  // The fallback branches exist for characteristics this package does not own,
+  // so a foreign shape is the subject here -- these are stubs by definition.
+  describe('simulateNotification, foreign characteristic shapes', () => {
+    it('falls back to a legacy simulateNotification method', async () => {
       const legacyChar = {
         simulateNotification: vi.fn()
       };
       const testData = new Uint8Array([0xA7, 0xB3, 0x01, 0xFF]);
-      
+
       await mockBluetooth.testing.simulateNotification({
         characteristic: legacyChar as any,
         data: testData
       });
-      
+
       expect(legacyChar.simulateNotification).toHaveBeenCalledWith(testData);
+    });
+
+    it('names the problem when the characteristic exposes no known method', async () => {
+      const badChar = {}; // no dispatchEvent, triggerNotification or simulateNotification
+
+      await expect(mockBluetooth.testing.simulateNotification({
+        characteristic: badChar as any,
+        data: new Uint8Array([0x01, 0x02])
+      })).rejects.toThrow('Unable to simulate notification');
     });
   });
 

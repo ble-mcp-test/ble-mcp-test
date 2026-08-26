@@ -222,7 +222,11 @@ export async function testSimulateNotification(page: Page, testBytes: number[] =
       // Set up notification listener on the REAL characteristic
       let receivedData: number[] = [];
       notifyChar.addEventListener('characteristicvaluechanged', (event: any) => {
-        const data = new Uint8Array(event.target.value.buffer);
+        // Honour the view window. `new Uint8Array(value.buffer)` would read the
+        // whole backing buffer, so this helper would report success against a
+        // payload the app never sent.
+        const value = event.target.value;
+        const data = new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
         receivedData = Array.from(data);
       });
       
