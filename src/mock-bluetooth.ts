@@ -76,8 +76,18 @@ export interface BluetoothTesting {
   utils: TestingUtils;
 }
 
-// Mock BluetoothRemoteGATTCharacteristic
-class MockBluetoothRemoteGATTCharacteristic {
+/**
+ * Mock BluetoothRemoteGATTCharacteristic.
+ *
+ * `dispatchEvent` is the public notification surface, matching the real Web
+ * Bluetooth API; `triggerNotification` is private and stays that way. Anything
+ * injecting a notification — `navigator.bluetooth.testing.simulateNotification`
+ * included — goes through `dispatchEvent`.
+ *
+ * Exported so tests can construct a real instance. Assertions against a
+ * hand-rolled stub pass whether or not this class works.
+ */
+export class MockBluetoothRemoteGATTCharacteristic {
   private notificationHandlers: Array<(event: any) => void> = [];
 
   constructor(
