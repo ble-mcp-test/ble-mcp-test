@@ -36,7 +36,7 @@ describe('handshake warning', () => {
     (globalThis as never as { WebSocket: unknown }).WebSocket = FakeWebSocket;
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const transport = new WebSocketTransport('ws://localhost:8080');
+    const transport = new WebSocketTransport('ws://localhost:15104');
     const connecting = transport.connect({ service: '9800', write: '9900', notify: '9901' });
     await vi.waitFor(() => expect(FakeWebSocket.last).not.toBeNull());
     const ws = FakeWebSocket.last!;

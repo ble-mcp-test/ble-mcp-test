@@ -21,7 +21,16 @@ from dataclasses import dataclass, field
 
 #: Loopback, not a deployment setting. See test_default_bind_is_loopback.
 DEFAULT_WS_HOST = "127.0.0.1"
-DEFAULT_WS_PORT = 8080
+
+#: There is deliberately NO default port. See from_env.
+#:
+#: Accepted range, and the reason for each end:
+#:   >= 1024   0-1023 are privileged and need root to bind.
+#:   <= 32767  the ephemeral range starts at 32768 on this box, and a listen
+#:             port inside it can be transiently stolen by an outbound socket's
+#:             source port -- rare, non-deterministic, and miserable to diagnose.
+MIN_WS_PORT = 1024
+MAX_WS_PORT = 32767
 
 HOST_ENV = "BLE_MCP_WS_HOST"
 PORT_ENV = "BLE_MCP_WS_PORT"
@@ -111,7 +120,10 @@ class EsphomeConfig:
 @dataclass(frozen=True)
 class Config:
     ws_host: str = DEFAULT_WS_HOST
-    ws_port: int = DEFAULT_WS_PORT
+    #: 0 means "let the OS assign one", which is what direct construction in
+    #: tests wants. It is NOT a default port: from_env refuses to start without
+    #: an explicit one, so nothing that actually serves reaches this value.
+    ws_port: int = 0
     #: None when no proxy is configured at all -- never a half-configured one.
     esphome: EsphomeConfig | None = None
     #: A `logging` level constant, already resolved from its name.
@@ -183,20 +195,31 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
 
     raw_port = _present(env, PORT_ENV)
     if raw_port is None:
-        port = DEFAULT_WS_PORT
-    else:
-        try:
-            port = int(raw_port)
-        except ValueError as exc:
-            raise ConfigError(
-                f"{PORT_ENV} is set to {raw_port!r}, which is not an integer. "
-                f"Refusing to fall back to {DEFAULT_WS_PORT}."
-            ) from exc
-        if not 1 <= port <= 65535:
-            raise ConfigError(
-                f"{PORT_ENV} is set to {port}, which is outside 1-65535. "
-                f"Refusing to fall back to {DEFAULT_WS_PORT}."
-            )
+        # No default, on purpose. A listen port is a claim about what else is on
+        # the host, and this package cannot know that -- the previous default of
+        # 8080 collided with the consumer's own backend, and presented as a dead
+        # reader rather than as a port problem.
+        #
+        # Note which half used to be loud: a MALFORMED port already refused to
+        # fall back, while an ABSENT one fell back silently. Loud on a typo,
+        # silent on an omission, which is exactly backwards.
+        raise ConfigError(
+            f"{PORT_ENV} is not set, and there is no default. Set it to a port "
+            f"in {MIN_WS_PORT}-{MAX_WS_PORT} -- the browser mock and the Node "
+            "client already require an explicit server URL, so a default here "
+            "would save nobody the trouble of choosing one."
+        )
+    try:
+        port = int(raw_port)
+    except ValueError as exc:
+        raise ConfigError(f"{PORT_ENV} is set to {raw_port!r}, which is not an integer.") from exc
+    if not MIN_WS_PORT <= port <= MAX_WS_PORT:
+        raise ConfigError(
+            f"{PORT_ENV} is set to {port}, which is outside "
+            f"{MIN_WS_PORT}-{MAX_WS_PORT}. Below {MIN_WS_PORT} needs root; "
+            f"above {MAX_WS_PORT} is the ephemeral range, where an outbound "
+            "socket can transiently steal the port."
+        )
 
     return Config(
         ws_host=host,

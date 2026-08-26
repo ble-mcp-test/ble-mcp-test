@@ -104,7 +104,7 @@ test('connect to device', async ({ page }) => {
 DEV_SERVER_URL=http://localhost:5173
 
 # For both modes
-BLE_BRIDGE_URL=ws://localhost:8080
+BLE_BRIDGE_URL=ws://localhost:15104
 BLE_MCP_SERVICE_UUID=9800
 BLE_MCP_WRITE_UUID=9900
 BLE_MCP_NOTIFY_UUID=9901

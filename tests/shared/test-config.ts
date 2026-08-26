@@ -20,7 +20,7 @@ export const SHARED_TEST_CONFIG = {
   notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
   
   // WebSocket server URL
-  wsUrl: process.env.BLE_WEBSOCKET_URL || 'ws://localhost:8080',
+  wsUrl: process.env.BLE_WEBSOCKET_URL || 'ws://localhost:15104',
   
   // Standard test timeout
   timeout: 30000

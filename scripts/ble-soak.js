@@ -28,7 +28,7 @@ const getArg = (name, def) => {
 const MINUTES = parseFloat(getArg('minutes', '15'));
 const LABEL = getArg('label', 'unlabeled');
 const INTERVAL_MS = parseInt(getArg('interval', '1000'), 10);
-const WS_URL = process.env.BLE_MCP_WS_URL || 'ws://localhost:8080';
+const WS_URL = process.env.BLE_MCP_WS_URL || 'ws://localhost:15104';
 const CMD_TIMEOUT_MS = 5000;
 const DEVICE_MAC = '6C:79:B8:XX:XX:XX';
 

@@ -64,20 +64,23 @@ def command(event_code: int, module: int, payload: bytes = b"") -> bytes:
     data_length = 2 + len(payload)
     if data_length > 0xFF:
         raise ValueError(f"payload of {len(payload)} bytes overflows the length byte")
-    return bytes(
-        [
-            PREFIX,
-            TRANSPORT_BLUETOOTH,
-            data_length,
-            module,
-            RESERVED,
-            DOWNLINK,
-            0x00,  # CRC low
-            0x00,  # CRC high
-            (event_code >> 8) & 0xFF,
-            event_code & 0xFF,
-        ]
-    ) + payload
+    return (
+        bytes(
+            [
+                PREFIX,
+                TRANSPORT_BLUETOOTH,
+                data_length,
+                module,
+                RESERVED,
+                DOWNLINK,
+                0x00,  # CRC low
+                0x00,  # CRC high
+                (event_code >> 8) & 0xFF,
+                event_code & 0xFF,
+            ]
+        )
+        + payload
+    )
 
 
 def start_battery_reporting() -> bytes:

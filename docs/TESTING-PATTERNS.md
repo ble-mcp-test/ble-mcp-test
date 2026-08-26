@@ -178,7 +178,7 @@ Some tests only make sense for one pattern:
 BLE_SESSION_ID=dev-session-${USER}-${HOSTNAME}
 
 # Local bridge server
-BLE_BRIDGE_URL=ws://localhost:8080
+BLE_BRIDGE_URL=ws://localhost:15104
 
 # Keep connection alive
 BLE_KEEP_ALIVE=true
@@ -190,7 +190,7 @@ BLE_KEEP_ALIVE=true
 BLE_SESSION_ID=ci-${GITHUB_RUN_ID}-${GITHUB_RUN_NUMBER}
 
 # Bridge in Docker
-BLE_BRIDGE_URL=ws://bridge:8080
+BLE_BRIDGE_URL=ws://bridge:15104
 
 # Clean up aggressively
 BLE_KEEP_ALIVE=false

@@ -30,7 +30,7 @@ test.describe('BLE Device Tests', () => {
       await page.evaluate((hostname) => {
         (window as any).WebBleMock.injectWebBluetoothMock({
           sessionId: `myapp-e2e-${hostname}`,
-          serverUrl: 'ws://localhost:8080',
+          serverUrl: 'ws://localhost:15104',
           service: '9800',
           write: '9900',
           notify: '9901'
@@ -55,7 +55,7 @@ test.describe('BLE Device Tests', () => {
       await page.evaluate((hostname) => {
         (window as any).WebBleMock.injectWebBluetoothMock({
           sessionId: `myapp-e2e-${hostname}`,
-          serverUrl: 'ws://localhost:8080',
+          serverUrl: 'ws://localhost:15104',
           service: '9800',
           write: '9900',
           notify: '9901'

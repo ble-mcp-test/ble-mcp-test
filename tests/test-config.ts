@@ -27,7 +27,8 @@ export function getTestConfig(): BridgeTestConfig {
   const write = process.env.BLE_MCP_WRITE_UUID || '';
   const notify = process.env.BLE_MCP_NOTIFY_UUID || '';
   
-  const wsPort = process.env.BLE_MCP_WS_PORT || '8080';
+  const wsPort = process.env.BLE_MCP_WS_PORT;
+  if (!wsPort) throw new Error('BLE_MCP_WS_PORT is not set. The bridge has no default port.');
   const wsUrl = process.env.BLE_MCP_WS_URL || `ws://localhost:${wsPort}`;
 
   // Validate required configuration

@@ -29,7 +29,7 @@ def clean_environ():
 
 
 async def test_refuses_to_start_when_no_device_is_configured():
-    config = from_env(env={})
+    config = from_env(env={"BLE_MCP_WS_PORT": "15104"})
     assert config.esphome is None
 
     with pytest.raises(SystemExit) as excinfo:
@@ -125,7 +125,7 @@ async def test_refusal_happens_before_the_server_listens(monkeypatch):
     monkeypatch.setattr(ble_main, "BridgeServer", _explode)
 
     with pytest.raises(SystemExit):
-        await ble_main._run(from_env(env={}), LogBuffer(maxsize=1))
+        await ble_main._run(from_env(env={"BLE_MCP_WS_PORT": "15104"}), LogBuffer(maxsize=1))
 
 
 def test_missing_env_local_is_not_an_error(tmp_path, monkeypatch, clean_environ):

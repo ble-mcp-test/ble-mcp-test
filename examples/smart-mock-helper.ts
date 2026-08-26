@@ -33,7 +33,7 @@ export async function ensureMockInjected(
   // Default configuration
   const defaultConfig = {
     sessionId: config?.sessionId || `myapp-e2e-${os.hostname()}`,
-    serverUrl: config?.serverUrl || process.env.BLE_BRIDGE_URL || 'ws://localhost:8080',
+    serverUrl: config?.serverUrl || process.env.BLE_BRIDGE_URL || 'ws://localhost:15104',
     service: config?.service || process.env.BLE_MCP_SERVICE_UUID || '9800',
     write: config?.write || process.env.BLE_MCP_WRITE_UUID || '9900',
     notify: config?.notify || process.env.BLE_MCP_NOTIFY_UUID || '9901'

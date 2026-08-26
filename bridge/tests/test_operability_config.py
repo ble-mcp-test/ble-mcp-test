@@ -27,19 +27,25 @@ from ble_bridge.config import (
 # --- BLE_MCP_LOG_LEVEL --------------------------------------------------------
 
 
+#: from_env has no default port since TRA-1179 -- it refuses to start without
+#: one. These tests are about OTHER variables, so they supply a valid port and
+#: say nothing about it. The port's own contract is pinned separately below.
+PORT = {"BLE_MCP_WS_PORT": "15104"}
+
+
 def test_log_level_defaults_to_info():
-    assert from_env({}).log_level == logging.INFO
+    assert from_env({**PORT}).log_level == logging.INFO
 
 
 def test_log_level_is_read_and_is_case_insensitive():
     """The whole point of the ticket: this variable used to reach nothing at all."""
-    assert from_env({LOG_LEVEL_ENV: "debug"}).log_level == logging.DEBUG
-    assert from_env({LOG_LEVEL_ENV: "DEBUG"}).log_level == logging.DEBUG
+    assert from_env({**PORT, LOG_LEVEL_ENV: "debug"}).log_level == logging.DEBUG
+    assert from_env({**PORT, LOG_LEVEL_ENV: "DEBUG"}).log_level == logging.DEBUG
 
 
 @pytest.mark.parametrize("value", sorted(LOG_LEVELS))
 def test_every_accepted_level_name_resolves_to_the_level_it_names(value):
-    assert from_env({LOG_LEVEL_ENV: value}).log_level == LOG_LEVELS[value]
+    assert from_env({**PORT, LOG_LEVEL_ENV: value}).log_level == LOG_LEVELS[value]
 
 
 def test_the_accepted_names_are_the_ones_an_operator_would_reach_for():
@@ -67,28 +73,28 @@ def test_the_accepted_names_are_the_ones_an_operator_would_reach_for():
 def test_an_unknown_log_level_fails_loudly():
     """Falling back to INFO here is how the variable became inert in the first place."""
     with pytest.raises(ConfigError, match=LOG_LEVEL_ENV):
-        from_env({LOG_LEVEL_ENV: "verbose"})
+        from_env({**PORT, LOG_LEVEL_ENV: "verbose"})
 
 
 def test_a_blank_log_level_is_absent_not_an_error():
-    assert from_env({LOG_LEVEL_ENV: "  "}).log_level == logging.INFO
+    assert from_env({**PORT, LOG_LEVEL_ENV: "  "}).log_level == logging.INFO
 
 
 # --- BLE_MCP_LOG_TIMESTAMPS ---------------------------------------------------
 
 
 def test_log_timestamps_default_on():
-    assert from_env({}).log_timestamps is True
+    assert from_env({**PORT}).log_timestamps is True
 
 
 @pytest.mark.parametrize("value", ["false", "FALSE", "0", "no", "off"])
 def test_log_timestamps_can_be_turned_off(value):
-    assert from_env({LOG_TIMESTAMPS_ENV: value}).log_timestamps is False
+    assert from_env({**PORT, LOG_TIMESTAMPS_ENV: value}).log_timestamps is False
 
 
 @pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", "on"])
 def test_log_timestamps_can_be_turned_on(value):
-    assert from_env({LOG_TIMESTAMPS_ENV: value}).log_timestamps is True
+    assert from_env({**PORT, LOG_TIMESTAMPS_ENV: value}).log_timestamps is True
 
 
 def test_an_unparseable_log_timestamps_fails_loudly():
@@ -98,23 +104,23 @@ def test_an_unparseable_log_timestamps_fails_loudly():
     reads as configured-off and behaves as on.
     """
     with pytest.raises(ConfigError, match=LOG_TIMESTAMPS_ENV):
-        from_env({LOG_TIMESTAMPS_ENV: "flase"})
+        from_env({**PORT, LOG_TIMESTAMPS_ENV: "flase"})
 
 
 # --- BLE_MCP_LOG_BUFFER_SIZE --------------------------------------------------
 
 
 def test_log_buffer_size_default():
-    assert from_env({}).log_buffer_size == DEFAULT_LOG_BUFFER_SIZE
+    assert from_env({**PORT}).log_buffer_size == DEFAULT_LOG_BUFFER_SIZE
 
 
 def test_log_buffer_size_override():
-    assert from_env({LOG_BUFFER_SIZE_ENV: "250"}).log_buffer_size == 250
+    assert from_env({**PORT, LOG_BUFFER_SIZE_ENV: "250"}).log_buffer_size == 250
 
 
 def test_zero_disables_the_buffer_explicitly():
     """Off is a legitimate choice; it just has to be asked for rather than fallen into."""
-    assert from_env({LOG_BUFFER_SIZE_ENV: "0"}).log_buffer_size == 0
+    assert from_env({**PORT, LOG_BUFFER_SIZE_ENV: "0"}).log_buffer_size == 0
 
 
 @pytest.mark.parametrize("value", ["17", "2000001", "-1"])
@@ -122,12 +128,12 @@ def test_an_out_of_range_buffer_size_fails_loudly(value):
     """`log-buffer.ts:29-30` clamped silently. A clamp is a fallback: the operator
     asks for 10 and gets 100, with the environment still saying 10."""
     with pytest.raises(ConfigError, match=LOG_BUFFER_SIZE_ENV):
-        from_env({LOG_BUFFER_SIZE_ENV: value})
+        from_env({**PORT, LOG_BUFFER_SIZE_ENV: value})
 
 
 def test_an_unparseable_buffer_size_fails_loudly():
     with pytest.raises(ConfigError, match=LOG_BUFFER_SIZE_ENV):
-        from_env({LOG_BUFFER_SIZE_ENV: "lots"})
+        from_env({**PORT, LOG_BUFFER_SIZE_ENV: "lots"})
 
 
 # --- BLE_MCP_IDLE_TIMEOUT -----------------------------------------------------
@@ -141,22 +147,22 @@ def test_idle_timeout_defaults_to_ten_minutes():
     never renews the lease (see ws/idle.py) the floor has to clear that hold or the
     timer fires during real work.
     """
-    assert from_env({}).idle_timeout == DEFAULT_IDLE_TIMEOUT_S == 600.0
+    assert from_env({**PORT}).idle_timeout == DEFAULT_IDLE_TIMEOUT_S == 600.0
 
 
 def test_idle_timeout_override():
-    assert from_env({IDLE_TIMEOUT_ENV: "45"}).idle_timeout == 45.0
+    assert from_env({**PORT, IDLE_TIMEOUT_ENV: "45"}).idle_timeout == 45.0
 
 
 def test_zero_disables_the_idle_timeout_explicitly():
-    assert from_env({IDLE_TIMEOUT_ENV: "0"}).idle_timeout == 0.0
+    assert from_env({**PORT, IDLE_TIMEOUT_ENV: "0"}).idle_timeout == 0.0
 
 
 def test_a_negative_idle_timeout_fails_loudly():
     with pytest.raises(ConfigError, match=IDLE_TIMEOUT_ENV):
-        from_env({IDLE_TIMEOUT_ENV: "-5"})
+        from_env({**PORT, IDLE_TIMEOUT_ENV: "-5"})
 
 
 def test_an_unparseable_idle_timeout_fails_loudly():
     with pytest.raises(ConfigError, match=IDLE_TIMEOUT_ENV):
-        from_env({IDLE_TIMEOUT_ENV: "ten minutes"})
+        from_env({**PORT, IDLE_TIMEOUT_ENV: "ten minutes"})

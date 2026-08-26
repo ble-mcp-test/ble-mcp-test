@@ -23,7 +23,7 @@ import { MockBluetooth } from '../../src/mock-bluetooth.js';
 const CONFIG = { service: '9800', write: '9900', notify: '9901' };
 
 function mock() {
-  return new MockBluetooth('ws://localhost:8080', CONFIG);
+  return new MockBluetooth('ws://localhost:15104', CONFIG);
 }
 
 const reachable = () => vi.fn().mockResolvedValue({ ok: true, status: 200 });
