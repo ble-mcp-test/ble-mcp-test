@@ -335,6 +335,16 @@ The refusal is a normal `error` frame carrying the transport's own diagnosis:
 > `device …:A7 was not heard advertising to proxy …:6053 within 30s. A peripheral already held in
 > another connection does not advertise, so this most often means it is in use rather than absent.`
 
+**Since 2026-08-26 the refusal is immediate, not inferred.** The bridge asks the proxy which
+addresses it already holds (`aioesphomeapi` pushes `allocated`) before falling back to the
+advertisement wait. Measured on hardware: **0.16s instead of 30.25s**, with the reason stated —
+*"the proxy reports this device is already connected to another client. It is in use, not absent;
+nothing was disturbed."*
+
+The advertisement wait remains the fallback, and must: an empty `allocated` list means either
+"nothing held" **or** "this firmware does not report the list", and the two are indistinguishable.
+The check refuses only on positive evidence and otherwise falls through.
+
 **Which timeout fires is the signal.** An advertisement timeout means *in use or absent*; a connect
 timeout would mean only *something failed*. Do not collapse them.
 
