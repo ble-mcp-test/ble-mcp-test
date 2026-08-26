@@ -127,7 +127,8 @@ class BridgeServer:
         if request.path.split("?", 1)[0] != status_endpoint.STATUS_PATH:
             return None
         code, headers, body = status_endpoint.encode(
-            status_endpoint.status_payload(self._path, __version__)
+            status_endpoint.status_payload(self._path, __version__),
+            is_loopback=self._config.is_loopback,
         )
         return Response(code.value, code.phrase, Headers(headers), body)
 
@@ -140,15 +141,14 @@ class BridgeServer:
         """
         where = f"{self._config.ws_host}:{self._port}"
         if not self._config.is_loopback:
-            # The status endpoint answers Access-Control-Allow-Origin: * so the
-            # browser mock can read it. On loopback that grants nothing anyone
-            # local did not already have. Off loopback it is a real grant, to
-            # anyone who can reach the port. mcp-http-transport.ts:23 made
-            # exactly this mistake -- `origin: '*'` on a 0.0.0.0 bind -- and
-            # TRA-1161 deleted it. Say so rather than let it be discovered.
-            logger.warning(
-                "%s is reachable beyond this host and %s answers any origin: "
-                "anyone who can reach this port can read who holds the reader",
+            # Not a security warning -- status.cors_headers() has already made
+            # the unsafe combination unrepresentable by omitting CORS entirely
+            # off loopback. This says what that costs, because a browser mock
+            # pointed at a non-loopback bridge will find getAvailability()
+            # blocked and the reason is not visible from the browser.
+            logger.info(
+                "%s is not loopback, so %s answers no cross-origin request: a "
+                "browser mock pointed here cannot read availability",
                 where,
                 status_endpoint.STATUS_PATH,
             )

@@ -35,16 +35,32 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: handshake, which means a non-upgrade request still gets 426 exactly as before.
 STATUS_PATH = "/status"
 
-#: GET only, no credentials, this path only. It exposes what any local process
-#: can already read from the MCP socket, and the bridge binds loopback by
-#: default. If it is ever bound non-loopback that grant becomes meaningful --
-#: server.py warns at startup when both are true. This repo has a scar here:
-#: mcp-http-transport.ts:23 set `origin: '*'` on a 0.0.0.0 bind, and TRA-1161
-#: deleted it.
-CORS_HEADERS = [
-    ("Access-Control-Allow-Origin", "*"),
-    ("Access-Control-Allow-Methods", "GET"),
-]
+def cors_headers(is_loopback: bool) -> list[tuple[str, str]]:
+    """Permissive CORS on loopback, none at all when bound wider.
+
+    Conditional rather than static, and that is the whole point. This repo has a
+    scar here: mcp-http-transport.ts:23 set `origin: '*'` on a 0.0.0.0 bind, and
+    TRA-1161 deleted it. The hazard there was never `*` on its own -- it was `*`
+    CO-OCCURRING with a wide bind. Neither half is dangerous alone, which is why
+    the combination survived review.
+
+    A static `*` plus a loopback default would reproduce that shape exactly: two
+    defensible halves, safe only because they happen not to overlap, with the
+    safety resting on a default that someone will eventually change. Deriving
+    the header from the bind makes the unsafe combination unrepresentable
+    instead of merely warned about -- and a warning is the weakest guard
+    available, being the one thing everybody reads past.
+
+    On loopback the grant is inert: no origin can reach this port that is not
+    already on the host, and everything it exposes is already readable from the
+    MCP socket by any local process.
+    """
+    if not is_loopback:
+        return []
+    return [
+        ("Access-Control-Allow-Origin", "*"),
+        ("Access-Control-Allow-Methods", "GET"),
+    ]
 
 
 def status_payload(path: CommandPath, version: str) -> dict:
@@ -86,12 +102,12 @@ def status_payload(path: CommandPath, version: str) -> dict:
     }
 
 
-def encode(payload: dict) -> tuple[HTTPStatus, list[tuple[str, str]], bytes]:
+def encode(payload: dict, *, is_loopback: bool) -> tuple[HTTPStatus, list[tuple[str, str]], bytes]:
     """Render a payload as the response triple `process_request` expects."""
     body = json.dumps(payload).encode() + b"\n"
     headers = [
         ("Content-Type", "application/json"),
         ("Content-Length", str(len(body))),
-        *CORS_HEADERS,
+        *cors_headers(is_loopback),
     ]
     return HTTPStatus.OK, headers, body

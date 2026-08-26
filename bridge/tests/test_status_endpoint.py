@@ -26,6 +26,7 @@ import websockets
 
 from ble_bridge.config import Config
 from ble_bridge.transport import StubTransport
+from ble_bridge.ws import status as status_endpoint
 from ble_bridge.ws.server import BridgeServer
 
 REQUIRED = "service=180a&write=2a01&notify=2a02"
@@ -110,6 +111,31 @@ async def test_status_is_fetchable_cross_origin(relay):
     """
     _, headers, _ = await _get(relay)
     assert headers.get("Access-Control-Allow-Origin") == "*"
+
+
+def test_cors_is_withheld_when_the_bind_is_not_loopback():
+    """The unsafe combination is unrepresentable, not merely warned about.
+
+    mcp-http-transport.ts:23 set `origin: '*'` on a 0.0.0.0 bind and TRA-1161
+    deleted it. The hazard was never `*` alone -- it was `*` co-occurring with a
+    wide bind, and neither half is dangerous by itself, which is why the
+    combination survived review. A static `*` plus a loopback default would
+    reproduce that shape, safe only by a default that someone can change.
+
+    Tested as a pure function on purpose: asserting it by actually binding
+    0.0.0.0 would mean a test that opens a port to the network to prove a
+    security property, which is its own bad idea.
+    """
+    assert status_endpoint.cors_headers(is_loopback=True) != []
+    assert status_endpoint.cors_headers(is_loopback=False) == []
+
+
+def test_encode_carries_the_bind_through_to_the_headers():
+    """The conditional is wired, not just defined."""
+    wide = dict(status_endpoint.encode({"held": False}, is_loopback=False)[1])
+    local = dict(status_endpoint.encode({"held": False}, is_loopback=True)[1])
+    assert "Access-Control-Allow-Origin" not in wide
+    assert local["Access-Control-Allow-Origin"] == "*"
 
 
 async def test_every_other_path_still_gets_426(relay):
