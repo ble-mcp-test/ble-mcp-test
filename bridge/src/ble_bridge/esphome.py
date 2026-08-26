@@ -39,7 +39,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from ble_bridge.config import EsphomeConfig
 from ble_bridge.notify import NotifySink
@@ -62,10 +62,49 @@ ADVERTISEMENT_TIMEOUT_S = 30.0
 #: How long to wait for the BLE link itself once the proxy has heard the device.
 CONNECT_TIMEOUT_S = 20.0
 
+#: How long to wait for a polite BLE disconnect before giving up and tearing the
+#: session down anyway.
+#:
+#: Measured 2026-08-26 (TRA-1174): when a second ESPHome client touches the proxy,
+#: `bluetooth_device_disconnect` gets no answer and aioesphomeapi gives up after
+#: its own ~20s response timeout. The API-level close that follows -- the step
+#: that actually tears the session down -- took 4ms.
+#:
+#: The cost lands on exactly the wrong person: the relay tells the client the path
+#: is free only after cleanup() returns, so a successor waits the extra 20s, and
+#: the contention causing the stall IS someone waiting for the device.
+#:
+#: This does not make the proxy answer. It stops teardown queueing behind an answer
+#: that is not coming. Three seconds is three orders of magnitude above the healthy
+#: round trip and well under aioesphomeapi's own timeout -- a bound at or above that
+#: would never fire.
+BLE_DISCONNECT_TIMEOUT_S = 3.0
+
 #: How long to wait for the proxy's first slot report before giving up on it.
 #: Short on purpose: this is an optimisation over the advertisement wait, and
 #: falling through costs 30s rather than being wrong.
 ALLOCATION_REPORT_TIMEOUT_S = 2.0
+
+
+async def disconnect_ble_bounded(ble: Any) -> None:
+    """Ask the BLE link to close, but do not wait forever for an answer.
+
+    Never raises: this runs from `close()`, which runs from the relay's `finally`,
+    so raising here would mask whatever actually ended the session.
+    """
+    try:
+        await asyncio.wait_for(ble.disconnect(), timeout=BLE_DISCONNECT_TIMEOUT_S)
+    except TimeoutError:
+        # Not an error in the sense of something being wrong with us. The proxy
+        # is busy and did not answer; the API close below drops the session
+        # regardless, and holding the command path open while we wait costs the
+        # next client more than the untidiness costs us.
+        logger.warning(
+            "the BLE disconnect went unanswered for %gs; tearing the session down anyway",
+            BLE_DISCONNECT_TIMEOUT_S,
+        )
+    except Exception:
+        logger.exception("disconnecting the BLE link raised")
 
 
 def occupancy_from_allocations(
@@ -528,10 +567,7 @@ class BleakEsphomeSession:
         destructor, which reported success while doing nothing.
         """
         if self._ble is not None:
-            try:
-                await self._ble.disconnect()
-            except Exception:
-                logger.exception("disconnecting the BLE link raised")
+            await disconnect_ble_bounded(self._ble)
             self._ble = None
         if self._unregister_scanner is not None:
             self._unregister_scanner()
