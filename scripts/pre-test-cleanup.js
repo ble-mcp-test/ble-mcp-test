@@ -4,7 +4,6 @@
  * Pre-test cleanup script
  * Ensures clean test environment by:
  * 1. Killing any processes using our test ports
- * 2. Stopping any Noble/BLE scanning
  * 3. Providing cooldown period for hardware recovery
  */
 
@@ -139,8 +138,6 @@ async function cleanup() {
     console.log('  ✓ No orphaned test processes');
   }
   
-  // 3. Ensure Noble is cleaned up
-  // Skip inline noble cleanup - it causes issues with ES modules
   
   // 4. Apply cooldown period if we killed anything
   if (killedAny) {

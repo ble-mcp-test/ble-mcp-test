@@ -124,7 +124,7 @@ ap.add_argument("--recovery-timeout", type=int, default=90, help="recover: secon
 ap.add_argument("--induce", default="disconnect", choices=["disconnect", "manual"],
                 help="recover: 'disconnect' asks the proxy to drop the link; 'manual' waits for you to power-cycle the reader")
 ap.add_argument("--with-response", action="store_true",
-                help="use write-with-response (Noble path). Default is without-response (Rust bridge path)")
+                help="use write-with-response. Default is without-response, which is what the bridge does")
 ap.add_argument("--scan-seconds", type=float, default=10, help="time for the proxy to hear the device advertise")
 ap.add_argument("--verbose", "-v", action="store_true")
 args = ap.parse_args()

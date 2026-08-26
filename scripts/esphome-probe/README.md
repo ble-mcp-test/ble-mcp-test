@@ -95,8 +95,8 @@ uv run scripts/esphome-probe/probe.py --proxy $P --mode thrash --interval 20 --m
 link (the proxy-side equivalent of `hcitool ledc`). `--induce manual` instead waits
 for you to power-cycle the reader each cycle — a harsher, more realistic drop.
 
-Writes default to **without-response** (what the Rust bridge does). `--with-response`
-flips to the Noble path.
+Writes default to **without-response**, which is what the bridge does.
+`--with-response` flips to write-with-response.
 
 ## 3. Read the result
 
