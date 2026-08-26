@@ -9,7 +9,7 @@ web-ble-bridge is a minimal WebSocket-to-BLE bridge that lets you test Web Bluet
 ## Before You Start
 
 ### Required Tools
-- **Node.js 24.x** (exactly - not 22.x or 26.x, due to Noble.js BLE requirements)
+- **Node.js 24.x** — matches the pin in `.nvmrc` and `engines`. No dependency requires it; it matches platform's runtime, which is the reason to pin.
 - **pnpm** - Install with: `npm install -g pnpm`
 - **Git** - For version control
 - **BLE hardware** - Only needed if you want to test with real devices

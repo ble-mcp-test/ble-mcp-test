@@ -4,27 +4,29 @@
 
 Browser-based E2E tests controlling **real BLE hardware** from headless environments (CI, VMs, containers, Claude Code sessions).
 
-**We mock the `navigator.bluetooth` Web API — not the hardware.** Commands flow browser → mock → WebSocket → bridge → real device, and back. If no device is reachable, connections fail; that is correct behaviour, not a bug in the mock.
+**We mock the `navigator.bluetooth` Web API — not the hardware.** Commands flow browser → mock → WebSocket → Python bridge → ESPHome proxy → real device, and back. If no device is reachable, connections fail; that is correct behaviour, not a bug in the mock.
 
 Device-agnostic by design: any GATT device works, configured by UUID env vars. CS108 UHF RFID is the reference device, not a requirement.
 
 ## Architecture
 
 ```
-[Playwright/browser] → [mock-bluetooth.ts] → (WebSocket) → [bridge] → [ESPHome proxy over TCP] → [BLE device]
+[Playwright/browser] → [mock-bluetooth.ts] → (WebSocket) → [Python bridge] → [ESPHome proxy over TCP] → [BLE device]
 ```
 
-Two bridge implementations exist today:
-- **TypeScript** (`src/`) — Noble/BlueZ, requires a local radio. Frozen.
-- **Rust** (`rust-ble-test/`) — ESPHome proxy over TCP, no local radio. What actually runs.
+One bridge: **Python**, in `bridge/`. There is no local-radio path.
 
-Both are being replaced by a **Python** server. See `docs/design/2026-08-23-python-bridge-rewrite.md` and TRA-1155/1156-1163. The WS contract is specified in `docs/design/2026-08-23-ws-protocol-spec.md` — **treat that document as the acceptance criterion**, not any message count.
+This repo publishes **two clients** and no server: the browser mock (`ble-mcp-test/browser`) and the Node test-harness client (`src/node/`, `ble-mcp-test/node`). Both are supported; `trakrf/platform` consumes both.
+
+The bridge holds **one writer slot** — not a pool, and not keyed on session. A second connection is refused `Device is busy` even carrying the same session id. Release completes when the server processes the socket close, so **await disconnect** or the next connect races it.
+
+The WS contract is specified in `docs/design/2026-08-23-ws-protocol-spec.md` — **treat that document as the acceptance criterion**, not any message count. It is silent on reconnect semantics; `docs/API.md` covers those.
 
 ## Package Manager
 
 **pnpm EXCLUSIVELY** — never `npm`, `npx`, or `yarn`. `npx` → `pnpm dlx` or `pnpm exec`.
 
-Rust: `cargo` in `rust-ble-test/`. Python: `uv`, in `bridge/`.
+Python: `uv`, in `bridge/`.
 
 **`just` is the cross-language front door** — `just validate` is the whole gate, and what `.claude/csw.json` runs.
 
@@ -45,13 +47,15 @@ Worktrees go in **`.claude/worktrees/<name>/`** — the canonical location acros
 ```bash
 just validate       # the whole gate: lint + typecheck + both test suites
 just test           # TS unit + Python, no bridge, no hardware
-pnpm test:e2e       # Playwright — ALWAYS headless, never headless:false
+pnpm test:e2e       # Playwright — ALWAYS headless, never headless:false; needs a running bridge
 cd bridge && just hardware   # opt-in, needs a real device
 ```
 
 **No test counts here** — every hand-written one has drifted. Run the command.
 
 **Hardware reality.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: it needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default.
+
+**Run the bridge from the main checkout, not a worktree** — `cd bridge && BLE_MCP_WS_PORT=8080 uv run python -m ble_bridge`. Confirm it logged `ESPHome transport:` and not the stub.
 
 **Gitignored is not glob-invisible.** `vitest.config.ts` must exclude `.claude/worktrees/**` or a run collects sibling worktrees' tests; `tests/unit/vitest-isolation.test.ts` guards it.
 
@@ -85,4 +89,4 @@ Two bug classes recur in this codebase. Design against both.
 
 ## Notes
 
-- **Node version:** `.nvmrc` pins 24 and `package.json` sets `engines: {node: ">=24.0.0"}`. Nothing in the dependency tree requires it — `@stoprocent/noble@2.3.5` declares `>=14` and no package in the lockfile needs `>=22` — so the floor is not a technical constraint. It is kept deliberately because **platform pins 24 too**, and matching the primary consumer's runtime is the reason to pin. Do not lower it to match a dependency floor without testing on that version.
+- **Node version:** `.nvmrc` pins 24, `engines` sets `>=24.0.0`. No dependency requires it — the only runtime dependency left is `ws`. The pin exists because **platform pins 24**; matching the primary consumer's runtime is the reason. Do not lower it to a dependency floor.

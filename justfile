@@ -1,9 +1,9 @@
 # Cross-language front door.
 #
-# This is an addition, not a transition. ble-mcp-test is a published npm package
-# with `main` and `bin`, so pnpm remains the package manager, builder and
-# publisher; just delegates to it rather than replacing it. Python work goes
-# through uv in bridge/.
+# ble-mcp-test publishes two clients to npm -- the browser mock and the Node
+# test-harness client -- so pnpm remains the package manager, builder and
+# publisher; just delegates to it rather than replacing it. The server is
+# Python and goes through uv in bridge/.
 #
 # Never npm, npx or yarn. `npx` is `pnpm dlx` or `pnpm exec`.
 
@@ -56,7 +56,8 @@ build: build-ts
 
 validate: lint typecheck-ts test
 
-# Hardware-dependent. Needs a powered device in range; cannot run in a
-# container with no Bluetooth stack.
+# Hardware-dependent. Needs a powered device in range and a running bridge.
+# A local Bluetooth stack is NOT required: the bridge reaches the device over
+# TCP through the ESPHome proxy, so this runs in a container with no BlueZ.
 test-e2e:
     pnpm run test:e2e

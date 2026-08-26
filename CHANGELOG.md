@@ -5,9 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.0]
 
 ### Removed
+
+- **BREAKING (public API): the `.` entry point is gone.** It is **removed, not
+  moved** — there is no replacement export for `import ... from 'ble-mcp-test'`.
+  The published surface is now exactly two entry points, both clients:
+  - `ble-mcp-test/browser` — the Web Bluetooth mock
+  - `ble-mcp-test/node` — the Node test-harness client (`NodeBleClient`)
+
+  `src/index.ts` re-exported `BridgeServer`, `NobleTransport`, `Logger`,
+  `LogBuffer`, `registerMcpTools` and the MCP HTTP transport functions, all of
+  which are deleted. `injectWebBluetoothMock`, `getBundleVersion` and
+  `WebSocketTransport` remain reachable through `ble-mcp-test/browser`.
+
+- **BREAKING: the `bin` is gone.** The package installed an executable
+  (`ble-mcp-test` → `dist/start-server.js`) that started the TypeScript server.
+  That server no longer exists and the package is no longer executable. The
+  bridge is Python: `cd bridge && uv run python -m ble_bridge`.
+
+- **The TypeScript bridge server, the Noble transport, and the Rust spike** are
+  deleted. The tool is one chain: `navigator.bluetooth` mock → Python service →
+  ESPHome proxy on an ESP32-S3 → BLE hardware. There is no local-radio path, so
+  BlueZ, `hcitool` and `rfkill` are no longer requirements of any kind.
+
+- `@stoprocent/noble` is no longer a dependency — it was a **runtime**
+  dependency, so it previously sat on the import path of anyone installing this
+  package. `express`, `cors`, `@modelcontextprotocol/sdk` and `zod` go with the
+  server code that used them. The only runtime dependency left is `ws`.
+
+- `BLE_BACKEND` and `BLE_MCP_ADAPTER` are deleted; they configured the Rust
+  bridge's choice between a local radio and a proxy. The Python bridge has one
+  transport and reads `ESPHOME_PROXY_HOST` / `BLE_MCP_DEVICE_MAC`.
 
 - **BREAKING (public API): `forceCleanup()` is gone** from `WebSocketTransport`
   (exported via `index.ts`) and from the mock GATT server. It never worked — both
@@ -22,8 +52,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the phantom `eviction_warning` / `keepalive_ack` / `scan_result` union members,
   all of which had no sender, no consumer, or both. (TRA-1162)
 
+### Changed
+
+- `docs/API.md` no longer restates the WebSocket protocol. The specification in
+  `docs/design/2026-08-23-ws-protocol-spec.md` governs.
+
 ### Fixed
 
+- The pre-test port sweep's protected-process guard named only deleted
+  processes, so it protected nothing and could kill the Python bridge on 8080
+  mid-run. It now names `ble_bridge`.
 - **A takeover warning now reaches the browser.** The bridge sends a `warning`
   frame mid-handshake to tell a client it displaced another session, and the
   client's handshake handler branched only on `connected` and `error` — so the
@@ -35,6 +73,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `vitest` no longer collects sibling worktrees' tests as if they were this
   tree's. `.claude/worktrees/` is gitignored, which does not constrain a glob.
   (TRA-1162)
+
+### Migration
+
+Consumers of `ble-mcp-test/browser` and `ble-mcp-test/node` are unaffected — both
+are unchanged and remain supported. Only bare `'ble-mcp-test'` imports and the
+`bin` break.
 
 ## [0.7.3] - 2025-01-11
 

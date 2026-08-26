@@ -10,7 +10,7 @@
 ```bash
 # Terminal 1: Bridge server (stays running)
 cd ble-mcp-test
-pnpm start
+cd bridge && uv run python -m ble_bridge
 
 # Terminal 2: Dev server with mock (stays running)
 pnpm dev:mock  # Injects mock once at startup
@@ -63,7 +63,7 @@ test('uses pre-injected mock', async ({ page }) => {
 - name: Start bridge server
   run: |
     cd ble-mcp-test
-    pnpm start &
+    cd bridge && uv run python -m ble_bridge &
     sleep 3  # Wait for server
 
 - name: Run E2E tests

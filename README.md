@@ -8,13 +8,13 @@
 
 ```bash
 # Install
-npm install -g ble-mcp-test
+pnpm add -D ble-mcp-test
 
-# Run the bridge server (on machine with BLE hardware)
-ble-mcp-test
+# Run the bridge (reaches the device over TCP via an ESPHome proxy)
+cd bridge && uv run python -m ble_bridge
 
 # Use in your tests
-import { injectWebBluetoothMock } from 'ble-mcp-test';
+import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,  // Include app name and hostname
   serverUrl: 'ws://localhost:8080',
@@ -49,9 +49,9 @@ sequenceDiagram
     Note over Test,BLE: 2. Device Connection
     Test->>Browser: navigator.bluetooth.requestDevice()
     Browser->>Bridge: WebSocket connect<br/>ws://localhost:8080?device=CS108&service=...
-    Bridge->>BLE: Noble scan for device
+    Bridge->>BLE: Scan for device via ESPHome proxy
     BLE-->>Bridge: Device found
-    Bridge->>BLE: Connect via Noble
+    Bridge->>BLE: Connect via ESPHome proxy
     BLE-->>Bridge: Connected
     Bridge-->>Browser: {"type": "connected", "device": "CS108-123"}
     Browser-->>Test: Return MockBluetoothDevice
@@ -59,7 +59,7 @@ sequenceDiagram
     Note over Test,BLE: 3. Data Exchange
     Test->>Browser: characteristic.writeValue([0xA7, 0xB3, ...])
     Browser->>Bridge: {"type": "data", "data": [167, 179, ...]}
-    Bridge->>BLE: Write via Noble
+    Bridge->>BLE: Write via ESPHome proxy
     
     BLE->>Bridge: Notification data
     Bridge->>Browser: {"type": "data", "data": [179, 167, ...]}
@@ -68,7 +68,7 @@ sequenceDiagram
     Note over Test,BLE: 4. Disconnection
     Test->>Browser: device.gatt.disconnect()
     Browser->>Bridge: WebSocket close
-    Bridge->>BLE: Disconnect via Noble
+    Bridge->>BLE: Disconnect via ESPHome proxy
     Bridge->>Bridge: Cleanup connection
 ```
 
@@ -96,7 +96,7 @@ async function startDevServer() {
   
   const health = await fetch(healthUrl);
   if (!health.ok) {
-    throw new Error('BLE bridge server not running! Start with: pnpm start');
+    throw new Error(`BLE bridge not running! Start with: ${'cd bridge && uv run python -m ble_bridge'}`);
   }
   
   // 2. Start dev server with mock enabled
@@ -269,7 +269,7 @@ Use ble-mcp-test directly in Node.js applications for integration testing:
 
 **Requirements:**
 - Node.js 14+ for the client (uses only `ws` and built-in `events`)
-- Bridge server requires Node.js 24+ (for Noble BLE access)
+- A running bridge (Python, in `bridge/`) and a reachable device
 
 ```javascript
 import { NodeBleClient } from 'ble-mcp-test/node';
@@ -514,81 +514,18 @@ The mock handles all WebSocket communication internally. Direct WebSocket connec
 
 See [CHANGELOG](CHANGELOG.md) for version history.
 
-## BLE Backends (Rust bridge)
-
-The bridge server's BLE layer (`rust-ble-test`) supports two interchangeable backends, selected at
-startup by the `BLE_BACKEND` environment variable. Both expose the identical WebSocket protocol to
-test clients — switching backends requires no client changes.
-
-| `BLE_BACKEND` | Transport | Needs a local BT radio? | Use when |
-|---|---|---|---|
-| `btleplug` (default) | Local BLE radio via BlueZ/D-Bus | Yes | A Bluetooth adapter is attached to the bridge host |
-| `esphome` | ESPHome **Bluetooth Proxy** over the network (native API, TCP/6053, protobuf) | No | You want a pure network service — containerizable, no privileged radio access |
-
-The `esphome` backend speaks the ESPHome native API directly (**no Home Assistant required**) and
-selects the target device by MAC. This turns the bridge into a pure TCP↔WebSocket service with no
-BlueZ/D-Bus dependency.
-
-### Configuration
-
-Variables are read from the environment (e.g. `.env.local`); device vars are shared by both
-backends. See `.env.local.example` for the complete list.
-
-- `BLE_BACKEND` — `btleplug` (default) or `esphome`.
-- `BLE_MCP_SERVICE_UUID` / `BLE_MCP_WRITE_UUID` / `BLE_MCP_NOTIFY_UUID` — 16-bit short (`9800`) or full UUID. CS108 defaults: `9800` / `9900` / `9901`.
-- `BLE_MCP_DEVICE_MAC` — target MAC (used to select the device on the `esphome` backend). Default `6C:79:B8:XX:XX:XX`.
-- `BLE_MCP_WS_HOST` / `BLE_MCP_WS_PORT` — WebSocket bind (default `0.0.0.0:8080`).
-
-**btleplug backend:**
-- `BLE_MCP_ADAPTER` — pin the local adapter by name / `hciN` / MAC substring instead of "first found". Recommended on multi-radio hosts, where hci ordering can change across reboots.
-
-**esphome backend:**
-- `ESPHOME_PROXY_HOST` — proxy host, or `host:port`.
-- `ESPHOME_PROXY_PORT` — native-API port (default `6053`).
-- `ESPHOME_NOISE_PSK` — *accepted but not yet implemented.* Noise encryption is a follow-up; use a plaintext proxy (a set PSK currently produces a clear startup error).
-
-```bash
-# Local radio (default)
-BLE_BACKEND=btleplug BLE_MCP_ADAPTER=hci0 pnpm start
-
-# ESPHome proxy over the network — no local Bluetooth needed
-BLE_BACKEND=esphome ESPHOME_PROXY_HOST=192.168.50.170 pnpm start
-```
-
 ## Requirements
 
-- **Bridge Server**: Node.js 24+ (for Noble.js BLE support)
-- **Test Environment**: Any modern browser
-- **BLE Hardware**: Only on bridge server machine
+- **Bridge**: Python 3.12+ with `uv`, in `bridge/`. No Bluetooth stack needed —
+  it reaches the device over TCP through an ESPHome proxy.
+- **Proxy**: an ESP32-S3 running ESPHome with the Bluetooth Proxy component,
+  configured via `ESPHOME_PROXY_HOST` and `BLE_MCP_DEVICE_MAC`.
+- **Test environment**: any modern browser. No Web Bluetooth support required —
+  that is what the mock provides.
+- **BLE hardware**: in range of the proxy, not of the machine running the tests.
 
-### Platform-Specific Requirements
-
-#### Linux
-- `bluez` - Bluetooth stack with `hcitool` (usually pre-installed)
-- `rfkill` - Recommended for BLE stack recovery when connections fail
-
-#### macOS
-- Core Bluetooth framework (built-in)
-- No additional tools required
-
-#### Windows
-- WinRT Bluetooth APIs (Windows 10/11)
-- No additional tools required
-
-### Installing Linux Dependencies
-
-```bash
-# Ubuntu/Debian
-sudo apt-get update
-sudo apt-get install bluez    # Includes hcitool
-
-# Optional: Install rfkill to suppress Noble warnings
-sudo apt-get install rfkill
-
-# Verify installation
-hcitool --version
-rfkill --version  # optional
-```
+There are no platform-specific requirements. BlueZ, `hcitool` and `rfkill` were
+needed by the local-radio implementation, which no longer exists.
 
 ## Roadmap
 

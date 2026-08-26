@@ -1,26 +1,5 @@
 # API Documentation
 
-## Server API
-
-### BridgeServer
-
-The main WebSocket bridge server class.
-
-```javascript
-import { BridgeServer } from 'ble-mcp-test';
-
-const server = new BridgeServer();
-server.start(8080); // Start on port 8080
-
-// Later...
-server.stop(); // Graceful shutdown
-```
-
-#### Methods
-
-- `start(port?: number)` - Start the WebSocket server (default port: 8080)
-- `stop()` - Stop the server and close all connections
-
 ## Browser API
 
 ### injectWebBluetoothMock(config: WebBleMockConfig)
@@ -42,7 +21,7 @@ export interface WebBleMockConfig {
 ```
 
 ```javascript
-import { injectWebBluetoothMock } from 'ble-mcp-test';
+import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 
 // Basic usage (all required parameters)
 injectWebBluetoothMock({
@@ -364,73 +343,6 @@ try {
 - **Session Management**: Required `sessionId` prevents connection conflicts
 - **Optional Filtering**: Filter by exact `deviceId` or partial `deviceName` when needed
 
-## MCP HTTP Endpoints
-
-When running with HTTP transport (`pnpm start:http` or `--mcp-http`), the following endpoints are available:
-
-### GET /mcp/info
-
-Public endpoint that returns server metadata and available tools. No authentication required.
-
-**Response:**
-```json
-{
-  "name": "ble-mcp-test",
-  "version": "0.4.2",
-  "description": "Bridge Bluetooth devices to your AI coding assistant via Model Context Protocol",
-  "tools": [
-    { "name": "get_logs", "description": "Get BLE Communication Logs" },
-    { "name": "search_packets", "description": "Search BLE Packets" },
-    { "name": "get_connection_state", "description": "Get Connection State" },
-    { "name": "status", "description": "Get Bridge Server Status" },
-    { "name": "scan_devices", "description": "Scan for BLE Devices" }
-  ]
-}
-```
-
-**Headers:**
-- `Cache-Control: public, max-age=3600` - Cacheable for 1 hour
-
-### POST /mcp/register
-
-Authenticated endpoint for MCP client registration. Returns server capabilities.
-
-**Headers Required:**
-- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
-
-**Response:**
-```json
-{
-  "name": "ble-mcp-test",
-  "version": "0.4.2",
-  "capabilities": {
-    "tools": true,
-    "resources": false,
-    "prompts": false
-  }
-}
-```
-
-**Headers:**
-- `Cache-Control: no-cache, no-store, must-revalidate` - Not cacheable
-
-### POST /mcp
-
-Main MCP message handling endpoint. Processes MCP protocol messages.
-
-**Headers:**
-- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
-- `Content-Type: application/json`
-- `Mcp-Session-Id: <session-id>` - Optional session identifier
-
-### GET /mcp
-
-Server-Sent Events (SSE) endpoint for streaming MCP responses.
-
-**Headers:**
-- `Authorization: Bearer <token>` - Required if BLE_MCP_HTTP_TOKEN is set
-- `Mcp-Session-Id: <session-id>` - Required session identifier
-
 ## WebSocket Protocol
 
 ### Connection Parameters
@@ -454,174 +366,17 @@ ws://localhost:8080?device=CS108&session=persist-123&service=9800
 ws://localhost:8080?device=CS108&service=9800&write=9900&notify=9901&force=true
 ```
 
+Add `role=observer` to attach read-only to the current writer's notification
+stream. See **Session Management** below for what each of `session`, `force` and
+`role` actually guarantees.
+
 ### Message Format
 
-All messages are JSON objects with a `type` field.
-
-#### Client → Server Messages
-
-**Send data to BLE device:**
-```json
-{
-  "type": "data",
-  "data": [0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]
-}
-```
-
-**Graceful disconnect:**
-```json
-{
-  "type": "disconnect"
-}
-```
-
-**Complete BLE cleanup:**
-```json
-{
-  "type": "cleanup"
-}
-```
-
-**Force cleanup with token (v0.4.0):**
-```json
-{
-  "type": "force_cleanup",
-  "token": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-**Force cleanup all sessions (v0.5.1):**
-```json
-{
-  "type": "force_cleanup",
-  "all_sessions": true
-}
-```
-
-**Admin cleanup (v0.5.1):**
-```json
-{
-  "type": "admin_cleanup",
-  "auth": "your-admin-token",
-  "action": "cleanup_all"
-}
-```
-
-**Keep connection alive (v0.4.0):**
-```json
-{
-  "type": "keepalive"
-}
-```
-
-**Check Noble.js pressure:**
-```json
-{
-  "type": "check_pressure"
-}
-```
-
-#### Server → Client Messages
-
-**Device connected (v0.4.0 - includes token):**
-```json
-{
-  "type": "connected",
-  "device": "CS108ReaderXXXXXX",
-  "token": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-
-**Data received from device:**
-```json
-{
-  "type": "data",
-  "data": [0xA7, 0xB3, 0x04, 0xD9, 0x82, 0x9E, 0xF7, 0xDD, 0xA0, 0x00, 0x0F, 0xF0]
-}
-```
-
-**Error occurred:**
-```json
-{
-  "type": "error",
-  "error": "No device found"
-}
-```
-
-**Session blocked error (v0.5.1):**
-```json
-{
-  "type": "error",
-  "error": "Device is busy with another session",
-  "blocking_session_id": "cs108-session-abc123",
-  "device": "CS108"
-}
-```
-
-**Device disconnected:**
-```json
-{
-  "type": "disconnected"
-}
-```
-
-**Eviction warning (v0.4.0):**
-```json
-{
-  "type": "eviction_warning",
-  "grace_period_ms": 5000,
-  "reason": "idle_timeout"
-}
-```
-
-**Keepalive acknowledgment (v0.4.0):**
-```json
-{
-  "type": "keepalive_ack",
-  "timestamp": "2025-01-30T12:34:56.789Z"
-}
-```
-
-**Cleanup complete:**
-```json
-{
-  "type": "cleanup_complete",
-  "message": "BLE cleanup completed successfully"
-}
-```
-
-**Force cleanup complete (v0.4.0):**
-```json
-{
-  "type": "force_cleanup_complete",
-  "message": "Noble force cleanup completed successfully"
-}
-```
-
-**Pressure report:**
-```json
-{
-  "type": "pressure_report",
-  "pressure": {
-    "scanStopListeners": 0,
-    "peripheralListeners": 2,
-    "isUnderPressure": false
-  }
-}
-```
-
-**Health check (v0.4.0 - enhanced):**
-```json
-{
-  "type": "health",
-  "status": "ok",
-  "free": true,
-  "state": "IDLE",
-  "transportState": "disconnected",
-  "connectionInfo": null,
-  "timestamp": "2025-01-30T12:34:56.789Z"
-}
-```
+The wire protocol is specified in
+[`docs/design/2026-08-23-ws-protocol-spec.md`](design/2026-08-23-ws-protocol-spec.md),
+which is the acceptance criterion for the bridge. That document governs; this
+file does not restate it, because two copies of a protocol drift and only one
+of them is checked.
 
 ## Web Bluetooth API Support
 
@@ -655,7 +410,7 @@ The mock implements the following Web Bluetooth API methods:
 The mock can be configured at runtime using the `updateMockConfig` function:
 
 ```javascript
-import { updateMockConfig } from 'ble-mcp-test';
+import { updateMockConfig } from 'ble-mcp-test/browser';
 
 // Configure retry behavior
 updateMockConfig({
@@ -723,19 +478,6 @@ updateMockConfig({
 - `BLE_MCP_IDLE_TIMEOUT` — seconds of no inbound frame before a writer is released
   (default: 600; `0` disables it).
 
-## Connection Token
-All successful connections now receive a unique authentication token:
-- The `connected` message includes a `token` field
-- This token is required for `force_cleanup` operations
-- Token format: UUID v4 (e.g., `550e8400-e29b-41d4-a716-446655440000`)
-
-### State Machine
-The server uses an atomic state machine for connection lifecycle:
-- **ready**: No active connections, ready to accept new connections
-- **connecting**: Establishing BLE connection
-- **active**: Connection established and operational
-- **disconnecting**: Cleaning up connection
-
 ## Limitations
 
 ### Single Connection
@@ -788,62 +530,4 @@ test('communicate with BLE device', async ({ page }) => {
   await page.click('#connect-button');
   await page.waitForSelector('#connected-status');
 });
-```
-
-## Utility Functions
-
-The bridge server exports several utility functions for working with BLE data and logging:
-
-### formatHex(data: Uint8Array | Buffer): string
-
-Formats binary data as uppercase hexadecimal with space separation.
-
-```typescript
-import { formatHex } from 'ble-mcp-test';
-
-const data = new Uint8Array([0xA7, 0xB3, 0xC2, 0x01]);
-console.log(formatHex(data)); // "A7 B3 C2 01"
-
-const buffer = Buffer.from([0x12, 0x34, 0x56, 0x78]);
-console.log(formatHex(buffer)); // "12 34 56 78"
-```
-
-### normalizeLogLevel(level?: string): LogLevel
-
-Normalizes log level strings to a valid LogLevel type, with support for common aliases.
-
-```typescript
-import { normalizeLogLevel } from 'ble-mcp-test';
-
-normalizeLogLevel('debug');    // 'debug'
-normalizeLogLevel('verbose');  // 'debug' (alias)
-normalizeLogLevel('trace');    // 'debug' (alias)
-normalizeLogLevel('info');     // 'info'
-normalizeLogLevel('warn');     // 'info' (mapped to info)
-normalizeLogLevel('warning');  // 'info' (alias)
-normalizeLogLevel('error');    // 'error'
-normalizeLogLevel(undefined);  // 'debug' (default)
-normalizeLogLevel('invalid');  // 'debug' (with console warning)
-```
-
-### LogLevel Type
-
-Type definition for valid log levels:
-
-```typescript
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
-```
-
-### Usage Example
-
-```typescript
-import { BridgeServer, normalizeLogLevel } from 'ble-mcp-test';
-
-const logLevel = normalizeLogLevel(process.env.BLE_MCP_LOG_LEVEL);
-const server = new BridgeServer(logLevel);
-await server.start();
-
-// At debug level, you'll see [TX]/[RX] bytestream logs:
-// [TX] A7 B3 C2 01 00 00 A0 00 B3 A7
-// [RX] B3 A7 C2 01 00 00 00 00 A7 B3
 ```
