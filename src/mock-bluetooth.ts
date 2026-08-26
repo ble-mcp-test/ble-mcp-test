@@ -73,7 +73,30 @@ export interface TestingUtils {
 export interface BluetoothTesting {
   testCommand(options: TestCommandOptions): Promise<TestResult>;
   simulateNotification(options: SimulateNotificationOptions): Promise<void>;
+  /**
+   * Who holds the reader, and since when. `null` when the bridge cannot be
+   * reached -- which is a different situation to walk into than a bridge
+   * reporting `held: false`, so the two are not collapsed.
+   *
+   * This is the non-spec half of the availability question.
+   * `getAvailability()` answers "is an adapter reachable"; this answers
+   * "is someone driving it, who, and for how long".
+   */
+  getReaderState(): Promise<ReaderState | null>;
   utils: TestingUtils;
+}
+
+/** The bridge's GET /status payload. */
+export interface ReaderState {
+  held: boolean;
+  session: string | null;
+  acquired_at: string | null;
+  held_seconds: number | null;
+  ready: boolean;
+  device_name: string | null;
+  device_id: string | null;
+  observer_count: number;
+  version: string;
 }
 
 /**
@@ -442,6 +465,8 @@ export class MockBluetooth {
   }
 
   public readonly testing: BluetoothTesting = {
+    getReaderState: async (): Promise<ReaderState | null> => this.fetchStatus(),
+
     testCommand: async (options: TestCommandOptions): Promise<TestResult> => {
       // Input validation first
       if (!options.device || !options.writeCharacteristic || !options.notifyCharacteristic) {
@@ -606,9 +631,60 @@ export class MockBluetooth {
     return device;
   }
 
+  /**
+   * The URL of the bridge's status endpoint, derived from the WebSocket URL.
+   *
+   * ws -> http, wss -> https, same host and port. The status endpoint is served
+   * by the bridge on the WebSocket port precisely so this derivation is
+   * possible without a second configured value that could drift out of step.
+   */
+  private get statusUrl(): string {
+    const u = new URL(this.serverUrl);
+    u.protocol = u.protocol === 'wss:' ? 'https:' : 'http:';
+    u.pathname = '/status';
+    u.search = '';
+    return u.toString();
+  }
+
+  private async fetchStatus(): Promise<ReaderState | null> {
+    try {
+      const res = await fetch(this.statusUrl, { signal: AbortSignal.timeout(2000) });
+      if (!res.ok) return null;
+      return (await res.json()) as ReaderState;
+    } catch {
+      // Unreachable, refused, timed out, or not JSON. All of them mean the same
+      // thing to a caller: nobody could be asked.
+      return null;
+    }
+  }
+
+  /**
+   * Is a Bluetooth adapter reachable?
+   *
+   * This is the Web Bluetooth spec question, and the answer is whether the
+   * bridge responds -- not whether the reader is free. A reader held by another
+   * session still reports `true`, because "someone else is using it" is a
+   * connect-time answer (`Device is busy`, naming the holder), not an
+   * availability one. Overloading this boolean would tell a consumer asking
+   * "does this environment do Bluetooth" that it does not, because a colleague
+   * is mid-run.
+   *
+   * For "is it free, who has it, since when", use
+   * `navigator.bluetooth.testing.getReaderState()`.
+   *
+   * This previously returned a hardcoded `true` -- a check that could never go
+   * red, reporting an available adapter with no bridge running at all.
+   */
   async getAvailability(): Promise<boolean> {
-    // Always available when using WebSocket bridge
-    return true;
+    try {
+      const res = await fetch(this.statusUrl, { signal: AbortSignal.timeout(2000) });
+      // Any HTTP answer means something is listening and speaking for the
+      // bridge. The body is not consulted on purpose: a 426, a 404 from a
+      // future version, or a 200 all establish reachability equally.
+      return res.status > 0;
+    } catch {
+      return false;
+    }
   }
 }
 
