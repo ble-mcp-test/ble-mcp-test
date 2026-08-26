@@ -12,7 +12,6 @@ export class NodeBleClient extends EventEmitter {
   private options: NodeBleClientOptions;
   private connected: boolean = false;
   private reconnectCount: number = 0;
-  private connectionToken?: string;
   private messageHandlers: Map<string, (response: BridgeResponse) => void> = new Map();
   private notificationHandler?: (data: Uint8Array) => void;
 
@@ -192,11 +191,6 @@ export class NodeBleClient extends EventEmitter {
             clearTimeout(timeout);
             this.connected = true;
             
-            // Store connection token if provided
-            if ((msg as any).token) {
-              this.connectionToken = (msg as any).token;
-            }
-            
             if (this.options.debug) {
               console.log(`[NodeBleClient] Connected to bridge`);
             }
@@ -280,17 +274,6 @@ export class NodeBleClient extends EventEmitter {
       return;
     }
 
-    // Send force_cleanup if we have a token
-    if (this.connectionToken && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      try {
-        await this.sendForceCleanup();
-      } catch (error) {
-        if (this.options.debug) {
-          console.warn('[NodeBleClient] Force cleanup failed:', error);
-        }
-      }
-    }
-
     // Close WebSocket
     if (this.ws) {
       this.ws.close();
@@ -301,32 +284,6 @@ export class NodeBleClient extends EventEmitter {
     this.emit('disconnect');
   }
 
-  private async sendForceCleanup(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error('Force cleanup timeout'));
-      }, 5000);
-
-      const messageId = randomUUID();
-      
-      this.messageHandlers.set(messageId, (response) => {
-        clearTimeout(timeout);
-        if (response.type === 'ack' || (response as any).type === 'force_cleanup_complete') {
-          resolve();
-        } else {
-          reject(new Error('Force cleanup failed'));
-        }
-      });
-
-      const request = {
-        type: 'force_cleanup',
-        id: messageId,
-        token: this.connectionToken
-      };
-
-      this.ws!.send(JSON.stringify(request));
-    });
-  }
 
   async destroy(): Promise<void> {
     await this.disconnect();
