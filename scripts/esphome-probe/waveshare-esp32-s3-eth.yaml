@@ -54,6 +54,33 @@ bluetooth_proxy:
   active: true
   connection_slots: 4
 
+# Diagnostics, added 2026-08-26 for TRA-1153 item 5.
+#
+# The ESP32 CPU and its 100Mbps link are the only constrained resources in this
+# stack (the dev hosts are not), so any throughput claim about write-with-response
+# has to be instrumented HERE rather than on a host. Before this, the device
+# exposed two buttons and no sensors at all -- there was nothing to read.
+#
+# loop_time is the signal that matters: the main loop's period rises directly as
+# the CPU is starved, so it measures the constrained resource instead of standing
+# in for it. uptime is how you notice the arm that silently rebooted mid-run
+# rather than reading its post-reboot numbers as data.
+#
+# NOTE: computing these costs loop time itself, so the instrument perturbs what it
+# measures. Treat anything measured before this flash as a different arm, and stamp
+# results with the firmware version (device_info returns it on every connect).
+debug:
+  update_interval: 10s
+
+sensor:
+  - platform: debug
+    free:
+      name: Heap Free
+    loop_time:
+      name: Loop Time
+  - platform: uptime
+    name: Uptime
+
 button:
   - platform: safe_mode
     name: Safe Mode Boot
