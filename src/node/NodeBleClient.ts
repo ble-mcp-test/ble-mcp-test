@@ -5,7 +5,7 @@ import type {
   NodeBleClientOptions, 
   BridgeResponse
 } from './types.js';
-import { getPackageMetadata } from '../utils.js';
+import { getPackageMetadata } from './package-metadata.js';
 
 export class NodeBleClient extends EventEmitter {
   private ws: WebSocket | null = null;
