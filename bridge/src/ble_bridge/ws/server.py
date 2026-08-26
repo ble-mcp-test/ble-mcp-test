@@ -24,13 +24,16 @@ import logging
 from typing import Any
 
 import websockets
-from websockets.asyncio.server import Server, ServerConnection, serve
+from websockets.asyncio.server import Request, Response, Server, ServerConnection, serve
+from websockets.datastructures import Headers
 
+from ble_bridge import __version__
 from ble_bridge.config import Config
 from ble_bridge.log_buffer import RX, TX, LogBuffer
 from ble_bridge.mock_version import expected_mock_version
 from ble_bridge.transport import BleTransport, TransportError, TransportFactory
 from ble_bridge.ws import protocol as p
+from ble_bridge.ws import status as status_endpoint
 from ble_bridge.ws.idle import IdleTimer
 from ble_bridge.ws.ownership import (
     END_OF_STREAM,
@@ -103,10 +106,30 @@ class BridgeServer:
         Returning the resolved port is what lets tests ask for an ephemeral one
         rather than colliding with a bridge someone else is running on 8080.
         """
-        self._server = await serve(self._handle, self._config.ws_host, self._config.ws_port)
+        self._server = await serve(
+            self._handle,
+            self._config.ws_host,
+            self._config.ws_port,
+            process_request=self._process_request,
+        )
         self._port = next(iter(self._server.sockets)).getsockname()[1]
         self._log_bind()
         return self._port
+
+    def _process_request(self, _connection: ServerConnection, request: Request) -> Response | None:
+        """Answer GET /status; let everything else proceed to the WS handshake.
+
+        Returning None hands the request back to websockets, so a non-upgrade
+        request to any other path still gets the 426 it has always got. That
+        matters: a consumer probes this port over plain HTTP and treats any
+        status as "listening".
+        """
+        if request.path.split("?", 1)[0] != status_endpoint.STATUS_PATH:
+            return None
+        code, headers, body = status_endpoint.encode(
+            status_endpoint.status_payload(self._path, __version__)
+        )
+        return Response(code.value, code.phrase, Headers(headers), body)
 
     def _log_bind(self) -> None:
         """State the reachable address and the radio posture, not just the port.
@@ -116,6 +139,19 @@ class BridgeServer:
         misled an operator in this project already.
         """
         where = f"{self._config.ws_host}:{self._port}"
+        if not self._config.is_loopback:
+            # The status endpoint answers Access-Control-Allow-Origin: * so the
+            # browser mock can read it. On loopback that grants nothing anyone
+            # local did not already have. Off loopback it is a real grant, to
+            # anyone who can reach the port. mcp-http-transport.ts:23 made
+            # exactly this mistake -- `origin: '*'` on a 0.0.0.0 bind -- and
+            # TRA-1161 deleted it. Say so rather than let it be discovered.
+            logger.warning(
+                "%s is reachable beyond this host and %s answers any origin: "
+                "anyone who can reach this port can read who holds the reader",
+                where,
+                status_endpoint.STATUS_PATH,
+            )
         if self._config.is_loopback:
             logger.info("bridge listening on %s (loopback: reachable only from this host)", where)
         else:

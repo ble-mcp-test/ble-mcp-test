@@ -31,6 +31,7 @@ tick must not both get past the guard while the first one's connect() is in flig
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 
 from ble_bridge.transport import DeviceInfo
@@ -110,6 +111,11 @@ class Claim:
     torn_down: asyncio.Event = field(default_factory=asyncio.Event)
     own_subscription: Subscription = field(init=False)
     device: DeviceInfo | None = None
+    #: Wall clock, for "since when" in a human-readable answer. Paired with a
+    #: monotonic reading rather than used alone: wall clock can jump, and
+    #: "held for -4 seconds" after an NTP step is worse than no number.
+    acquired_at: float = field(default_factory=time.time)
+    _acquired_monotonic: float = field(default_factory=time.monotonic)
     _observers: list[Subscription] = field(default_factory=list)
     _live: bool = True
 
@@ -119,6 +125,17 @@ class Claim:
     @property
     def is_ready(self) -> bool:
         return self.device is not None
+
+    @property
+    def held_seconds(self) -> float:
+        """How long this claim has held the path.
+
+        Derived from the monotonic clock, so a wall-clock step cannot make it
+        negative. This is the number that answers the question a blocked person
+        actually asks -- "has someone had this for four seconds or forty
+        minutes" -- which a session id alone does not.
+        """
+        return round(time.monotonic() - self._acquired_monotonic, 3)
 
     @property
     def observer_count(self) -> int:
