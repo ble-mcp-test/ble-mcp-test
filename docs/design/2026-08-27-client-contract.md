@@ -182,7 +182,7 @@ Mock-only by definition. The real API has none of this.
 |---|---|---|
 | `testing.simulateNotification({ characteristic, data, delay? })` | **the event has dispatched by the time the promise resolves.** Couples to characteristic *identity*, not UUID. Throws on an unsubscribed characteristic. | one |
 | `testing.utils.toHex` / `fromHex` / `equals` | round-trip; `fromHex` accepts `"A7 0B FF"` and `"A70BFF"`. | — |
-| `testing.testCommand(options)` | write, await one matching notification, resolve a result. | — |
+| `testing.testCommand(options)` | write, await one matching notification, resolve a result. | **none** |
 | `testing.getReaderState()` | who holds the reader and since when; `null` when the bridge cannot be reached — deliberately not collapsed with a bridge reporting `held: false`. | **none** |
 | `testing.setAvailability(value \| null)` | force what `getAvailability()` reports; `null` clears back to asking. | **none** |
 
@@ -246,10 +246,25 @@ Recorded rather than decided, because a decision needs an owner.
   it, conformance covers both" — there is no per-client decision to make. Without
   one, that per-client decision is exactly what produced the asymmetry TRA-1187
   was filed over.
-- **`testing.*` members with zero consumers** — `setAvailability`, `getReaderState`,
-  `forceCleanup`. Built deliberately under TRA-35, so this is not a delete call,
-  but "we ship test-only methods nobody calls" deserves an answer rather than
-  inheritance.
+- **`testing.*` members with zero consumers.** The list is **`setAvailability`,
+  `getReaderState`, and `testCommand`** — three members, and not the three the
+  question was originally asked about. Two corrections, both verified against this
+  tree:
+  - **`forceCleanup` does not exist.** It appears in no source, test or document
+    here. Whatever it once was, it is not surface this package ships, so there is
+    nothing to decide about it.
+  - **`testCommand` was not on the list and belongs on it.** ~40 lines of
+    timeout-and-validation logic with no caller outside its own unit tests. It is
+    also the method that passed `{ once: true }` to a mock that took no options
+    argument for months — a guarantee it never got, from the only code that wanted
+    it.
+
+  `getReaderState` and `setAvailability` were built deliberately under TRA-35, so
+  this is not a delete call. But "we ship test-only methods nobody calls" deserves
+  an answer rather than inheritance, and `testCommand` has the weakest case of the
+  three: it is not a capability, it is a convenience wrapper around
+  `writeValue` + `addEventListener(… , { once: true })` that a consumer can write
+  in five lines and tailor to its own protocol.
 - **Should the client advertise itself, and where?** "Am I talking to the double or
   a real radio" is a legitimate thing for a consumer to need, and `window` is the
   wrong home for it in a runtime that may not have one. A new design question, not
