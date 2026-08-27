@@ -38,12 +38,18 @@
   "type": "module",
   "browser": "./dist/web-ble-mock.bundle.js",
   "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./browser": "./dist/web-ble-mock.bundle.js",
     "./node": {
       "types": "./dist/node/index.d.ts",
       "import": "./dist/node/index.js"
     }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "files": [
     "dist",
     "README.md",
