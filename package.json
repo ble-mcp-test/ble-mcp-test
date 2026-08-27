@@ -70,6 +70,8 @@
     "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
     "test:integration": "CHECK_BLE_DEVICE=true pnpm run pretest && vitest run tests/integration",
     "test:unit": "pnpm run pretest && vitest run tests/unit",
+    "test:conformance": "vitest run tests/conformance",
+    "test:conformance:real": "pnpm exec playwright test -c playwright.conformance.config.ts",
     "test:all": "pnpm run pretest && vitest run && pnpm test:e2e",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",

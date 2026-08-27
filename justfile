@@ -36,6 +36,7 @@ typecheck-ts: install
 
 test-ts: install
     pnpm run test:unit
+    pnpm run test:conformance
 
 build-ts: install
     pnpm run build
@@ -64,6 +65,19 @@ test: test-ts test-py
 build: build-ts
 
 validate: lint typecheck-ts test
+
+# Arm B of the conformance suite: the SAME contract checks, against REAL Chromium
+# navigator.bluetooth instead of the mock. Opt-in, like `just hardware`, and for
+# the same reason -- it needs hardware. `just test` runs arm A, which can only
+# establish that the mock agrees with ITSELF; only this arm can establish that it
+# agrees with the API it doubles.
+#
+# Needs BLE_MCP_CONFORMANCE_ARM_B=1, a machine whose Chromium can reach a real BLE
+# adapter (BlueZ over D-Bus -- the ESPHome proxy is the bridge's route, not
+# Chrome's), and a powered peripheral in range. See the header of
+# playwright.conformance.config.ts for what is unfinished.
+conformance-real:
+    BLE_MCP_CONFORMANCE_ARM_B=1 pnpm run test:conformance:real
 
 # Hardware-dependent. Needs a powered device in range and a running bridge.
 # A local Bluetooth stack is NOT required: the bridge reaches the device over
