@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
  *
  * `ble_bridge` is the Python bridge, which runs as
  * `.../bridge/.venv/bin/python3 -m ble_bridge`. It is the only thing this repo
- * can now find holding 8080, and killing it mid-run is the TRA-1170 bug.
+ * can now find holding 25153, and killing it mid-run is the TRA-1170 bug.
  */
 const PROTECTED_MARKERS = ['ble_bridge'];
 

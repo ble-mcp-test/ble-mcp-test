@@ -17,7 +17,7 @@ cd bridge && uv run python -m ble_bridge
 import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,  // Include app name and hostname
-  serverUrl: 'ws://localhost:8080',
+  serverUrl: 'ws://localhost:25153',
   service: '9800'  // Your device's primary service UUID
 });
 ```
@@ -43,12 +43,12 @@ sequenceDiagram
     participant BLE as BLE Device
 
     Note over Test,Browser: 1. Test Setup
-    Test->>Browser: injectWebBluetoothMock({sessionId:'myapp-e2e-hostname', serverUrl:'ws://localhost:8080', service:'9800'})
+    Test->>Browser: injectWebBluetoothMock({sessionId:'myapp-e2e-hostname', serverUrl:'ws://localhost:25153', service:'9800'})
     Browser->>Browser: Replace navigator.bluetooth
 
     Note over Test,BLE: 2. Device Connection
     Test->>Browser: navigator.bluetooth.requestDevice()
-    Browser->>Bridge: WebSocket connect<br/>ws://localhost:8080?device=CS108&service=...
+    Browser->>Bridge: WebSocket connect<br/>ws://localhost:25153?device=CS108&service=...
     Bridge->>BLE: Scan for device via ESPHome proxy
     BLE-->>Bridge: Device found
     Bridge->>BLE: Connect via ESPHome proxy
@@ -91,7 +91,7 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 
 async function startDevServer() {
   // 1. Health check bridge server before starting
-  const bridgeUrl = process.env.BLE_BRIDGE_URL || 'ws://localhost:8080';
+  const bridgeUrl = process.env.BLE_BRIDGE_URL || 'ws://localhost:25153';
   const healthUrl = bridgeUrl.replace('ws:', 'http:').replace('8080', '8081') + '/health';
   
   const health = await fetch(healthUrl);
@@ -237,7 +237,7 @@ test('BLE device communication', async ({ page }) => {
   await page.evaluate((hostname) => {
     window.WebBleMock.injectWebBluetoothMock({
       sessionId: `myapp-e2e-${hostname}`,  // Include app name and hostname
-      serverUrl: 'ws://localhost:8080',
+      serverUrl: 'ws://localhost:25153',
       service: '9800',
       write: '9900',
       notify: '9901'
@@ -277,7 +277,7 @@ import { NodeBleClient } from 'ble-mcp-test/node';
 // Create client instance
 const client = new NodeBleClient({
   sessionId: `myapp-node-${os.hostname()}`,  // Required: prevents session conflicts
-  bridgeUrl: 'ws://localhost:8080',          // Required: bridge server URL
+  bridgeUrl: 'ws://localhost:25153',          // Required: bridge server URL
   service: '9800',                           // Required: service UUID for discovery
   write: '9900',                             // Required: write characteristic UUID
   notify: '9901',                            // Required: notify characteristic UUID
@@ -328,7 +328,7 @@ describe('BLE Device Integration', () => {
   beforeAll(async () => {
     client = new NodeBleClient({
       sessionId: `integration-test-${os.hostname()}`,
-      bridgeUrl: 'ws://localhost:8080',
+      bridgeUrl: 'ws://localhost:25153',
       service: '9800',
       write: '9900',
       notify: '9901'
@@ -368,21 +368,21 @@ import os from 'os';
 
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,  // e.g., "myapp-e2e-dev-laptop"
-  serverUrl: 'ws://localhost:8080',
+  serverUrl: 'ws://localhost:25153',
   service: '9800'
 });
 
 // For browser environments without os module
 injectWebBluetoothMock({
   sessionId: `myapp-browser-${window.location.hostname}`,  // e.g., "myapp-browser-localhost"
-  serverUrl: 'ws://localhost:8080',
+  serverUrl: 'ws://localhost:25153',
   service: '9800'
 });
 
 // In CI/CD environments
 injectWebBluetoothMock({
   sessionId: `myapp-ci-${process.env.CI_JOB_ID || os.hostname()}`,  // e.g., "myapp-ci-job-123"
-  serverUrl: 'ws://localhost:8080',
+  serverUrl: 'ws://localhost:25153',
   service: '9800'
 });
 
@@ -396,7 +396,7 @@ There is no auto-detection, no environment variable, and no fallback. Pass a
 `sessionId` or `injectWebBluetoothMock` throws:
 
 ```javascript
-injectWebBluetoothMock({ serverUrl: 'ws://localhost:8080', service: '9800' });
+injectWebBluetoothMock({ serverUrl: 'ws://localhost:25153', service: '9800' });
 // Error: sessionId is required - this prevents session conflicts and ensures
 // predictable BLE connection management
 ```
@@ -497,12 +497,12 @@ This is especially useful when:
 
 ```javascript
 // ❌ WRONG - Don't do this!
-const ws = new WebSocket('ws://localhost:8080/?device=...');
+const ws = new WebSocket('ws://localhost:25153/?device=...');
 
 // ✅ CORRECT - Use the mock with required parameters
 injectWebBluetoothMock({
   sessionId: `myapp-dev-${os.hostname()}`,  // Required: unique session ID
-  serverUrl: 'ws://localhost:8080',         // Required: bridge server URL
+  serverUrl: 'ws://localhost:25153',         // Required: bridge server URL
   service: '9800'                           // Required: primary service UUID
 });
 const device = await navigator.bluetooth.requestDevice({...});

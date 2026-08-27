@@ -848,7 +848,7 @@ export interface WebBleMockConfig {
  * 
  * window.WebBleMock.injectWebBluetoothMock({
  *   sessionId: `test-session-${os.hostname()}`,  // Unique per developer machine
- *   serverUrl: 'ws://localhost:8080',            // Bridge server URL
+ *   serverUrl: 'ws://localhost:25153',            // Bridge server URL
  *   service: '9800'                              // Your BLE service UUID
  * });
  * ```
@@ -857,7 +857,7 @@ export interface WebBleMockConfig {
  * ```javascript
  * window.WebBleMock.injectWebBluetoothMock({
  *   sessionId: `test-session-${os.hostname()}`,
- *   serverUrl: 'ws://localhost:8080',
+ *   serverUrl: 'ws://localhost:25153',
  *   service: '9800',
  *   write: '9900',     // Optional: write characteristic UUID
  *   notify: '9901',    // Optional: notify characteristic UUID
@@ -880,7 +880,7 @@ export function injectWebBluetoothMock(config: WebBleMockConfig): void {
     throw new Error('sessionId is required - this prevents session conflicts and ensures predictable BLE connection management');
   }
   if (!config.serverUrl) {
-    throw new Error('serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:8080")');
+    throw new Error('serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:25153")');
   }
   if (!config.service) {
     throw new Error('service is required - specify the primary service UUID for device discovery');

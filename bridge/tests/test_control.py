@@ -30,14 +30,35 @@ from ble_bridge.ws.ownership import CommandPath
 
 
 def _a_free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
+    """A free port INSIDE the accepted range, not merely a free port.
+
+    `bind(("127.0.0.1", 0))` asks the OS for one, and the OS assigns from the
+    ephemeral range -- which config now rejects, because a listen port in that
+    range can be transiently stolen by an outbound socket's source port. So the
+    obvious helper hands back exactly the kind of port the bridge refuses.
+    Probe within the range instead, and fail loudly rather than returning an
+    unusable one.
+    """
+    for candidate in range(20000, 20100):
+        with socket.socket() as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind(("127.0.0.1", candidate))
+            except OSError:
+                continue
+            return candidate
+    raise RuntimeError("no free port in 20000-20099 for the test bridge")
+
+
+#: An explicit port, because Config no longer carries a default one. The value
+#: is arbitrary; what these tests pin is that `status` reports the CONFIGURED
+#: port rather than a constant of its own.
+CONTROL_TEST_PORT = 25153
 
 
 def _make(path, buffer=None, command_path=None):
     return ControlServer(
-        Config(socket_path=str(path)),
+        Config(ws_port=CONTROL_TEST_PORT, socket_path=str(path)),
         log_buffer=buffer if buffer is not None else LogBuffer(100),
         command_path=command_path if command_path is not None else CommandPath(),
         started_at=time.monotonic(),
@@ -205,7 +226,7 @@ async def test_get_connection_state_reports_the_owner_and_its_observers(server):
 async def test_status_reports_the_resolved_configuration(server):
     srv, _, _ = server
     result = (await _ask(srv, "status"))["result"]
-    assert result["ws_port"] == 8080
+    assert result["ws_port"] == CONTROL_TEST_PORT
     assert result["socket_path"] == srv.path
     assert result["log_buffer_enabled"] is True
     assert result["uptime_seconds"] >= 0
@@ -228,6 +249,7 @@ async def test_status_carries_no_http_surface(server):
 async def test_status_names_the_esphome_target_when_one_is_configured(tmp_path):
     config = from_env(
         {
+            "BLE_MCP_WS_PORT": str(CONTROL_TEST_PORT),
             "ESPHOME_PROXY_HOST": "192.168.50.170",
             "BLE_MCP_DEVICE_MAC": "6c:79:b8:11:22:33",
             "BLE_MCP_SOCKET_PATH": str(tmp_path / "e.sock"),

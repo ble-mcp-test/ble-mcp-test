@@ -10,7 +10,7 @@ Create a `.env.local` file:
 ```bash
 # WebSocket Server Configuration
 BLE_MCP_WS_HOST=localhost
-BLE_MCP_WS_PORT=8080
+BLE_MCP_WS_PORT=25153
 
 # BLE Device Configuration
 BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx
@@ -39,7 +39,7 @@ dotenv.config({ path: '.env.local' });
 // Helper to build WebSocket URL from environment
 function getWebSocketUrl() {
   const host = process.env.BLE_MCP_WS_HOST || 'localhost';
-  const port = process.env.BLE_MCP_WS_PORT || '8080';
+  const port = process.env.BLE_MCP_WS_PORT || '25153';  // matches the bridge default
   const url = new URL(`ws://${host}:${port}`);
   
   // Add BLE configuration
@@ -71,11 +71,18 @@ import * as dotenv from 'dotenv';
 
 dotenv.config({ path: '.env.local' });
 
+// Mirrors the bridge's own default so the two cannot disagree. The rule is not
+// "no defaults" -- it is that a default must never be a port a co-resident
+// service owns. 8080 was the consumer's own backend; 25153 was picked not to be.
+function bridgePort(): string {
+  return process.env.BLE_MCP_WS_PORT || '25153';
+}
+
 // Reusable configuration helper
 function getBleEnvironment() {
   return {
     wsHost: process.env.BLE_MCP_WS_HOST || 'localhost',
-    wsPort: process.env.BLE_MCP_WS_PORT || '8080',
+    wsPort: bridgePort(),
     device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
     service: process.env.BLE_MCP_SERVICE_UUID || '9800',
     write: process.env.BLE_MCP_WRITE_UUID || '9900',

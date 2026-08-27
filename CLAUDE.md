@@ -55,7 +55,7 @@ cd bridge && just hardware   # opt-in, needs a real device
 
 **Hardware reality.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: it needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default.
 
-**Run the bridge from the main checkout, not a worktree** — `cd bridge && BLE_MCP_WS_PORT=8080 uv run python -m ble_bridge`. Confirm it logged `ESPHome transport:` and not the stub.
+**Run the bridge from the main checkout, not a worktree** — `cd bridge && BLE_MCP_WS_PORT=25153 uv run python -m ble_bridge`. Confirm it logged `ESPHome transport:` and not the stub.
 
 **Gitignored is not glob-invisible.** `vitest.config.ts` must exclude `.claude/worktrees/**` or a run collects sibling worktrees' tests; `tests/unit/vitest-isolation.test.ts` guards it.
 

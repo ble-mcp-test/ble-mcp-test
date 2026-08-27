@@ -19,7 +19,13 @@ export class WebSocketTransport {
   private messageHandler?: (msg: WSMessage) => void;
   private sessionId?: string; // v0.4.5: Session management
   
-  constructor(serverUrl = 'ws://localhost:8080') {
+  /**
+   * No default URL. `injectWebBluetoothMock` already refuses to run without an
+   * explicit `serverUrl`, so the old `= 'ws://localhost:8080'` was unreachable
+   * through the supported entry point -- a dead value that read like a live
+   * guess, and pointed at the port the bridge no longer uses.
+   */
+  constructor(serverUrl: string) {
     this.serverUrl = serverUrl;
   }
   

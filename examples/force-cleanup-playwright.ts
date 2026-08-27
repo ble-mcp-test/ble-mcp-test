@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 // Helper function to force cleanup BLE connections via WebSocket
-async function forceCleanupBLE(wsUrl = 'ws://localhost:8080'): Promise<void> {
+async function forceCleanupBLE(wsUrl = 'ws://localhost:25153'): Promise<void> {
   return new Promise((resolve, reject) => {
     // In Playwright, we can use page.evaluate to create WebSocket in browser context
     const cleanup = async () => {
@@ -70,7 +70,7 @@ test.describe('BLE Bridge E2E Tests', () => {
           reject(new Error('WebSocket error'));
         };
       });
-    }, 'ws://localhost:8080');
+    }, 'ws://localhost:25153');
     
     console.log('BLE cleanup completed, starting test...');
   });
@@ -90,7 +90,7 @@ test.describe('BLE Bridge E2E Tests', () => {
     // Force cleanup at any point in your test
     await page.evaluate(() => {
       return new Promise<void>((resolve, reject) => {
-        const ws = new WebSocket('ws://localhost:8080');
+        const ws = new WebSocket('ws://localhost:25153');
         
         ws.onopen = () => {
           ws.send(JSON.stringify({ type: 'force_cleanup' }));

@@ -10,6 +10,12 @@ import { Page } from '@playwright/test';
 import * as path from 'path';
 import os from 'os';
 
+function requireBridgeUrl(): string {
+  const url = process.env.BLE_BRIDGE_URL;
+  if (!url) throw new Error('BLE_BRIDGE_URL is not set. The bridge has no default URL or port.');
+  return url;
+}
+
 export interface SmartMockConfig {
   // Optional custom config - defaults to standard CS108 config
   sessionId?: string;
@@ -33,7 +39,9 @@ export async function ensureMockInjected(
   // Default configuration
   const defaultConfig = {
     sessionId: config?.sessionId || `myapp-e2e-${os.hostname()}`,
-    serverUrl: config?.serverUrl || process.env.BLE_BRIDGE_URL || 'ws://localhost:8080',
+    // No literal fallback. Renumbering 8080 -> 25153 here would have kept the
+    // defect and changed only the number it guesses wrong.
+    serverUrl: config?.serverUrl || requireBridgeUrl(),
     service: config?.service || process.env.BLE_MCP_SERVICE_UUID || '9800',
     write: config?.write || process.env.BLE_MCP_WRITE_UUID || '9900',
     notify: config?.notify || process.env.BLE_MCP_NOTIFY_UUID || '9901'

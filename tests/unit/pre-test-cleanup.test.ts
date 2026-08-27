@@ -151,12 +151,12 @@ describe('pre-test-cleanup.js', () => {
     expect(alive(listener)).toBe(true);
     expect(alive(client)).toBe(true);
     // Name the port. A bare "being nice and leaving it alone" is also printed
-    // when the sweep meets a real bridge on the default port 8080, so the
+    // when the sweep meets a real bridge on the default port 25153, so the
     // unqualified string passes against a script that ignored the override
     // entirely -- satisfied by an emitter other than the one under test.
     expect(output).toContain(`Port ${listener.port}: Production process detected`);
     // The override must actually be in force: the default ports are not swept.
-    expect(output).not.toContain('Port 8080');
+    expect(output).not.toContain('Port 25153');
     // The bug's only fingerprint. If the shell ever splits a command again,
     // this is where it shows up.
     expect(output).not.toContain('not found');

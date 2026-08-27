@@ -113,7 +113,7 @@ describe('my feature', () => {
 ### Integration Tests (BLE Required)
 ```bash
 # Set up test environment
-export WS_URL=ws://localhost:8080
+export WS_URL=ws://localhost:25153
 export BLE_DEVICE_PREFIX=CS108  # Or your device
 
 # Run integration tests

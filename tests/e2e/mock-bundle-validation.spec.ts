@@ -102,7 +102,7 @@ test.describe('Mock Bundle Validation', () => {
         try {
           // Try to inject without sessionId (should fail)
           window.WebBleMock.injectWebBluetoothMock({
-            serverUrl: 'ws://localhost:8080',
+            serverUrl: 'ws://localhost:25153',
             service: '9800'
           } as any);
           return { success: true, error: null };
@@ -141,7 +141,7 @@ test.describe('Mock Bundle Validation', () => {
           // Try to inject without service (should fail)
           window.WebBleMock.injectWebBluetoothMock({
             sessionId: 'test-session',
-            serverUrl: 'ws://localhost:8080'
+            serverUrl: 'ws://localhost:25153'
           } as any);
           return { success: true, error: null };
         } catch (error: any) {
@@ -183,9 +183,9 @@ test.describe('Mock Bundle Validation', () => {
 
       const result = await page.evaluate(() => {
         const testCases = [
-          { sessionId: '', serverUrl: 'ws://localhost:8080', service: '9800' },
+          { sessionId: '', serverUrl: 'ws://localhost:25153', service: '9800' },
           { sessionId: 'test', serverUrl: '', service: '9800' },
-          { sessionId: 'test', serverUrl: 'ws://localhost:8080', service: '' }
+          { sessionId: 'test', serverUrl: 'ws://localhost:25153', service: '' }
         ];
 
         return testCases.map(config => {

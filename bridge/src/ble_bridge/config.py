@@ -21,7 +21,32 @@ from dataclasses import dataclass, field
 
 #: Loopback, not a deployment setting. See test_default_bind_is_loopback.
 DEFAULT_WS_HOST = "127.0.0.1"
-DEFAULT_WS_PORT = 8080
+
+#: The default listen port. 8080 was the previous one and it was owned by a
+#: co-resident service (platform's backend), which presented as a dead reader
+#: rather than as a port conflict and cost an evening to find.
+#:
+#: The rule that fell out of that is narrower than "no defaults": a default must
+#: never be a port a co-resident service owns. Choosing one means checking its
+#: REPUTATION as well as whether anything is bound -- those are different
+#: properties. 15104 was rejected after it was already picked: nothing uses it,
+#: but it is the mstream DDoS handler port and IDS/IPS products still ship
+#: signatures for it, so a LAN service there can be flagged by a corporate
+#: scanner. A search for what is LISTENING cannot find a reputation.
+#:
+#: 25153 is mnemonic (25 + ESPHome's 153), clear of the alternate-HTTP clusters
+#: (8080/8443/9000/9090/10000/18080/28080) and of 30000-32767 where Kubernetes
+#: NodePorts live.
+DEFAULT_WS_PORT = 25153
+
+#:
+#: Accepted range, and the reason for each end:
+#:   >= 1024   0-1023 are privileged and need root to bind.
+#:   <= 32767  the ephemeral range starts at 32768 on this box, and a listen
+#:             port inside it can be transiently stolen by an outbound socket's
+#:             source port -- rare, non-deterministic, and miserable to diagnose.
+MIN_WS_PORT = 1024
+MAX_WS_PORT = 32767
 
 HOST_ENV = "BLE_MCP_WS_HOST"
 PORT_ENV = "BLE_MCP_WS_PORT"
@@ -111,7 +136,10 @@ class EsphomeConfig:
 @dataclass(frozen=True)
 class Config:
     ws_host: str = DEFAULT_WS_HOST
-    ws_port: int = DEFAULT_WS_PORT
+    #: 0 means "let the OS assign one", which is what direct construction in
+    #: tests wants. It is NOT a default port: from_env refuses to start without
+    #: an explicit one, so nothing that actually serves reaches this value.
+    ws_port: int = 0
     #: None when no proxy is configured at all -- never a half-configured one.
     esphome: EsphomeConfig | None = None
     #: A `logging` level constant, already resolved from its name.
@@ -176,6 +204,21 @@ def _present(env: Mapping[str, str], key: str) -> str | None:
     return raw.strip()
 
 
+def _check_port_range(port: int) -> None:
+    """Range-check an EXPLICIT port. The default is trusted by construction.
+
+    A set-but-wrong value never falls back: falling back would bind a port the
+    operator did not ask for while their evidence said otherwise.
+    """
+    if not MIN_WS_PORT <= port <= MAX_WS_PORT:
+        raise ConfigError(
+            f"{PORT_ENV} is set to {port}, which is outside "
+            f"{MIN_WS_PORT}-{MAX_WS_PORT}. Below {MIN_WS_PORT} needs root; "
+            f"above {MAX_WS_PORT} is the ephemeral range, where an outbound "
+            "socket can transiently steal the port."
+        )
+
+
 def from_env(env: Mapping[str, str] | None = None) -> Config:
     env = os.environ if env is None else env
 
@@ -192,11 +235,7 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
                 f"{PORT_ENV} is set to {raw_port!r}, which is not an integer. "
                 f"Refusing to fall back to {DEFAULT_WS_PORT}."
             ) from exc
-        if not 1 <= port <= 65535:
-            raise ConfigError(
-                f"{PORT_ENV} is set to {port}, which is outside 1-65535. "
-                f"Refusing to fall back to {DEFAULT_WS_PORT}."
-            )
+        _check_port_range(port)
 
     return Config(
         ws_host=host,

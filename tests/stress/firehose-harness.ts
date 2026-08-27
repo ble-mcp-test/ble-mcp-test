@@ -53,7 +53,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * comparison against the Python bridge is only valid if the SAME consumer is
  * used on both sides.
  *
- * Binds an OS-assigned ephemeral port on loopback. It must never touch 8080.
+ * Binds an OS-assigned ephemeral port on loopback. It must never touch the bridge's port.
  */
 export async function runFirehose(opts: FirehoseRunOptions): Promise<FirehoseResult> {
   const payloadBytes = opts.payloadBytes ?? DEFAULT_PAYLOAD_BYTES;
@@ -72,7 +72,7 @@ export async function runFirehose(opts: FirehoseRunOptions): Promise<FirehoseRes
   });
 
   const port = await server.start(0, '127.0.0.1');
-  if (port === 8080) throw new Error('refusing to run: ephemeral bind returned 8080');
+  if (port === 25153) throw new Error('refusing to run: ephemeral bind returned 25153');
 
   const { version } = getPackageMetadata();
   const url = `ws://127.0.0.1:${port}/?service=9800&write=9900&notify=9901&_mv=${version}`;

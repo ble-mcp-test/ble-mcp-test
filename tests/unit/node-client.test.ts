@@ -6,7 +6,7 @@ describe('NodeBleClient', () => {
     it('should require sessionId in constructor', () => {
       expect(() => new NodeBleClient({
         // @ts-expect-error - Missing sessionId for test
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900', 
         notify: '9901'
@@ -16,7 +16,7 @@ describe('NodeBleClient', () => {
     it('should require service parameter', () => {
       expect(() => new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         // @ts-expect-error - Missing service for test
         write: '9900',
         notify: '9901'
@@ -26,7 +26,7 @@ describe('NodeBleClient', () => {
     it('should require write parameter', () => {
       expect(() => new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         // @ts-expect-error - Missing write for test
         notify: '9901'
@@ -36,7 +36,7 @@ describe('NodeBleClient', () => {
     it('should require notify parameter', () => {
       expect(() => new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900'
         // @ts-expect-error - Missing notify for test
@@ -46,7 +46,7 @@ describe('NodeBleClient', () => {
     it('should accept optional deviceId and deviceName', () => {
       expect(() => new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901',
@@ -59,7 +59,7 @@ describe('NodeBleClient', () => {
     it('should set default values for optional parameters', () => {
       const client = new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'
@@ -94,7 +94,7 @@ describe('NodeBleClient', () => {
     beforeEach(() => {
       client = new NodeBleClient({
         sessionId: 'test-session',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'
@@ -143,7 +143,7 @@ describe('NodeBleClient', () => {
     it('should not expose requestDevice method', () => {
       const client = new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'
@@ -156,7 +156,7 @@ describe('NodeBleClient', () => {
     it('should not expose getDevices method', () => {
       const client = new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'
@@ -169,7 +169,7 @@ describe('NodeBleClient', () => {
     it('should expose writeValue method', () => {
       const client = new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'
@@ -181,7 +181,7 @@ describe('NodeBleClient', () => {
     it('should expose onNotification method', () => {
       const client = new NodeBleClient({
         sessionId: 'test',
-        bridgeUrl: 'ws://localhost:8080',
+        bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900',
         notify: '9901'

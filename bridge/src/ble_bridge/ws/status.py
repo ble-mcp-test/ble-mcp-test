@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 #: handshake, which means a non-upgrade request still gets 426 exactly as before.
 STATUS_PATH = "/status"
 
+
 def cors_headers(is_loopback: bool) -> list[tuple[str, str]]:
     """Permissive CORS on loopback, none at all when bound wider.
 

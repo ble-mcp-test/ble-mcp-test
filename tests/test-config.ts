@@ -27,7 +27,7 @@ export function getTestConfig(): BridgeTestConfig {
   const write = process.env.BLE_MCP_WRITE_UUID || '';
   const notify = process.env.BLE_MCP_NOTIFY_UUID || '';
   
-  const wsPort = process.env.BLE_MCP_WS_PORT || '8080';
+  const wsPort = process.env.BLE_MCP_WS_PORT || '25153';  // matches the bridge default
   const wsUrl = process.env.BLE_MCP_WS_URL || `ws://localhost:${wsPort}`;
 
   // Validate required configuration
@@ -125,7 +125,7 @@ export async function setupTestServer() {
 //    pnpm test
 //
 // 5. Run tests against remote bridge server:
-//    BLE_MCP_WS_URL=ws://raspberry-pi.local:8080 \
+//    BLE_MCP_WS_URL=ws://raspberry-pi.local:25153 \
 //    BLE_MCP_DEVICE_NAME=MyDevice \
 //    BLE_MCP_SERVICE_UUID=... \
 //    BLE_MCP_WRITE_UUID=... \

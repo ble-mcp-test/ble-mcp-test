@@ -23,7 +23,7 @@
     
     <script>
         // Initialize the mock (v0.4.2+ required)
-        WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+        WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
         
         document.getElementById('connect').onclick = async () => {
             try {
@@ -75,7 +75,7 @@ test.describe('BLE Device Tests', () => {
         
         // Configure and inject
         await page.evaluate(() => {
-            const url = new URL('ws://localhost:8080');
+            const url = new URL('ws://localhost:25153');
             url.searchParams.set('device', 'CS108');
             url.searchParams.set('service', '9800');
             url.searchParams.set('write', '9900');
@@ -130,7 +130,7 @@ dotenv.config({ path: '.env.local' });
 
 // Configure from environment
 const host = process.env.BLE_MCP_WS_HOST || 'localhost';
-const port = process.env.BLE_MCP_WS_PORT || '8080';
+const port = process.env.BLE_MCP_WS_PORT || '25153';  // matches the bridge default
 const url = new URL(`ws://${host}:${port}`);
 url.searchParams.set('device', process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108');
 url.searchParams.set('service', process.env.BLE_MCP_SERVICE_UUID || '9800');
@@ -155,11 +155,18 @@ function getBleConfig() {
   };
 }
 
+// Mirrors the bridge's own default so the two cannot disagree. The rule is not
+// "no defaults" -- it is that a default must never be a port a co-resident
+// service owns. 8080 was the consumer's own backend; 25153 was picked not to be.
+function bridgePort(): string {
+  return process.env.BLE_MCP_WS_PORT || '25153';
+}
+
 // Helper to get full config including host/port
 function getFullBleConfig() {
   return {
     host: process.env.BLE_MCP_WS_HOST || 'localhost',
-    port: process.env.BLE_MCP_WS_PORT || '8080',
+    port: bridgePort(),
     ...getBleConfig()
   };
 }
@@ -179,7 +186,7 @@ await page.evaluate(({ host, port, device, service, write, notify }) => {
 #### Manual Configuration
 ```javascript
 // Configure device-specific parameters via URL
-const url = new URL('ws://localhost:8080');
+const url = new URL('ws://localhost:25153');
 url.searchParams.set('device', 'MyDevice');    // Device name prefix
 url.searchParams.set('service', '180f');       // Service UUID
 url.searchParams.set('write', '2a19');         // Write characteristic
@@ -214,7 +221,7 @@ function configureMockForDevice(deviceType) {
     };
     
     const config = configs[deviceType];
-    const url = new URL('ws://localhost:8080');
+    const url = new URL('ws://localhost:25153');
     Object.entries(config).forEach(([key, value]) => {
         url.searchParams.set(key, value);
     });
@@ -425,7 +432,7 @@ test('handles rapid connect/disconnect cycles', async ({ page }) => {
 injectWebBluetoothMock('wss://ble-bridge.example.com');
 
 // Use with authentication
-const url = new URL('ws://localhost:8080');
+const url = new URL('ws://localhost:25153');
 url.username = 'testuser';
 url.password = 'testpass';
 injectWebBluetoothMock(url.toString());

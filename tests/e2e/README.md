@@ -66,7 +66,7 @@ test('my test', async ({ page }) => {
 ### Optional
 - `BLE_MCP_DEVICE_IDENTIFIER` - Device name filter
 - `BLE_MCP_WS_HOST` - Bridge host (default: localhost)
-- `BLE_MCP_WS_PORT` - Bridge port (default: 8080)
+- `BLE_MCP_WS_PORT` - Bridge port. **Required** -- there is no default.
 
 ## Test Coverage
 
