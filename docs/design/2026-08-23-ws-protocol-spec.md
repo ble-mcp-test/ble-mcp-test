@@ -14,6 +14,12 @@ are read from `bridge/`, not from the deleted TypeScript — the TS bridge is go
 this document is now the specification of the Python bridge rather than a port target derived from
 its predecessor. Each addition says what prompted it.
 
+**Amended 2026-08-27 (TRA-1153 item 5b).** §8 is new and specifies `write_ack`, the first message
+type added to this protocol since the port. The §2 tables gain it, and gain the optional `write_id`
+the client→server `data` frame now carries. **Ten message types traverse the wire as of this
+amendment** — the "Corrected: 9" below is the count as it stood on 2026-08-23 and is left standing
+as the history it is.
+
 Two of the three were absent because nothing had gone wrong in them yet. **Release timing was
 absent, and four e2e specs encoded a contradictory assumption for months with nothing to contradict
 them** — the document specified who may claim the path but never when it comes free, so a test
@@ -96,12 +102,13 @@ rather than inherited.
 | `session_cleanup_complete` | `ws-handler.ts:127` | after `cleanup_session` | — **nothing consumes this** | `{type, sessionId, message}` |
 | `force_cleanup_complete` | `ws-handler.ts:157` | after `force_cleanup` | resolve the cleanup promise | `{type, warning?: string}` |
 | `admin_cleanup_complete` | `ws-handler.ts:188` | after `admin_cleanup` | — **nothing consumes this** | `{type, …}` |
+| `write_ack` | `ws/server.py` `_receive_writer` | once per `data` frame accepted for writing | settle that write — **no client consumes it yet**, see §8 | `{type, ok: bool, mode: string, write_id?, error?: string}` |
 
 ### Client → server
 
 | Type | Sent at | Server handler | Shape |
 |---|---|---|---|
-| `data` | `ws-transport.ts:135`, `NodeBleClient.ts:50,376` | `ws-handler.ts:46` — write to device | `{type, data: number[]}` |
+| `data` | `ws-transport.ts:135`, `NodeBleClient.ts:50,376` | `ws-handler.ts:46` — write to device | `{type, data: number[], write_id?}` — `write_id` added by TRA-1153 item 5b, see §8 |
 | `force_cleanup` | `ws-transport.ts:196`, `NodeBleClient.ts:322` | `ws-handler.ts:52` | `{type, token?: string}` |
 
 **Note on `warning`:** the client's handling is explicitly *"Continue waiting for completion"*
@@ -435,6 +442,106 @@ Conditional rather than static on purpose. `mcp-http-transport.ts:23` set `origi
 **co-occurring** with a wide bind. Neither half is dangerous by itself, which is why that
 combination survived review. Deriving the header from the bind makes the unsafe combination
 unrepresentable rather than warned about.
+
+---
+
+## 8. `write_ack` — the outcome of a single write
+
+**Added 2026-08-27 (TRA-1153 item 5b).** The tenth message type, and the first added since the port.
+Until now a write was fire-and-forget on the wire: the client learned nothing about an individual
+write, and learned about a *failed* one only as the session-ending `error` that followed it.
+
+```json
+{ "type": "write_ack", "ok": true, "mode": "with-response", "write_id": "w-42" }
+{ "type": "write_ack", "ok": false, "mode": "with-response", "write_id": "w-43",
+  "error": "device …:A7 is not connected; the proxy at …:6053 is still reachable" }
+```
+
+### `ok: true` is only as strong as `mode`, which is why `mode` is on the wire
+
+`ok: true` means `transport.write()` returned without raising. Under `mode: "with-response"` — a
+GATT Write Request, the default since item 5a — that is the peer's ATT layer confirming receipt, and
+the ack is a real acknowledgement. Under `mode: "without-response"` it is a Write Command: nothing
+comes back from the peer, and `ok: true` means only that the frame was handed to the proxy without
+error.
+
+The mode is a **runtime knob** (`ble_bridge.write_mode`, flipped over the control socket so an A/B
+can interleave arms), so a client cannot infer it from configuration. Putting it in every ack is
+what stops `ok: true` being an assertion the bridge has no basis for — an ack that always succeeds
+would be a control that cannot go red wearing a protocol message. It is read once per write, before
+the write, so the ack reports the mode that write actually used rather than whatever the knob says
+by the time the ack is composed.
+
+### The correlation token is `write_id`, and it is deliberately not `id`
+
+`src/node/NodeBleClient.ts:241` dispatches on `msg.id` **before** it looks at `msg.type`, and
+*deletes* the handler it dispatches to:
+
+```ts
+if (msg.id && this.messageHandlers.has(msg.id)) { … handler(msg); return; }
+```
+
+An ack carrying `id` that collided with a pending `sendMessage()` id (`randomUUID()`, `:306`) would
+be delivered to the wrong handler and consume it, so the real response would then be dropped —
+surfacing as a hung or mis-resolved request mentioning nothing about writes. Naming the field
+`write_id` makes that collision **unrepresentable** rather than merely unlikely.
+`test_write_ack_never_uses_the_field_name_id` reads the hazard back out of the client, so it fails
+if either side moves.
+
+### The client supplies the token; the bridge echoes it verbatim
+
+`write_id` is optional, opaque, and never interpreted by the bridge. When present on a `data` frame
+it is echoed on that write's ack; when absent, the ack carries no `write_id` field at all — absent
+rather than null, because a client cannot tell an echoed null from a missing echo.
+
+Two alternatives were considered and rejected:
+
+- **Bridge-assigned sequence numbers.** The client would still have to derive which number is its
+  own write, which is positional correlation with extra steps.
+- **Positional correlation with no token.** The relay is serial — `_receive_writer` awaits each
+  write before reading the next frame — so acks do arrive in write order, and a FIFO of pending
+  writes *would* line up. It breaks on the frames the relay **drops before writing**: an undecodable
+  or malformed frame produces no ack, so every subsequent ack would be attributed to the write
+  before it, silently. That is a wrong answer that looks like a right one, which this document's
+  companion failure classes exist to keep out of the protocol.
+
+### What is and is not acknowledged
+
+| situation | ack |
+|---|---|
+| `data` frame written to the device, no error | `{ok: true, mode}` |
+| write raised `TransportError` | `{ok: false, mode, error}` — the transport's own sentence, verbatim |
+| write raised anything else | `{ok: false, mode, error}` — prefixed by `WRITE_FAILED_PREFIX` |
+| frame undecodable, not `data`, or a malformed payload | **none** — nothing was attempted, so there is no outcome to report |
+| observer sent a `data` frame | **none** — it is refused with an `error` and discarded, as §6 specifies |
+
+### `ok: false` is terminal today
+
+A failed write still ends the session, exactly as it did before this message existed: the transport
+is cleaned up, the client receives the session-ending `error` frame, and the socket closes. The ack
+is sent **before** that teardown, so the client learns *which* write failed and only then that the
+session is over.
+
+So `ok: false` means "this write failed and the link is going down", not "retry on this connection".
+Recovery is reconnection. Making some write failures non-fatal would be a behaviour change with its
+own blast radius and is deliberately not part of this amendment.
+
+### The emitter ships ahead of any consumer, on purpose
+
+As of this amendment **nothing consumes `write_ack`.** Which of the three `writeValue`
+implementations consumes it — `mock-bluetooth.ts:137`, `node/NodeBleCharacteristic.ts:57`,
+`node/NodeBleClient.ts:44` — and whether `writeValue()` gains the ability to reject, is TRA-1187
+items 3 and 4. **`writeValue()` cannot reject on any client until that lands.**
+
+Shipping the emitter alone is safe rather than assumed-safe: all three client message handlers
+(`ws-transport.ts:78`, `mock-bluetooth.ts:530`, `NodeBleClient.ts:249`) are `if`/`else if` chains
+with no throwing default, so an unrecognised `write_ack` is ignored.
+
+This is the one shape §3b of the spec calls dangerous — an emitter with no consumer is a silent
+failure path, not merely unused code — so it is held open deliberately and visibly rather than by
+omission. `bridge/tests/test_protocol.py` names it in `AWAITING_CONSUMER` alongside the ticket that
+will close it, and asserts the set **exactly**: the moment a client branches on `write_ack`, the
+stale exemption fails and has to be removed.
 
 ---
 
