@@ -61,8 +61,6 @@
     "test:e2e": "pnpm run pretest && pnpm exec playwright test",
     "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test",
     "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
-    "test:stress": "pnpm run pretest && vitest run tests/stress",
-    "stress:firehose": "FIREHOSE_BASELINE=1 vitest run tests/stress/firehose-baseline.test.ts",
     "test:integration": "CHECK_BLE_DEVICE=true pnpm run pretest && vitest run tests/integration",
     "test:unit": "pnpm run pretest && vitest run tests/unit",
     "test:all": "pnpm run pretest && vitest run && pnpm test:e2e",
