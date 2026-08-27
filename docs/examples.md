@@ -130,10 +130,7 @@ dotenv.config({ path: '.env.local' });
 
 // Configure from environment
 const host = process.env.BLE_MCP_WS_HOST || 'localhost';
-// No fallback: a default port is a guess about the host, and the one we
-// used to guess collided with a consumer's own backend.
-const port = process.env.BLE_MCP_WS_PORT;
-if (!port) throw new Error('BLE_MCP_WS_PORT is not set. The bridge has no default port.');
+const port = process.env.BLE_MCP_WS_PORT || '25153';  // matches the bridge default
 const url = new URL(`ws://${host}:${port}`);
 url.searchParams.set('device', process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108');
 url.searchParams.set('service', process.env.BLE_MCP_SERVICE_UUID || '9800');
@@ -158,20 +155,18 @@ function getBleConfig() {
   };
 }
 
-// The bridge has no default port -- a default is a guess about what else is on
-// the host, and the one this package used to ship (8080) collided with a
-// consumer's own backend. Fail loudly rather than guessing.
-function requireBridgePort(): string {
-  const port = process.env.BLE_MCP_WS_PORT;
-  if (!port) throw new Error('BLE_MCP_WS_PORT is not set. The bridge has no default port.');
-  return port;
+// Mirrors the bridge's own default so the two cannot disagree. The rule is not
+// "no defaults" -- it is that a default must never be a port a co-resident
+// service owns. 8080 was the consumer's own backend; 25153 was picked not to be.
+function bridgePort(): string {
+  return process.env.BLE_MCP_WS_PORT || '25153';
 }
 
 // Helper to get full config including host/port
 function getFullBleConfig() {
   return {
     host: process.env.BLE_MCP_WS_HOST || 'localhost',
-    port: requireBridgePort(),
+    port: bridgePort(),
     ...getBleConfig()
   };
 }

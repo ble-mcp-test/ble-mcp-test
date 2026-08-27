@@ -22,7 +22,23 @@ from dataclasses import dataclass, field
 #: Loopback, not a deployment setting. See test_default_bind_is_loopback.
 DEFAULT_WS_HOST = "127.0.0.1"
 
-#: There is deliberately NO default port. See from_env.
+#: The default listen port. 8080 was the previous one and it was owned by a
+#: co-resident service (platform's backend), which presented as a dead reader
+#: rather than as a port conflict and cost an evening to find.
+#:
+#: The rule that fell out of that is narrower than "no defaults": a default must
+#: never be a port a co-resident service owns. Choosing one means checking its
+#: REPUTATION as well as whether anything is bound -- those are different
+#: properties. 15104 was rejected after it was already picked: nothing uses it,
+#: but it is the mstream DDoS handler port and IDS/IPS products still ship
+#: signatures for it, so a LAN service there can be flagged by a corporate
+#: scanner. A search for what is LISTENING cannot find a reputation.
+#:
+#: 25153 is mnemonic (25 + ESPHome's 153), clear of the alternate-HTTP clusters
+#: (8080/8443/9000/9090/10000/18080/28080) and of 30000-32767 where Kubernetes
+#: NodePorts live.
+DEFAULT_WS_PORT = 25153
+
 #:
 #: Accepted range, and the reason for each end:
 #:   >= 1024   0-1023 are privileged and need root to bind.
@@ -188,31 +204,12 @@ def _present(env: Mapping[str, str], key: str) -> str | None:
     return raw.strip()
 
 
-def from_env(env: Mapping[str, str] | None = None) -> Config:
-    env = os.environ if env is None else env
+def _check_port_range(port: int) -> None:
+    """Range-check an EXPLICIT port. The default is trusted by construction.
 
-    host = _present(env, HOST_ENV) or DEFAULT_WS_HOST
-
-    raw_port = _present(env, PORT_ENV)
-    if raw_port is None:
-        # No default, on purpose. A listen port is a claim about what else is on
-        # the host, and this package cannot know that -- the previous default of
-        # 8080 collided with the consumer's own backend, and presented as a dead
-        # reader rather than as a port problem.
-        #
-        # Note which half used to be loud: a MALFORMED port already refused to
-        # fall back, while an ABSENT one fell back silently. Loud on a typo,
-        # silent on an omission, which is exactly backwards.
-        raise ConfigError(
-            f"{PORT_ENV} is not set, and there is no default. Set it to a port "
-            f"in {MIN_WS_PORT}-{MAX_WS_PORT} -- the browser mock and the Node "
-            "client already require an explicit server URL, so a default here "
-            "would save nobody the trouble of choosing one."
-        )
-    try:
-        port = int(raw_port)
-    except ValueError as exc:
-        raise ConfigError(f"{PORT_ENV} is set to {raw_port!r}, which is not an integer.") from exc
+    A set-but-wrong value never falls back: falling back would bind a port the
+    operator did not ask for while their evidence said otherwise.
+    """
     if not MIN_WS_PORT <= port <= MAX_WS_PORT:
         raise ConfigError(
             f"{PORT_ENV} is set to {port}, which is outside "
@@ -220,6 +217,25 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
             f"above {MAX_WS_PORT} is the ephemeral range, where an outbound "
             "socket can transiently steal the port."
         )
+
+
+def from_env(env: Mapping[str, str] | None = None) -> Config:
+    env = os.environ if env is None else env
+
+    host = _present(env, HOST_ENV) or DEFAULT_WS_HOST
+
+    raw_port = _present(env, PORT_ENV)
+    if raw_port is None:
+        port = DEFAULT_WS_PORT
+    else:
+        try:
+            port = int(raw_port)
+        except ValueError as exc:
+            raise ConfigError(
+                f"{PORT_ENV} is set to {raw_port!r}, which is not an integer. "
+                f"Refusing to fall back to {DEFAULT_WS_PORT}."
+            ) from exc
+        _check_port_range(port)
 
     return Config(
         ws_host=host,

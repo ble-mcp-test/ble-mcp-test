@@ -4,10 +4,13 @@ import pytest
 
 from ble_bridge.config import (
     DEFAULT_ESPHOME_PORT,
+    DEFAULT_WS_PORT,
     DEVICE_MAC_ENV,
     ESPHOME_HOST_ENV,
     ESPHOME_PORT_ENV,
     ESPHOME_PSK_ENV,
+    MAX_WS_PORT,
+    MIN_WS_PORT,
     ConfigError,
     from_env,
 )
@@ -66,13 +69,31 @@ def test_the_edges_of_the_accepted_range_are_accepted(port):
     assert from_env({**PORT, "BLE_MCP_WS_PORT": port}).ws_port == int(port)
 
 
-def test_an_absent_port_refuses_rather_than_defaulting():
-    """The defect this replaced: a MALFORMED port already refused to fall back,
-    while an ABSENT one fell back to 8080 silently. Loud on a typo, silent on an
-    omission -- exactly backwards, and 8080 is a port the consumer's own backend
-    already owned."""
-    with pytest.raises(ConfigError, match="BLE_MCP_WS_PORT"):
-        from_env({})
+def test_an_absent_port_takes_the_default():
+    """The default is 25153, and the VALUE is the pin -- not merely "some default".
+
+    The defect this replaced was not defaultness, it was a default that a
+    co-resident service already owned. 8080 was platform's backend port, so the
+    bridge bound something else's number and the collision presented as a dead
+    reader rather than as a port conflict. Pinning the exact value is what makes
+    a future silent drift back into somebody else's range fail here.
+    """
+    assert from_env({}).ws_port == DEFAULT_WS_PORT
+    assert DEFAULT_WS_PORT == 25153
+
+
+def test_the_default_is_inside_the_range_it_enforces():
+    """A default outside its own accepted range would be unreachable by any
+    explicit setting while still being what you get by saying nothing."""
+    assert MIN_WS_PORT <= DEFAULT_WS_PORT <= MAX_WS_PORT
+
+
+def test_a_malformed_port_still_refuses_rather_than_falling_back():
+    """Set-but-wrong must never reach the default: binding a port the operator
+    did not ask for, while their evidence says otherwise, is the failure class
+    this whole ticket came from."""
+    with pytest.raises(ConfigError, match="Refusing to fall back"):
+        from_env({"BLE_MCP_WS_PORT": "not-a-port"})
 
 
 def test_is_loopback_reports_the_bind_surface():
