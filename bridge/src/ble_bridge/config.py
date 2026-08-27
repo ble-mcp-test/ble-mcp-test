@@ -161,7 +161,7 @@ class Config:
     #: acknowledges), False a Write Command (fire and forget). Not the live value
     #: -- TRA-1153 item 5 interleaves the two arms at runtime, so `write_mode`
     #: owns the current one and logs it on every connection.
-    write_response: bool = False
+    write_response: bool = True
     #: Where ble_bridge.control listens and the MCP shim connects. Absolute, always.
     socket_path: str = field(default_factory=lambda: default_socket_path())
 
@@ -255,7 +255,7 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
         log_timestamps=_flag(env, LOG_TIMESTAMPS_ENV, default=True),
         log_buffer_size=_log_buffer_size(env),
         idle_timeout=_idle_timeout(env),
-        write_response=_flag(env, WRITE_RESPONSE_ENV, default=False),
+        write_response=_flag(env, WRITE_RESPONSE_ENV, default=True),
         socket_path=_socket_path(env),
     )
 

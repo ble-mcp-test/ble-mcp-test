@@ -124,7 +124,7 @@ export interface ReaderState {
  * hand-rolled stub pass whether or not this class works.
  */
 export class MockBluetoothRemoteGATTCharacteristic {
-  private notificationHandlers: Array<(event: any) => void> = [];
+  private notificationHandlers: Array<{ handler: (event: any) => void; once: boolean }> = [];
 
   constructor(
     private service: MockBluetoothRemoteGATTService,
@@ -175,16 +175,22 @@ export class MockBluetoothRemoteGATTCharacteristic {
     return this;
   }
 
-  addEventListener(event: string, handler: any): void {
-    if (event === 'characteristicvaluechanged') {
-      // Store handler for both real and simulated notifications
-      this.notificationHandlers.push(handler);
-    }
+  addEventListener(event: string, handler: any, options?: AddEventListenerOptions): void {
+    if (event !== 'characteristicvaluechanged') return;
+    const once = readListenerOptions(options);
+    // The DOM drops a duplicate (type, listener, capture) silently; a bare push
+    // does not. That difference is invisible until something re-registers the
+    // SAME bound handler on the SAME instance -- which a reconnect does, because
+    // the consumer binds once in its constructor and re-runs its connect chain.
+    // Every notification would then be delivered twice, presenting as duplicated
+    // device frames, i.e. as a reader or bridge fault rather than a listener bug.
+    if (this.notificationHandlers.some(entry => entry.handler === handler)) return;
+    this.notificationHandlers.push({ handler, once });
   }
   
   removeEventListener(event: string, handler: any): void {
     if (event === 'characteristicvaluechanged') {
-      const index = this.notificationHandlers.indexOf(handler);
+      const index = this.notificationHandlers.findIndex(entry => entry.handler === handler);
       if (index > -1) {
         this.notificationHandlers.splice(index, 1);
       }
@@ -233,10 +239,16 @@ export class MockBluetoothRemoteGATTCharacteristic {
       }
     };
     
-    // Trigger all registered handlers
-    this.notificationHandlers.forEach(handler => {
-      handler(mockEvent);
-    });
+    // Snapshot first: a `once` handler removes itself, and a handler is allowed
+    // to add or remove others. Iterating the live array would skip or repeat.
+    const entries = [...this.notificationHandlers];
+    for (const entry of entries) {
+      if (entry.once) {
+        const index = this.notificationHandlers.indexOf(entry);
+        if (index > -1) this.notificationHandlers.splice(index, 1);
+      }
+      entry.handler(mockEvent);
+    }
   }
 }
 
@@ -270,6 +282,40 @@ class MockBluetoothRemoteGATTService {
   }
 }
 
+/**
+ * Read `addEventListener` options, honouring what we implement and REFUSING the rest.
+ *
+ * The mock previously took no options argument at all, so `{ once: true }` was
+ * accepted by TypeScript's structural check and then silently dropped -- the
+ * listener stayed registered for every subsequent notification. Its own
+ * `testing.sendCommandWithResponse` passed exactly that and had been relying on a
+ * guarantee it never got.
+ *
+ * Throwing rather than ignoring is deliberate: a dropped option produces correct-
+ * looking behaviour that is wrong only later and elsewhere, which is the most
+ * expensive failure class in this codebase. A throw is a control that can go red.
+ */
+function readListenerOptions(options?: AddEventListenerOptions | boolean): boolean {
+  if (options === undefined || options === false) return false;
+  if (options === true) {
+    throw new Error(
+      'addEventListener: the capture flag is not implemented by this mock. ' +
+      'Refusing rather than ignoring it -- there is no capture phase here, so a ' +
+      'listener registered with one would never behave as the caller expects.'
+    );
+  }
+  const { once, ...rest } = options;
+  const unsupported = Object.keys(rest).filter(k => (rest as any)[k] !== undefined && (rest as any)[k] !== false);
+  if (unsupported.length > 0) {
+    throw new Error(
+      `addEventListener: ${unsupported.join(', ')} ${unsupported.length === 1 ? 'is' : 'are'} not ` +
+      'implemented by this mock. Refusing rather than ignoring -- silently dropping ' +
+      'an option is indistinguishable from honouring it until it matters.'
+    );
+  }
+  return once === true;
+}
+
 // Configuration for mock behavior - can be overridden at runtime
 let MOCK_CONFIG = {
   // Match server's expected recovery timing:
@@ -277,7 +323,15 @@ let MOCK_CONFIG = {
   // - Failed connection: 5s+ (server default)
   connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1200', 10), // 1.2s to cover 1s clean recovery
   maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '20', 10), // More retries for 5s+ recovery
-  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '1100', 10), // 1.1s to ensure server is ready
+  // MEASURED, not inherited. 997 real disconnect cycles against the Python bridge
+  // (2026-08-27 soak, archived at ~/soak-archives/2026-08-27-tra1153-writepath-ab):
+  // socket close -> device released is median 16ms, p99 21ms, MAX 30ms.
+  //
+  // The old value was 1100ms, commented "1.1s to ensure server is ready" -- timing
+  // copied from the TS bridge that has since been deleted, so it was 37x the real
+  // figure and paid on every disconnect in every test. 250ms keeps ~8x margin over
+  // the worst case actually observed.
+  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '250', 10),
   retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.3'), // Gentler backoff
   logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
 };
@@ -497,17 +551,39 @@ class MockBluetoothDevice {
     });
   }
 
-  private disconnectHandlers: Array<() => void> = [];
+  private disconnectHandlers: Array<{ handler: () => void; once: boolean }> = [];
 
-  addEventListener(event: string, handler: any): void {
-    if (event === 'gattserverdisconnected') {
-      this.disconnectHandlers.push(handler);
-    }
+  addEventListener(event: string, handler: any, options?: AddEventListenerOptions): void {
+    if (event !== 'gattserverdisconnected') return;
+    const once = readListenerOptions(options);
+    if (this.disconnectHandlers.some(entry => entry.handler === handler)) return;
+    this.disconnectHandlers.push({ handler, once });
+  }
+
+  /**
+   * The counterpart this class never had.
+   *
+   * `addEventListener` existed alone, so a registered disconnect handler could
+   * not be removed by any means -- a consumer that attached one per connection
+   * accumulated them for the page's lifetime, and each reconnect fired every
+   * handler from every prior connection.
+   */
+  removeEventListener(event: string, handler: any): void {
+    if (event !== 'gattserverdisconnected') return;
+    const index = this.disconnectHandlers.findIndex(entry => entry.handler === handler);
+    if (index > -1) this.disconnectHandlers.splice(index, 1);
   }
 
   private dispatchEvent(eventType: string): void {
     if (eventType === 'gattserverdisconnected') {
-      this.disconnectHandlers.forEach(handler => handler());
+      const entries = [...this.disconnectHandlers];
+      for (const entry of entries) {
+        if (entry.once) {
+          const index = this.disconnectHandlers.indexOf(entry);
+          if (index > -1) this.disconnectHandlers.splice(index, 1);
+        }
+        entry.handler();
+      }
     }
   }
 }
@@ -743,8 +819,38 @@ export class MockBluetooth {
       this.serverUrl,
       effectiveConfig
     );
+    this.devices.push(device);
 
     return device;
+  }
+
+  /**
+   * Every device this instance has minted, so `teardown` can reach them.
+   *
+   * A fresh device per `requestDevice` is deliberate -- it is what keeps a
+   * reconnect from colliding with the previous session's characteristic objects.
+   * The cost is that nothing else holds a reference, so without this list an
+   * instance being replaced would strand live transports with no way to reach them.
+   */
+  private devices: MockBluetoothDevice[] = [];
+
+  /**
+   * Release everything this instance owns. Idempotent, and never throws.
+   *
+   * Called when a second injection replaces this mock. Failing here must not
+   * prevent the replacement: a teardown that throws would leave BOTH the old
+   * instance live and the new one uninstalled, which is worse than the leak it
+   * was trying to prevent.
+   */
+  async teardown(): Promise<void> {
+    const devices = this.devices.splice(0);
+    await Promise.all(devices.map(async device => {
+      try {
+        await device.gatt.disconnect();
+      } catch (error) {
+        console.warn('[MockBluetooth] teardown: disconnect failed, continuing:', error);
+      }
+    }));
   }
 
   /**
@@ -898,6 +1004,23 @@ export function injectWebBluetoothMock(config: WebBleMockConfig): void {
     onMultipleDevices: config.onMultipleDevices || 'error'
   };
   
+  // A second injection used to ORPHAN the first instance: its device, transport
+  // and characteristics survived with listeners attached and the socket open,
+  // while navigator.bluetooth pointed somewhere else. Nothing told the old
+  // transport it had been replaced, so it went on believing it was connected --
+  // the silent-fallback class, succeeding against the wrong object.
+  //
+  // Tear down rather than reuse. Reuse would make the orphan merely unlikely;
+  // this makes it unreachable, and it is the honest behaviour for a caller
+  // deliberately re-injecting with different config.
+  const existing = (window.navigator as any).bluetooth;
+  if (existing instanceof MockBluetooth) {
+    // Deliberately not awaited: injection is synchronous by contract, and its
+    // callers are page-setup scripts. The release still lands -- the bridge frees
+    // the device when the socket closes, measured at a 30ms worst case.
+    void existing.teardown();
+  }
+
   // Try to replace navigator.bluetooth with our mock
   const mockBluetooth = new MockBluetooth(config.serverUrl, bleConfig);
   

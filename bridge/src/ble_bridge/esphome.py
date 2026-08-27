@@ -38,14 +38,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
-
-from . import proxy_telemetry, write_mode
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from ble_bridge.config import EsphomeConfig
 from ble_bridge.notify import NotifySink
 from ble_bridge.transport import DataCallback, DeviceInfo, TransportError
+
+from . import proxy_telemetry, write_mode
 
 if TYPE_CHECKING:
     from ble_bridge.ws.params import ConnectionParams

@@ -28,7 +28,13 @@ logger = logging.getLogger(__name__)
 
 #: True  -> GATT Write Request  (ATT opcode 0x12, peer acknowledges)
 #: False -> GATT Write Command  (ATT opcode 0x52, fire and forget)
-_with_response = False
+#:
+#: Defaults to True as of TRA-1153 item 5. Two independent reasons: the CS108's
+#: 0x9900 advertises `properties=['write']` and NOT write-without-response, so a
+#: Write Command was never a mode it claimed to accept; and the 1000-run
+#: interleaved soak of 2026-08-27 bounded the cost of Write Requests under a dense
+#: tag field at under 1% on throughput, run duration AND ESP32 loop time.
+_with_response = True
 
 
 def get_mode() -> bool:
