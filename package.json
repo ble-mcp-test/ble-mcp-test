@@ -51,8 +51,9 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc && pnpm run build:browser",
+    "build": "pnpm run version:sync && tsc && pnpm run build:browser",
     "build:browser": "node scripts/build-browser-bundle.js",
+    "version:sync": "node scripts/generate-version.js",
     "dev": "tsc --watch",
     "pretest": "node scripts/pre-test-cleanup.js",
     "test": "pnpm run pretest && vitest run tests/unit tests/integration",

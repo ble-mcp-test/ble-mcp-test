@@ -916,14 +916,6 @@ export class MockBluetooth {
 }
 
 
-// Function to get bundle version
-export function getBundleVersion(): string {
-  // This will be replaced during build with actual version
-  return typeof (window as any).WebBleMock?.version === 'string' 
-    ? (window as any).WebBleMock.version 
-    : 'unknown';
-}
-
 /**
  * Configuration interface for Web Bluetooth mock
  * All parameters marked REQUIRED are mandatory (breaking change in v0.6.0)

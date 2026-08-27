@@ -32,8 +32,7 @@ await build({
     'process.env.BLE_MCP_MOCK_MAX_RETRIES': '"20"',
     'process.env.BLE_MCP_MOCK_CLEANUP_DELAY': '"1100"',
     'process.env.BLE_MCP_MOCK_BACKOFF': '"1.3"',
-    'process.env.BLE_MCP_MOCK_LOG_RETRIES': '"true"',
-    '__PACKAGE_VERSION__': JSON.stringify(version)
+    'process.env.BLE_MCP_MOCK_LOG_RETRIES': '"true"'
   }
 });
 
