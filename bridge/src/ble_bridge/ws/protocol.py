@@ -37,9 +37,10 @@ MSG_CONNECTED: Final = "connected"
 MSG_DATA: Final = "data"
 MSG_ERROR: Final = "error"
 MSG_WARNING: Final = "warning"
+MSG_WRITE_ACK: Final = "write_ack"
 
 #: What this server may emit. Never extended by a caller.
-SERVER_MESSAGE_TYPES: Final = (MSG_CONNECTED, MSG_DATA, MSG_ERROR, MSG_WARNING)
+SERVER_MESSAGE_TYPES: Final = (MSG_CONNECTED, MSG_DATA, MSG_ERROR, MSG_WARNING, MSG_WRITE_ACK)
 #: What this server accepts. TRA-1162 settled that `force_cleanup` does not join
 #: it: the zombie it existed to clear was a Noble artifact, and Noble is gone. The
 #: 2026-08-24 cell B soak (n=781) wedged twice -- runs 309-311 and 562-566 -- and
@@ -62,6 +63,13 @@ FIELD_DEVICE: Final = "device"
 FIELD_DATA: Final = "data"
 FIELD_ERROR: Final = "error"
 FIELD_WARNING: Final = "warning"
+#: Deliberately not `id`. src/node/NodeBleClient.ts:241 dispatches on `msg.id`
+#: BEFORE it looks at `msg.type` and deletes the handler it dispatches to, so an
+#: ack carrying `id` could resolve the wrong pending request and drop the real
+#: response. Pinned by test_write_ack_never_uses_the_field_name_id.
+FIELD_WRITE_ID: Final = "write_id"
+FIELD_OK: Final = "ok"
+FIELD_MODE: Final = "mode"
 
 #: Verbatim from src/bridge-server.ts:84. A client may match on this string.
 MISSING_PARAMS_ERROR: Final = "Missing required parameters: service, write, notify"
@@ -176,6 +184,34 @@ def encode_warning(message: str) -> str:
     return json.dumps({FIELD_TYPE: MSG_WARNING, FIELD_WARNING: message})
 
 
+def encode_write_ack(
+    ok: bool,
+    *,
+    mode: str,
+    write_id: Any | None = None,
+    error: str | None = None,
+) -> str:
+    """The outcome of one write. Spec section 8.
+
+    `mode` is the ATT mode that write actually used, not the one configured at
+    startup: under write-without-response nothing comes back from the peer, so
+    `ok: true` there means only that the frame was handed to the proxy. Putting
+    the mode in every ack is what stops the message being a control that cannot
+    go red. It is read once per write, before the write, because `write_mode` is
+    a runtime knob that can move between the write and the ack.
+
+    `write_id` is the client's own token, echoed verbatim and never interpreted.
+    Omitted rather than sent as null when the client supplied none -- a client
+    cannot tell an echoed null from a missing echo.
+    """
+    frame: dict[str, Any] = {FIELD_TYPE: MSG_WRITE_ACK, FIELD_OK: ok, FIELD_MODE: mode}
+    if write_id is not None:
+        frame[FIELD_WRITE_ID] = write_id
+    if error is not None:
+        frame[FIELD_ERROR] = error
+    return json.dumps(frame)
+
+
 def decode(raw: str | bytes) -> dict[str, Any]:
     try:
         msg = json.loads(raw)
@@ -184,6 +220,15 @@ def decode(raw: str | bytes) -> dict[str, Any]:
     if not isinstance(msg, dict):
         raise ProtocolError(f"frame is not a JSON object: {type(msg).__name__}")
     return msg
+
+
+def write_id(msg: dict[str, Any]) -> Any | None:
+    """The client's correlation token on a `data` frame, or None if it sent none.
+
+    Never validated: it is opaque to this bridge and is echoed back exactly as it
+    arrived. Spec section 8.
+    """
+    return msg.get(FIELD_WRITE_ID)
 
 
 def data_payload(msg: dict[str, Any]) -> bytes:
