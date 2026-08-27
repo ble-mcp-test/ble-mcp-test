@@ -19,7 +19,7 @@ import {
  * which is what makes a real instance affordable in a unit test.
  */
 async function realDevice() {
-  const bluetooth = new MockBluetooth('ws://localhost:15104', {
+  const bluetooth = new MockBluetooth('ws://localhost:25153', {
     sessionId: 'test',
     service: '9800',
     timeout: 5000,
@@ -72,7 +72,7 @@ describe('MockBluetooth Testing API', () => {
     testDevice = { gatt: { connected: true } };
     
     // Create MockBluetooth instance
-    mockBluetooth = new MockBluetooth('ws://localhost:15104', {
+    mockBluetooth = new MockBluetooth('ws://localhost:25153', {
       sessionId: 'test',
       service: '1234',
       timeout: 5000,
@@ -94,7 +94,7 @@ describe('MockBluetooth Testing API', () => {
       
       injectWebBluetoothMock({
         sessionId: 'test',
-        serverUrl: 'ws://localhost:15104',
+        serverUrl: 'ws://localhost:25153',
         service: '1234'
       });
       

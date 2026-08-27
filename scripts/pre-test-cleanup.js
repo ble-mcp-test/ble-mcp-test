@@ -13,15 +13,15 @@ import net from 'net';
 import path from 'path';
 import { killPort } from './port-cleanup.js';
 
-const DEFAULT_TEST_PORTS = [15104, 15105, 15106, 15107];
+const DEFAULT_TEST_PORTS = [25153, 25154, 25155, 25156];
 const COOLDOWN_MS = 5000;
 
 /**
  * Ports to sweep. `BLE_MCP_TEST_PORTS` overrides the default so tests can point
- * this script at a scratch port instead of at the real bridge on 15104.
+ * this script at a scratch port instead of at the real bridge on 25153.
  *
  * Set-but-unparseable throws. A silent fall back to the defaults would sweep
- * 15104 while the operator's evidence said otherwise -- the second failure class
+ * 25153 while the operator's evidence said otherwise -- the second failure class
  * in CLAUDE.md, and a close relative of the bug this script just had.
  */
 function resolveTestPorts(raw) {

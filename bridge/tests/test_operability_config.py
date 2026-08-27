@@ -30,7 +30,7 @@ from ble_bridge.config import (
 #: from_env has no default port since TRA-1179 -- it refuses to start without
 #: one. These tests are about OTHER variables, so they supply a valid port and
 #: say nothing about it. The port's own contract is pinned separately below.
-PORT = {"BLE_MCP_WS_PORT": "15104"}
+PORT = {"BLE_MCP_WS_PORT": "25153"}
 
 
 def test_log_level_defaults_to_info():

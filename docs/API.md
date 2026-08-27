@@ -26,14 +26,14 @@ import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 // Basic usage (all required parameters)
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,  // Required: unique session ID
-  serverUrl: 'ws://localhost:15104',         // Required: bridge server URL
+  serverUrl: 'ws://localhost:25153',         // Required: bridge server URL
   service: '9800'                           // Required: primary service UUID
 });
 
 // With optional characteristics
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,
-  serverUrl: 'ws://localhost:15104',
+  serverUrl: 'ws://localhost:25153',
   service: '9800',
   write: '9900',      // Optional: write characteristic
   notify: '9901'      // Optional: notify characteristic
@@ -42,7 +42,7 @@ injectWebBluetoothMock({
 // With device selection (for multi-device environments)
 injectWebBluetoothMock({
   sessionId: `farm-${deviceId}-${os.hostname()}`,
-  serverUrl: 'ws://device-farm:15104',
+  serverUrl: 'ws://device-farm:25153',
   service: '9800',
   deviceId: '6c79b8xxxxxx'  // Connect to specific device
 });
@@ -55,7 +55,7 @@ injectWebBluetoothMock({
   - **Best Practice**: Include app name and hostname: `myapp-e2e-${os.hostname()}`
   - Makes it easy to identify which machine has the connection in bridge logs
   - Example: `"e2e-test-session-bt-sandbox"`, `"ci-job-123-github-runner-04"`
-- **serverUrl** (required): WebSocket URL of the bridge server (e.g., `ws://localhost:15104`).
+- **serverUrl** (required): WebSocket URL of the bridge server (e.g., `ws://localhost:25153`).
 - **service** (required): Primary BLE service UUID for device discovery. Used to filter devices during scanning.
 - **write** (optional): Characteristic UUID for write operations. Defaults to device's primary write characteristic.
 - **notify** (optional): Characteristic UUID for notifications. Defaults to device's primary notify characteristic.
@@ -71,7 +71,7 @@ The function throws clear errors for missing required parameters:
 ```javascript
 // Missing sessionId
 injectWebBluetoothMock({
-  serverUrl: 'ws://localhost:15104',
+  serverUrl: 'ws://localhost:25153',
   service: '9800'
 });
 // Error: sessionId is required - this prevents session conflicts and ensures predictable BLE connection management
@@ -81,12 +81,12 @@ injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,
   service: '9800'
 });
-// Error: serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:15104")
+// Error: serverUrl is required - specify the bridge server URL (e.g., "ws://localhost:25153")
 
 // Missing service
 injectWebBluetoothMock({
   sessionId: `myapp-e2e-${os.hostname()}`,
-  serverUrl: 'ws://localhost:15104'
+  serverUrl: 'ws://localhost:25153'
 });
 // Error: service is required - specify the primary service UUID for device discovery
 ```
@@ -108,7 +108,7 @@ If you're not using a module bundler, include the pre-built bundle:
   // Global WebBleMock object is available
   WebBleMock.injectWebBluetoothMock({
     sessionId: `myapp-browser-${window.location.hostname}`,
-    serverUrl: 'ws://localhost:15104',
+    serverUrl: 'ws://localhost:25153',
     service: '9800'
   });
 </script>
@@ -215,7 +215,7 @@ import os from 'os';
 // Create client with required parameters
 const client = new NodeBleClient({
   sessionId: `my-app-${os.hostname()}`,         // REQUIRED - prevents session conflicts
-  bridgeUrl: 'ws://localhost:15104',             // REQUIRED - bridge server URL
+  bridgeUrl: 'ws://localhost:25153',             // REQUIRED - bridge server URL
   service: '9800',                              // REQUIRED - primary service UUID
   write: '9900',                                // REQUIRED - write characteristic
   notify: '9901',                               // REQUIRED - notify characteristic
@@ -248,7 +248,7 @@ For environments with multiple BLE devices:
 // Filter by exact device ID
 const client = new NodeBleClient({
   sessionId: 'device-farm-session',
-  bridgeUrl: 'ws://device-farm:15104',
+  bridgeUrl: 'ws://device-farm:25153',
   service: '9800',
   write: '9900',
   notify: '9901',
@@ -258,7 +258,7 @@ const client = new NodeBleClient({
 // Filter by device name (partial match)
 const client = new NodeBleClient({
   sessionId: 'lab-session',
-  bridgeUrl: 'ws://localhost:15104',
+  bridgeUrl: 'ws://localhost:25153',
   service: '9800',
   write: '9900',
   notify: '9901',
@@ -316,7 +316,7 @@ The client throws descriptive errors for common issues:
 try {
   const client = new NodeBleClient({
     // Missing sessionId
-    bridgeUrl: 'ws://localhost:15104',
+    bridgeUrl: 'ws://localhost:25153',
     service: '9800',
     write: '9900',
     notify: '9901'
@@ -360,10 +360,10 @@ Pass device configuration via URL query parameters:
 
 **Example URLs:**
 ```
-ws://localhost:15104?device=CS108&service=9800&write=9900&notify=9901
-ws://localhost:15104?session=my-app-session-123
-ws://localhost:15104?device=CS108&session=persist-123&service=9800
-ws://localhost:15104?device=CS108&service=9800&write=9900&notify=9901&force=true
+ws://localhost:25153?device=CS108&service=9800&write=9900&notify=9901
+ws://localhost:25153?session=my-app-session-123
+ws://localhost:25153?device=CS108&session=persist-123&service=9800
+ws://localhost:25153?device=CS108&service=9800&write=9900&notify=9901&force=true
 ```
 
 Add `role=observer` to attach read-only to the current writer's notification
@@ -550,7 +550,7 @@ test('communicate with BLE device', async ({ page }) => {
   await page.evaluate((hostname) => {
     WebBleMock.injectWebBluetoothMock({
       sessionId: `myapp-e2e-${hostname}`,
-      serverUrl: 'ws://localhost:15104',
+      serverUrl: 'ws://localhost:25153',
       service: '9800',
       write: '9900',
       notify: '9901'

@@ -39,7 +39,7 @@ export async function ensureMockInjected(
   // Default configuration
   const defaultConfig = {
     sessionId: config?.sessionId || `myapp-e2e-${os.hostname()}`,
-    // No literal fallback. Renumbering 8080 -> 15104 here would have kept the
+    // No literal fallback. Renumbering 8080 -> 25153 here would have kept the
     // defect and changed only the number it guesses wrong.
     serverUrl: config?.serverUrl || requireBridgeUrl(),
     service: config?.service || process.env.BLE_MCP_SERVICE_UUID || '9800',

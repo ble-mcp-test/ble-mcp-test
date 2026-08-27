@@ -10,7 +10,7 @@ Create a `.env.local` file:
 ```bash
 # WebSocket Server Configuration
 BLE_MCP_WS_HOST=localhost
-BLE_MCP_WS_PORT=15104
+BLE_MCP_WS_PORT=25153
 
 # BLE Device Configuration
 BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx

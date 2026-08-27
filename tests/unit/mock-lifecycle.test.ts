@@ -16,7 +16,7 @@ import { MockBluetooth } from '../../src/mock-bluetooth.js';
 const CONFIG = { service: '9800', write: '9900', notify: '9901' };
 
 async function connectedServer() {
-  const mock = new MockBluetooth('ws://localhost:15104', {
+  const mock = new MockBluetooth('ws://localhost:25153', {
     ...CONFIG,
     sessionId: 'lifecycle-test',
     timeout: 5000

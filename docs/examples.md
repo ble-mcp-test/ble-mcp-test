@@ -23,7 +23,7 @@
     
     <script>
         // Initialize the mock (v0.4.2+ required)
-        WebBleMock.injectWebBluetoothMock('ws://localhost:15104');
+        WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
         
         document.getElementById('connect').onclick = async () => {
             try {
@@ -75,7 +75,7 @@ test.describe('BLE Device Tests', () => {
         
         // Configure and inject
         await page.evaluate(() => {
-            const url = new URL('ws://localhost:15104');
+            const url = new URL('ws://localhost:25153');
             url.searchParams.set('device', 'CS108');
             url.searchParams.set('service', '9800');
             url.searchParams.set('write', '9900');
@@ -191,7 +191,7 @@ await page.evaluate(({ host, port, device, service, write, notify }) => {
 #### Manual Configuration
 ```javascript
 // Configure device-specific parameters via URL
-const url = new URL('ws://localhost:15104');
+const url = new URL('ws://localhost:25153');
 url.searchParams.set('device', 'MyDevice');    // Device name prefix
 url.searchParams.set('service', '180f');       // Service UUID
 url.searchParams.set('write', '2a19');         // Write characteristic
@@ -226,7 +226,7 @@ function configureMockForDevice(deviceType) {
     };
     
     const config = configs[deviceType];
-    const url = new URL('ws://localhost:15104');
+    const url = new URL('ws://localhost:25153');
     Object.entries(config).forEach(([key, value]) => {
         url.searchParams.set(key, value);
     });
@@ -437,7 +437,7 @@ test('handles rapid connect/disconnect cycles', async ({ page }) => {
 injectWebBluetoothMock('wss://ble-bridge.example.com');
 
 // Use with authentication
-const url = new URL('ws://localhost:15104');
+const url = new URL('ws://localhost:25153');
 url.username = 'testuser';
 url.password = 'testpass';
 injectWebBluetoothMock(url.toString());

@@ -7,7 +7,7 @@ This directory contains examples and test utilities for the ble-mcp-test library
 Demonstrates using the Node.js transport to communicate with BLE devices.
 
 **Requirements:**
-- Bridge server running on localhost:15104
+- Bridge server running on localhost:25153
 - BLE device powered on and in range
 - Node.js 14+ (client only needs ws and EventEmitter)
 
@@ -47,7 +47,7 @@ python3 -m http.server 8000
 Minimal reproduction for testing session ID persistence across page reloads.
 
 **Requirements:**
-- WebSocket bridge server must be running on localhost:15104
+- WebSocket bridge server must be running on localhost:25153
 
 **Usage:**
 ```bash

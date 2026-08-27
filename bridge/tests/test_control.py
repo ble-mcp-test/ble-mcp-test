@@ -53,7 +53,7 @@ def _a_free_port() -> int:
 #: An explicit port, because Config no longer carries a default one. The value
 #: is arbitrary; what these tests pin is that `status` reports the CONFIGURED
 #: port rather than a constant of its own.
-CONTROL_TEST_PORT = 15104
+CONTROL_TEST_PORT = 25153
 
 
 def _make(path, buffer=None, command_path=None):

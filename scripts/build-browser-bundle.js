@@ -55,7 +55,7 @@ const fixExports = `
  * Quick Start (v0.6.0+):
  * window.WebBleMock.injectWebBluetoothMock({
  *   sessionId: 'test-session-' + os.hostname(),  // Required: unique session ID
- *   serverUrl: 'ws://localhost:15104',            // Required: bridge server URL
+ *   serverUrl: 'ws://localhost:25153',            // Required: bridge server URL
  *   service: '9800'                              // Required: service UUID
  * });
  * 

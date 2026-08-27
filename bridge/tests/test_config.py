@@ -15,7 +15,7 @@ from ble_bridge.config import (
 #: from_env has no default port since TRA-1179 -- it refuses to start without
 #: one. These tests are about OTHER variables, so they supply a valid port and
 #: say nothing about it. The port's own contract is pinned separately below.
-PORT = {"BLE_MCP_WS_PORT": "15104"}
+PORT = {"BLE_MCP_WS_PORT": "25153"}
 
 
 def test_default_bind_is_loopback():
@@ -25,11 +25,11 @@ def test_default_bind_is_loopback():
     :163 asserts the resolved default is "0.0.0.0:8080", so an operator who sets
     nothing gets a LAN-wide bind. A wide bind should require an explicit opt-in.
     """
-    assert from_env({**PORT}).ws_bind == "127.0.0.1:15104"
+    assert from_env({**PORT}).ws_bind == "127.0.0.1:25153"
 
 
 def test_wide_bind_requires_explicit_opt_in():
-    assert from_env({**PORT, "BLE_MCP_WS_HOST": "0.0.0.0"}).ws_bind == "0.0.0.0:15104"
+    assert from_env({**PORT, "BLE_MCP_WS_HOST": "0.0.0.0"}).ws_bind == "0.0.0.0:25153"
 
 
 def test_empty_host_is_treated_as_absent():
@@ -59,7 +59,7 @@ def test_out_of_range_port_fails_loudly(port):
         from_env({**PORT, "BLE_MCP_WS_PORT": port})
 
 
-@pytest.mark.parametrize("port", ["1024", "15104", "32767"])
+@pytest.mark.parametrize("port", ["1024", "25153", "32767"])
 def test_the_edges_of_the_accepted_range_are_accepted(port):
     """Guards the off-by-one in the other direction: a bound that rejects its
     own endpoints would pass every test above while refusing a legal port."""
