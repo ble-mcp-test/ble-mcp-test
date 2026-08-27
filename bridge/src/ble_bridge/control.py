@@ -56,7 +56,7 @@ import stat
 import time
 from typing import Any, Final
 
-from ble_bridge import __version__
+from ble_bridge import __version__, write_mode
 from ble_bridge.config import LOG_BUFFER_SIZE_ENV, SOCKET_PATH_ENV, Config
 from ble_bridge.log_buffer import LogBuffer, LogEntry
 from ble_bridge.ws.ownership import CommandPath
@@ -115,6 +115,8 @@ class ControlServer:
             "get_logs": self._get_logs,
             "get_connection_state": self._get_connection_state,
             "status": self._status,
+            "get_write_mode": self._get_write_mode,
+            "set_write_mode": self._set_write_mode,
         }
 
     @property
@@ -323,6 +325,37 @@ class ControlServer:
                 f"{esphome.proxy_host}:{esphome.proxy_port}" if esphome is not None else None
             ),
             "device_mac": esphome.device_mac if esphome is not None else None,
+        }
+
+    # --- the one write ---------------------------------------------------------
+
+    def _get_write_mode(self) -> dict[str, Any]:
+        return {"with_response": write_mode.get_mode(), "mode": write_mode.describe()}
+
+    def _set_write_mode(self, with_response: Any) -> dict[str, Any]:
+        """Flip the GATT write arm without restarting.
+
+        TRA-1153 item 5 measures write-with-response against write-without-response
+        under a dense field, and the arms have to interleave: run them in blocks and
+        the arm is confounded with time, which is how platform manufactured a
+        "confirmed regression" on TRA-1179 that a fifth run dissolved. Restarting per
+        arm would trade that confound for bridge process age.
+
+        Returns the previous mode as well as the new one, so a caller logs the
+        transition it actually caused rather than the one it intended.
+        """
+        if not isinstance(with_response, bool):
+            raise ControlError(
+                f"set_write_mode wants 'with_response' as a boolean, got "
+                f"{type(with_response).__name__}. Refusing to coerce -- a truthy "
+                "string would silently pin the arm to with-response for a whole soak."
+            )
+        previous = write_mode.set_mode(with_response)
+        return {
+            "with_response": with_response,
+            "mode": write_mode.describe(with_response),
+            "previous_mode": write_mode.describe(previous),
+            "changed": previous != with_response,
         }
 
     # --- shared shapes --------------------------------------------------------

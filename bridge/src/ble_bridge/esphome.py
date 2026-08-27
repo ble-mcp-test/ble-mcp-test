@@ -45,6 +45,8 @@ from ble_bridge.config import EsphomeConfig
 from ble_bridge.notify import NotifySink
 from ble_bridge.transport import DataCallback, DeviceInfo, TransportError
 
+from . import proxy_telemetry, write_mode
+
 if TYPE_CHECKING:
     from ble_bridge.ws.params import ConnectionParams
 
@@ -450,6 +452,8 @@ class BleakEsphomeSession:
 
         manager = ensure_manager()
         device_info = await self._client.device_info()
+        proxy_telemetry.log_device_stamp(device_info)
+        await proxy_telemetry.subscribe(self._client)
         self._client_data = connect_scanner(self._client, device_info, available=True)
         scanner = self._client_data.scanner
         # NOT awaited: `async_setup` is named for the loop it belongs to, not for
@@ -535,6 +539,17 @@ class BleakEsphomeSession:
             raise TransportError(f"no characteristic {self._target.notify} on this device")
         if self._write_char is None:
             raise TransportError(f"no characteristic {self._target.write} on this device")
+        # One line per connection, carrying BOTH the arm this run will use and the
+        # peripheral's own account of what it supports. TRA-1153 asks for the
+        # `properties=8` finding to be re-derived where the write actually happens
+        # now (it was made against the retired Noble/Rust backends), and a soak
+        # scores its arm by reading this line back rather than trusting the knob.
+        logger.info(
+            "write path: mode=%s write_char=%s properties=%s",
+            write_mode.describe(),
+            self._target.write,
+            sorted(getattr(self._write_char, "properties", []) or []),
+        )
         return DeviceInfo(
             name=self._ble_device.name or self._config.device_mac,
             id=self._config.device_mac,
@@ -557,7 +572,17 @@ class BleakEsphomeSession:
         await self._ble.start_notify(self._notify_char, lambda data: sink(bytes(data)))
 
     async def write(self, write_uuid: str, data: bytes) -> None:
-        await self._ble.write_gatt_char(self._write_char, data, response=False)
+        """Write, in whichever ATT mode `write_mode` currently names.
+
+        `response=True` is a Write Request: the peer acknowledges and bleak does
+        not return until it has, so a failed write can be raised rather than
+        dropped. `response=False` is a Write Command, which cannot fail visibly
+        because nothing comes back. Which one is correct is TRA-1153 item 5's
+        question and is being measured, not assumed -- see `write_mode`.
+        """
+        await self._ble.write_gatt_char(
+            self._write_char, data, response=write_mode.get_mode()
+        )
 
     async def close(self) -> None:
         """Release in the reverse of the order it was acquired.

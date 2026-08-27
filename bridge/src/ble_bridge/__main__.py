@@ -14,6 +14,7 @@ import time
 
 from dotenv import find_dotenv, load_dotenv
 
+from ble_bridge import write_mode
 from ble_bridge.config import Config, from_env
 from ble_bridge.control import ControlServer
 from ble_bridge.esphome import transport_factory
@@ -117,6 +118,12 @@ def _log_operability(config: Config, log_buffer: LogBuffer) -> None:
     minute rather than in the post-mortem.
     """
     logger.info(
+        "GATT write mode: %s. TRA-1153 item 5 flips this per run over the control "
+        "socket; the authoritative value for any one connection is the 'write path:' "
+        "line that connection logs, not this one.",
+        write_mode.describe(),
+    )
+    logger.info(
         "log level %s, timestamps %s, log buffer %s",
         logging.getLevelName(config.log_level),
         "on" if config.log_timestamps else "off",
@@ -145,6 +152,7 @@ def main() -> None:
     # asked for governs the very first line. The other order is how the level came
     # to be hardcoded here in the first place.
     config = from_env()
+    write_mode.set_mode(config.write_response)
     log_buffer = configure_logging(config)
     asyncio.run(_run(config, log_buffer))
 
