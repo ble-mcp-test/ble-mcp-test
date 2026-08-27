@@ -62,6 +62,11 @@ LOG_TIMESTAMPS_ENV = "BLE_MCP_LOG_TIMESTAMPS"
 LOG_BUFFER_SIZE_ENV = "BLE_MCP_LOG_BUFFER_SIZE"
 IDLE_TIMEOUT_ENV = "BLE_MCP_IDLE_TIMEOUT"
 
+#: Initial GATT write mode. The soak flips it per run over the control socket
+#: (`ble_bridge.write_mode`); this is what the process starts on, and what a
+#: one-off `just hardware` run against the other arm sets.
+WRITE_RESPONSE_ENV = "BLE_MCP_WRITE_RESPONSE"
+
 #: Matches `.env.local.example` and `log-buffer.ts:24`.
 DEFAULT_LOG_BUFFER_SIZE = 10_000
 #: A ring smaller than this cannot span a single soak run; larger than this is a
@@ -152,6 +157,11 @@ class Config:
     #: 0 means the operator turned it off. See ble_bridge.ws.idle for why only
     #: inbound traffic counts.
     idle_timeout: float = DEFAULT_IDLE_TIMEOUT_S
+    #: GATT write mode the process STARTS on: True is a Write Request (peer
+    #: acknowledges), False a Write Command (fire and forget). Not the live value
+    #: -- TRA-1153 item 5 interleaves the two arms at runtime, so `write_mode`
+    #: owns the current one and logs it on every connection.
+    write_response: bool = False
     #: Where ble_bridge.control listens and the MCP shim connects. Absolute, always.
     socket_path: str = field(default_factory=lambda: default_socket_path())
 
@@ -245,6 +255,7 @@ def from_env(env: Mapping[str, str] | None = None) -> Config:
         log_timestamps=_flag(env, LOG_TIMESTAMPS_ENV, default=True),
         log_buffer_size=_log_buffer_size(env),
         idle_timeout=_idle_timeout(env),
+        write_response=_flag(env, WRITE_RESPONSE_ENV, default=False),
         socket_path=_socket_path(env),
     )
 
