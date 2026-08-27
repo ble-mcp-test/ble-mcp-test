@@ -66,7 +66,7 @@
     "test:all": "pnpm run pretest && vitest run && pnpm test:e2e",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
-    "typecheck:stress": "tsc --noEmit -p tsconfig.test.json",
+    "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test"
   },

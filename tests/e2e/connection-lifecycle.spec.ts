@@ -120,7 +120,7 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
         results.characteristicsFound = true;
         await bleDevice.gatt.disconnect();
         
-      } catch (error) {
+      } catch (error: any) {
         results.error = {
           message: error.message,
           stack: error.stack
@@ -204,7 +204,7 @@ test.describe('Connection Lifecycle - Comprehensive Connection Testing', () => {
         results.characteristicsFound = true;
         await finalDevice.gatt.disconnect();
         
-      } catch (error) {
+      } catch (error: any) {
         results.error = {
           message: error.message,
           stack: error.stack

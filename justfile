@@ -22,8 +22,17 @@ install:
 lint-ts: install
     pnpm run lint
 
+# TWO configs, both required. `typecheck` covers src/ under the BUILD config, so a
+# declaration this package publishes cannot be wrong. `typecheck:tests` covers
+# src/ AND tests/ -- it exists because for weeks nothing typechecked a test file
+# at all: the build config includes src/ only, and the one config that did cover
+# tests (tsconfig.test.json) was wired into no recipe. Three dangling imports sat
+# in tests/stress/ from 17e94f4 until TRA-1187 went looking. Execution was the
+# only thing validating any test file here, so anything neither run nor
+# typechecked rotted silently.
 typecheck-ts: install
     pnpm run typecheck
+    pnpm run typecheck:tests
 
 test-ts: install
     pnpm run test:unit

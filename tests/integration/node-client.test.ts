@@ -41,8 +41,8 @@ describe('NodeBleClient integration', () => {
 
   describe('constructor validation', () => {
     it('should require sessionId in constructor', () => {
+      // @ts-expect-error - Missing sessionId for test
       expect(() => new NodeBleClient({
-        // @ts-expect-error - Missing sessionId for test
         bridgeUrl: SHARED_TEST_CONFIG.wsUrl,
         service: SHARED_TEST_CONFIG.service,
         write: SHARED_TEST_CONFIG.write,
@@ -51,6 +51,7 @@ describe('NodeBleClient integration', () => {
     });
 
     it('should require service/write/notify parameters', () => {
+      // @ts-expect-error - Missing service, write and notify for test
       expect(() => new NodeBleClient({
         sessionId: 'test',
         bridgeUrl: SHARED_TEST_CONFIG.wsUrl

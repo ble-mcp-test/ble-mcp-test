@@ -33,7 +33,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
           deviceSessionId: (device as any).sessionId,
           deviceName: device.name
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           success: false,
           error: error.message
@@ -122,7 +122,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
           log.push('ERROR: Second connection should have failed');
           secondConnectionResult = { success: true, error: 'Should have failed' };
           
-        } catch (error) {
+        } catch (error: any) {
           log.push(`✓ Second connection properly rejected: ${error.message}`);
           secondConnectionResult = { success: false, error: error.message };
         }
@@ -151,7 +151,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
           
           await device3.gatt.disconnect();
           
-        } catch (error) {
+        } catch (error: any) {
           log.push(`ERROR: Should have connected after cleanup: ${error.message}`);
           thirdConnectionResult = { success: false, error: error.message };
         }
@@ -164,7 +164,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
           thirdConnection: thirdConnectionResult
         };
         
-      } catch (error) {
+      } catch (error: any) {
         log.push(`UNEXPECTED ERROR: ${error.message}`);
         return {
           success: false,
@@ -179,8 +179,12 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
 
     // Verify session rejection behavior
     expect(results.success).toBe(true); // Second connection should have been rejected
-    expect(results.secondConnection.success).toBe(false); // Should have failed
-    expect(results.secondConnection.error).toContain('session'); // Should mention session issue
+    // Named before it is dereferenced: the harness returns no secondConnection at
+    // all on its own failure path, and reading through it blind reports
+    // "cannot read properties of undefined" instead of saying what went wrong.
+    expect(results.secondConnection, 'the page never reached the second connection').toBeDefined();
+    expect(results.secondConnection!.success).toBe(false); // Should have failed
+    expect(results.secondConnection!.error).toContain('session'); // Should mention session issue
     
     console.log('[Session Test] ✓ Session ID rejection working correctly');
   });

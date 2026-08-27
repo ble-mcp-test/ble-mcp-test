@@ -32,7 +32,7 @@ test.describe('UUID Format Compatibility', () => {
           writeUuid: writeChar.uuid,
           notifyUuid: notifyChar.uuid
         };
-      } catch (error) {
+      } catch (error: any) {
         return { success: false, error: error.message };
       }
     }, { config: shortUuidConfig });
@@ -74,7 +74,7 @@ test.describe('UUID Format Compatibility', () => {
           writeUuid: writeChar.uuid,
           notifyUuid: notifyChar.uuid
         };
-      } catch (error) {
+      } catch (error: any) {
         return { success: false, error: error.message };
       }
     }, { config: longUuidConfig });
@@ -116,7 +116,7 @@ test.describe('UUID Format Compatibility', () => {
           writeUuid: writeChar.uuid,
           notifyUuid: notifyChar.uuid
         };
-      } catch (error) {
+      } catch (error: any) {
         return { success: false, error: error.message };
       }
     }, { config: mixedUuidConfig });
