@@ -126,7 +126,7 @@ export async function setupTestServer() {
 //    pnpm test
 //
 // 5. Run tests against remote bridge server:
-//    BLE_MCP_WS_URL=ws://raspberry-pi.local:8080 \
+//    BLE_MCP_WS_URL=ws://raspberry-pi.local:15104 \
 //    BLE_MCP_DEVICE_NAME=MyDevice \
 //    BLE_MCP_SERVICE_UUID=... \
 //    BLE_MCP_WRITE_UUID=... \

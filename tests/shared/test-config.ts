@@ -10,6 +10,17 @@ import os from 'os';
 /**
  * Standard test configuration shared across E2E and integration tests
  */
+function requireWsUrl(): string {
+  const url = process.env.BLE_WEBSOCKET_URL;
+  if (!url) {
+    throw new Error(
+      'BLE_WEBSOCKET_URL is not set. The bridge has no default port, so there is ' +
+        'no URL to guess -- set it to ws://<host>:<BLE_MCP_WS_PORT>.'
+    );
+  }
+  return url;
+}
+
 export const SHARED_TEST_CONFIG = {
   // Fixed session ID for all tests - ensures session reuse works across test runs
   sessionId: `ble-mcp-e2e-${os.hostname()}`,
@@ -20,7 +31,10 @@ export const SHARED_TEST_CONFIG = {
   notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
   
   // WebSocket server URL
-  wsUrl: process.env.BLE_WEBSOCKET_URL || 'ws://localhost:15104',
+  // No literal fallback: renumbering the guess does not stop it being a guess.
+  // e2e needs a real bridge anyway, so a missing URL should fail here rather
+  // than 30s later as a connection timeout.
+  wsUrl: requireWsUrl(),
   
   // Standard test timeout
   timeout: 30000
