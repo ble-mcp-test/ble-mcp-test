@@ -251,7 +251,14 @@ async def run_firehose(
                     raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
                 except TimeoutError:
                     break
-                seq, _ = decode_firehose_payload(p.data_payload(p.decode(raw)))
+                msg = p.decode(raw)
+                if p.message_type(msg) != p.MSG_DATA:
+                    # A write_ack for one of this client's own writes. Not a
+                    # notification: counting it as one would inflate `received`
+                    # and understate loss, which is the single number this
+                    # harness exists to produce.
+                    continue
+                seq, _ = decode_firehose_payload(p.data_payload(msg))
 
                 if drop_every_nth and seq % drop_every_nth == 0:
                     dropped += 1
@@ -281,7 +288,10 @@ async def run_firehose(
                     raw = await asyncio.wait_for(ws.recv(), timeout=remaining)
                 except (TimeoutError, websockets.exceptions.ConnectionClosed):
                     break
-                seq, _ = decode_firehose_payload(p.data_payload(p.decode(raw)))
+                msg = p.decode(raw)
+                if p.message_type(msg) != p.MSG_DATA:
+                    continue
+                seq, _ = decode_firehose_payload(p.data_payload(msg))
                 if drop_every_nth and seq % drop_every_nth == 0:
                     dropped += 1
                     continue

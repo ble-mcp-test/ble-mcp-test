@@ -109,6 +109,11 @@ async def test_inbound_frames_renew_the_lease(idle_relay):
         for _ in range(6):
             await asyncio.sleep(IDLE / 3)
             await ws.send(p.encode_data(b"\x01"))
+            # Each write is acknowledged since TRA-1153 item 5b. Asserting the
+            # type rather than just draining it is the point: what must NOT
+            # arrive here is the idle-release error, and a bare recv() would
+            # accept either.
+            assert p.message_type(await _next_frame(ws)) == p.MSG_WRITE_ACK
         with pytest.raises(TimeoutError):
             await asyncio.wait_for(ws.recv(), IDLE / 3)
         assert transports[0].is_connected() is True

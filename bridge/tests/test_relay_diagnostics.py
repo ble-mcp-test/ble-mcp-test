@@ -93,6 +93,21 @@ async def test_a_failed_write_is_logged(failing_relay, caplog):
     )
 
 
+async def _next_error(ws):
+    """The next `error` frame, skipping the `write_ack` that now precedes it.
+
+    Since TRA-1153 item 5b a failed write is reported twice and in this order:
+    `write_ack{ok: false}` names WHICH write failed, then the terminal `error`
+    says the session is over. These tests are about the second. Skipping rather
+    than reading one frame keeps them testing the sentence they were written for.
+    """
+    for _ in range(10):
+        frame = json.loads(await asyncio.wait_for(ws.recv(), 5.0))
+        if p.message_type(frame) != p.MSG_WRITE_ACK:
+            return frame
+    raise AssertionError("no error frame arrived")
+
+
 async def test_the_transports_two_state_distinction_survives_to_the_client(failing_relay):
     """Reachable-proxy vs also-unreachable is the one thing that tells an operator
     whether to go and look at the reader or at the network."""
@@ -100,7 +115,7 @@ async def test_the_transports_two_state_distinction_survives_to_the_client(faili
     async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
         await ws.recv()
         await ws.send(p.encode_data(b"\x01\x02"))
-        frame = json.loads(await asyncio.wait_for(ws.recv(), 5.0))
+        frame = await _next_error(ws)
     assert p.message_type(frame) == p.MSG_ERROR
     assert "the proxy is reachable" in frame[p.FIELD_ERROR]
 
@@ -136,7 +151,7 @@ async def test_an_unexpected_exception_is_also_reported_not_swallowed():
         async with websockets.connect(f"ws://127.0.0.1:{port}/?{REQUIRED}") as ws:
             await ws.recv()
             await ws.send(p.encode_data(b"\x01\x02"))
-            frame = json.loads(await asyncio.wait_for(ws.recv(), 5.0))
+            frame = await _next_error(ws)
         assert p.message_type(frame) == p.MSG_ERROR
         assert p.WRITE_FAILED_PREFIX in frame[p.FIELD_ERROR]
         assert "something from three layers down" in frame[p.FIELD_ERROR]

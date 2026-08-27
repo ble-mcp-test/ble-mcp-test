@@ -75,6 +75,17 @@ def test_warning_is_branched_on_but_does_not_settle_the_handshake():
     assert not branches[p.MSG_WARNING], "`warning` must not settle the handshake"
 
 
+# Types this server emits AHEAD of any client consuming them, and the ticket that
+# will consume each. An entry here is a deliberate, temporary hole in
+# test_wire_types_have_a_typescript_consumer -- so that assertion is an EXACT match
+# rather than a subtraction: the moment a consumer lands, the stale entry fails and
+# has to be removed. A hole that cannot go stale silently is the only kind worth
+# having, and this is the shape spec section 3b calls the dangerous one.
+AWAITING_CONSUMER = {
+    "write_ack": "TRA-1187 items 3 & 4 decide which writeValue() consumes it",
+}
+
+
 def test_wire_types_have_a_typescript_consumer():
     """Every type this server emits must be handled somewhere in the mock client.
 
@@ -90,9 +101,11 @@ def test_wire_types_have_a_typescript_consumer():
     """
     consumed = set(_connect_branches()) | _mock_bluetooth_branches()
     missing = set(p.SERVER_MESSAGE_TYPES) - consumed
-    assert not missing, (
+    assert missing == set(AWAITING_CONSUMER), (
         f"this server emits {sorted(missing)} and the TypeScript client branches on "
-        "none of them, so the message is delivered and silently discarded"
+        "none of them, so the message is delivered and silently discarded. If that is "
+        "deliberate and temporary, name it in AWAITING_CONSUMER with the ticket that "
+        "will consume it."
     )
 
 
@@ -253,3 +266,85 @@ def test_the_literal_allowlist_has_no_stale_entries():
     root = pathlib.Path(__file__).resolve().parents[1]
     missing = [entry for entry in sorted(LITERAL_ALLOWLIST) if not (root / entry).is_file()]
     assert missing == [], f"LITERAL_ALLOWLIST names files that do not exist: {missing}"
+
+
+# --- write_ack, TRA-1153 item 5b ----------------------------------------------
+
+
+def test_write_ack_shape():
+    """The tenth wire message. Spec section 8."""
+    assert json.loads(p.encode_write_ack(True, mode="with-response")) == {
+        "type": "write_ack",
+        "ok": True,
+        "mode": "with-response",
+    }
+
+
+def test_write_ack_echoes_the_clients_write_id():
+    decoded = json.loads(p.encode_write_ack(True, mode="with-response", write_id="w-7"))
+    assert decoded["write_id"] == "w-7"
+
+
+def test_write_ack_omits_write_id_when_the_client_sent_none():
+    """Absent, not null: a client cannot tell an echoed null from a missing echo."""
+    assert "write_id" not in json.loads(p.encode_write_ack(True, mode="with-response"))
+
+
+def test_a_failed_write_ack_carries_the_reason():
+    decoded = json.loads(
+        p.encode_write_ack(False, mode="with-response", error="the proxy went away")
+    )
+    assert decoded["ok"] is False
+    assert decoded["error"] == "the proxy went away"
+
+
+def test_write_ack_omits_error_when_the_write_succeeded():
+    assert "error" not in json.loads(p.encode_write_ack(True, mode="with-response"))
+
+
+def test_write_ack_never_uses_the_field_name_id():
+    """src/node/NodeBleClient.ts dispatches on `msg.id` BEFORE it looks at `msg.type`,
+    and deletes the handler it dispatches to. An ack carrying `id` that collided with a
+    pending request id would resolve the wrong request AND drop the real response -- a
+    hang that mentions nothing about writes. Naming the field `write_id` makes that
+    unrepresentable rather than merely unlikely. The hazard is read back out of the
+    client so this goes red if either side moves.
+    """
+    root = pathlib.Path(__file__).resolve().parents[2]
+    client = (root / "src" / "node" / "NodeBleClient.ts").read_text()
+    assert "msg.id && this.messageHandlers.has(msg.id)" in client, (
+        "NodeBleClient no longer pre-dispatches on msg.id. If that hazard is gone the "
+        "constraint can be revisited -- deliberately, not by deleting this check."
+    )
+    for frame in (
+        p.encode_write_ack(True, mode="with-response"),
+        p.encode_write_ack(False, mode="without-response", write_id="w-1", error="boom"),
+    ):
+        assert "id" not in json.loads(frame)
+
+
+def test_write_id_reads_back_out_of_a_data_frame():
+    assert p.write_id({"type": p.MSG_DATA, "data": [1], "write_id": "w-3"}) == "w-3"
+    assert p.write_id({"type": p.MSG_DATA, "data": [1]}) is None
+
+
+def test_write_ack_is_a_server_message_type():
+    assert p.MSG_WRITE_ACK in p.SERVER_MESSAGE_TYPES
+    assert p.MSG_WRITE_ACK not in p.CLIENT_MESSAGE_TYPES
+
+
+def test_awaiting_consumer_entries_are_still_unconsumed():
+    """The self-clearing half of the exemption. Red when a consumer lands and the
+    entry stays behind -- at which point the hole is one nobody sees."""
+    consumed = set(_connect_branches()) | _mock_bluetooth_branches()
+    stale = sorted(set(AWAITING_CONSUMER) & consumed)
+    assert stale == [], (
+        f"{stale} now HAS a TypeScript consumer, so its exemption from "
+        "test_wire_types_have_a_typescript_consumer is a hole nobody sees. Remove it "
+        "from AWAITING_CONSUMER."
+    )
+
+
+def test_awaiting_consumer_names_only_types_this_server_emits():
+    unknown = sorted(set(AWAITING_CONSUMER) - set(p.SERVER_MESSAGE_TYPES))
+    assert unknown == [], f"AWAITING_CONSUMER names types this server never sends: {unknown}"

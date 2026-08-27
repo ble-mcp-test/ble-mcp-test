@@ -4,9 +4,10 @@ import json
 import pytest
 import websockets
 
+from ble_bridge import write_mode
 from ble_bridge.config import Config
 from ble_bridge.mock_version import expected_mock_version
-from ble_bridge.transport import StubTransport
+from ble_bridge.transport import StubTransport, TransportError
 from ble_bridge.ws import protocol as p
 from ble_bridge.ws.server import BridgeServer
 
@@ -173,3 +174,131 @@ async def test_a_daemon_with_no_clients_holds_no_transport(relay):
     """The lifecycle property: process lifetime is not a resource claim here."""
     _, transports = relay
     assert transports == []
+
+
+# --- write_ack, TRA-1153 item 5b ----------------------------------------------
+
+
+class FailingWriteTransport(StubTransport):
+    """Connects, then refuses every write. The only way to reach the ok:false arm
+    without a radio."""
+
+    async def write(self, data: bytes) -> None:
+        raise TransportError("the proxy is reachable but the device link is down")
+
+
+async def _next_ack(ws):
+    """The next write_ack, skipping anything that interleaves with it.
+
+    A notification can arrive between a write and its acknowledgement, so reading
+    exactly one frame would be a race that passes on a quiet stub and fails under
+    load -- which is the flake that reads as a protocol defect.
+    """
+    for _ in range(20):
+        msg = p.decode(await asyncio.wait_for(ws.recv(), timeout=2))
+        if p.message_type(msg) == p.MSG_WRITE_ACK:
+            return msg
+    raise AssertionError("no write_ack arrived")
+
+
+async def test_a_write_is_acknowledged(relay):
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+        await ws.recv()
+        await ws.send(p.encode_data(bytes([0x02, 0x03])))
+        ack = await _next_ack(ws)
+        assert ack["ok"] is True
+        assert "error" not in ack
+
+
+async def test_the_ack_echoes_the_clients_write_id(relay):
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+        await ws.recv()
+        await ws.send(json.dumps({"type": "data", "data": [1], "write_id": "w-42"}))
+        assert (await _next_ack(ws))["write_id"] == "w-42"
+
+
+async def test_a_write_with_no_write_id_is_still_acknowledged(relay):
+    """The ack is a property of the protocol, not something a client opts into."""
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+        await ws.recv()
+        await ws.send(p.encode_data(bytes([0x01])))
+        assert "write_id" not in await _next_ack(ws)
+
+
+async def test_acks_arrive_in_write_order(relay):
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+        await ws.recv()
+        for i in range(5):
+            await ws.send(json.dumps({"type": "data", "data": [i], "write_id": f"w-{i}"}))
+        seen = [(await _next_ack(ws))["write_id"] for _ in range(5)]
+        assert seen == [f"w-{i}" for i in range(5)]
+
+
+async def test_a_frame_dropped_before_the_write_is_not_acknowledged(relay):
+    """Why the ack carries the client's token rather than a position.
+
+    An undecodable frame never reaches the device, so it gets no ack. Under
+    positional correlation the next ack would be attributed to it silently, and
+    every write after that would be off by one -- a wrong answer that looks like a
+    right one. Spec section 8.
+    """
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+        await ws.recv()
+        await ws.send("not json at all")
+        await ws.send(json.dumps({"type": "data", "data": [7], "write_id": "w-good"}))
+        assert (await _next_ack(ws))["write_id"] == "w-good"
+
+
+async def test_an_observer_gets_no_ack_for_a_refused_write(relay):
+    """Nothing was attempted, so there is no outcome to report -- the observer gets
+    the refusal it already had and no ack."""
+    url, _ = relay
+    async with websockets.connect(f"{url}/?{REQUIRED}&session=s1") as writer:
+        await writer.recv()
+        async with websockets.connect(f"{url}/?{REQUIRED}&session=s2&role=observer") as obs:
+            await obs.recv()
+            await obs.send(p.encode_data(bytes([0x01])))
+            msg = p.decode(await asyncio.wait_for(obs.recv(), timeout=2))
+            assert p.message_type(msg) == p.MSG_ERROR
+            assert msg["error"] == p.OBSERVER_MAY_NOT_WRITE_ERROR
+
+
+async def test_a_failed_write_is_acknowledged_then_the_session_ends():
+    """ok:false is terminal today: the ack says WHICH write failed, and the error
+    that follows says the session is over. Spec section 8."""
+    server = BridgeServer(
+        Config(ws_host="127.0.0.1", ws_port=0), lambda _params: FailingWriteTransport()
+    )
+    port = await server.start()
+    try:
+        async with websockets.connect(f"ws://127.0.0.1:{port}/?{REQUIRED}") as ws:
+            await ws.recv()
+            await ws.send(json.dumps({"type": "data", "data": [1], "write_id": "w-bad"}))
+            ack = await _next_ack(ws)
+            assert ack["ok"] is False
+            assert ack["write_id"] == "w-bad"
+            assert "device link is down" in ack["error"]
+            final = p.decode(await asyncio.wait_for(ws.recv(), timeout=2))
+            assert p.message_type(final) == p.MSG_ERROR
+    finally:
+        await server.stop()
+
+
+async def test_the_ack_reports_the_mode_the_write_actually_used(relay):
+    """Under write-without-response nothing comes back from the peer, so ok:true is
+    a much weaker claim. The ack states which it is rather than leaving a reader to
+    infer it from a runtime knob they cannot see."""
+    url, _ = relay
+    previous = write_mode.set_mode(False)
+    try:
+        async with websockets.connect(f"{url}/?{REQUIRED}") as ws:
+            await ws.recv()
+            await ws.send(p.encode_data(bytes([0x01])))
+            assert (await _next_ack(ws))["mode"] == "without-response"
+    finally:
+        write_mode.set_mode(previous)
