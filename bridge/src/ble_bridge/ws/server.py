@@ -1,4 +1,4 @@
-"""The WebSocket relay: `connected`, `data`, `error` and `warning`.
+"""The WebSocket relay: `connected`, `data`, `error`, `warning` and `write_ack`.
 
 One connection owns the command path and writes to the device; any number of
 others attach read-only to its notification stream. Which one a connection is
@@ -21,13 +21,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 import websockets
 from websockets.asyncio.server import Request, Response, Server, ServerConnection, serve
 from websockets.datastructures import Headers
 
-from ble_bridge import __version__
+from ble_bridge import __version__, write_mode
 from ble_bridge.config import Config
 from ble_bridge.log_buffer import RX, TX, LogBuffer
 from ble_bridge.mock_version import expected_mock_version
@@ -389,30 +390,58 @@ async def _receive_writer(
     """
     try:
         async for raw in ws:
-            payload = _payload_or_none(raw)
-            if payload is None:
+            frame = _write_or_none(raw)
+            if frame is None:
                 # Dropped by the relay, so it never reached the device: it must
-                # not be recorded as traffic, and it must not renew the lease.
+                # not be recorded as traffic, must not renew the lease, and must
+                # not be acknowledged. An ack here would let a client attribute
+                # an outcome to a write that was never attempted.
                 continue
             # The one place the idle clock is stamped. See ble_bridge.ws.idle.
             if idle is not None:
                 idle.stamp()
-            log_buffer.push_packet(TX, payload)
+            log_buffer.push_packet(TX, frame.payload)
+            # Read once, BEFORE the write: the mode is a runtime knob and the ack
+            # has to report the mode this write actually used, not whatever it is
+            # by the time the ack is composed.
+            mode = write_mode.describe()
             try:
-                await transport.write(payload)
+                await transport.write(frame.payload)
             except TransportError as exc:
                 # This used to raise into `gather(..., return_exceptions=True)`
                 # and be discarded -- no log line at any level, and the client saw
                 # only a socket close. The message names whether the proxy was
                 # still reachable, so it is forwarded verbatim.
                 logger.error("the write to the device failed: %s", exc)
+                await _ack(ws, frame, ok=False, mode=mode, error=str(exc))
                 return str(exc)
             except Exception as exc:
                 logger.exception("the write to the device raised an unexpected error")
-                return f"{p.WRITE_FAILED_PREFIX}: {type(exc).__name__}: {exc}"
+                sentence = f"{p.WRITE_FAILED_PREFIX}: {type(exc).__name__}: {exc}"
+                await _ack(ws, frame, ok=False, mode=mode, error=sentence)
+                return sentence
+            await _ack(ws, frame, ok=True, mode=mode)
     except websockets.exceptions.ConnectionClosed:
         pass
     return None
+
+
+async def _ack(
+    ws: ServerConnection,
+    frame: _WriteFrame,
+    *,
+    ok: bool,
+    mode: str,
+    error: str | None = None,
+) -> None:
+    """Report one write's outcome. Spec section 8.
+
+    Sent BEFORE any teardown the failure triggers, so a client learns *which*
+    write failed and only then that the session is over. `ok: false` is terminal
+    today -- the caller still returns, the transport is still cleaned up, and the
+    session-ending `error` still follows.
+    """
+    await ws.send(p.encode_write_ack(ok, mode=mode, write_id=frame.write_id, error=error))
 
 
 async def _receive_observer(ws: ServerConnection) -> None:
@@ -421,20 +450,37 @@ async def _receive_observer(ws: ServerConnection) -> None:
     The connection stays open on a refused write. Read-only must not mean
     disconnect-on-mistake: a debugging session that dies of its own typo is a trap
     rather than a role, and the client would reconnect -- as a writer.
+
+    No `write_ack` here, deliberately: nothing was attempted, so there is no
+    outcome to report. The refusal is the answer.
     """
     try:
         async for raw in ws:
-            if _payload_or_none(raw) is not None:
+            if _write_or_none(raw) is not None:
                 await ws.send(p.encode_error(p.OBSERVER_MAY_NOT_WRITE_ERROR))
     except websockets.exceptions.ConnectionClosed:
         pass
 
 
-def _payload_or_none(raw: str | bytes) -> bytes | None:
-    """The bytes of a `data` frame, or None for anything this relay ignores.
+@dataclass(frozen=True)
+class _WriteFrame:
+    """A `data` frame the relay accepted for writing, and the client's token for it.
+
+    The token travels with the payload rather than being recovered later because
+    the ack has to name the write it belongs to, and the frame is the only place
+    that association exists.
+    """
+
+    payload: bytes
+    write_id: Any | None
+
+
+def _write_or_none(raw: str | bytes) -> _WriteFrame | None:
+    """The write a `data` frame asks for, or None for anything this relay ignores.
 
     Undecodable and malformed frames are dropped rather than fatal: one bad frame
-    must not tear down a session mid-soak.
+    must not tear down a session mid-soak. A dropped frame is also never
+    acknowledged -- nothing was attempted, so there is no outcome to report.
     """
     try:
         msg = p.decode(raw)
@@ -444,7 +490,7 @@ def _payload_or_none(raw: str | bytes) -> bytes | None:
     if p.message_type(msg) != p.MSG_DATA:
         return None
     try:
-        return p.data_payload(msg)
+        return _WriteFrame(p.data_payload(msg), p.write_id(msg))
     except p.ProtocolError as exc:
         logger.warning("dropped a malformed data frame: %s", exc)
         return None
