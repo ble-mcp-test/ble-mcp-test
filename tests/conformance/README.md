@@ -77,7 +77,21 @@ It needs, and none of these is optional:
 1. `BLE_MCP_CONFORMANCE_ARM_B=1`
 2. a machine whose Chromium can reach a real BLE adapter — BlueZ over D-Bus and a
    working `AF_BLUETOOTH` socket. **The ESPHome proxy does not count**: that is
-   the *bridge's* route to the device, and Chrome knows nothing about it.
+   the *bridge's* route to the device, and Chrome knows nothing about it. So this
+   is a **different host from the one the bridge runs on**, unlike every other
+   hardware test here.
+
+   ⚠ **Check the socket, not `/sys`.** Inside an unprivileged container,
+   `/sys/class/bluetooth/hci0` and a `btusb` entry in `/proc/modules` can be the
+   *host's* views leaking through, on a machine with no usable stack of its own.
+   The test that actually answers the question:
+
+   ```
+   python3 -c "import socket; socket.socket(31, socket.SOCK_RAW, 1)"
+   ```
+
+   `[Errno 97] Address family not supported by protocol` means no, whatever
+   `/sys` says.
 3. a powered peripheral in range advertising the configured service
 4. an answer to the chooser problem. `requestDevice()` needs a user gesture and
    shows a device picker; Playwright has no handler for the Web Bluetooth chooser
