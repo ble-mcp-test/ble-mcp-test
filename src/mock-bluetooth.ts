@@ -316,29 +316,125 @@ function readListenerOptions(options?: AddEventListenerOptions | boolean): boole
   return once === true;
 }
 
-// Configuration for mock behavior - can be overridden at runtime
-let MOCK_CONFIG = {
-  // Match server's expected recovery timing:
-  // - Clean disconnect: 1s (new default)
-  // - Failed connection: 5s+ (server default)
-  connectRetryDelay: parseInt(process.env.BLE_MCP_MOCK_RETRY_DELAY || '1200', 10), // 1.2s to cover 1s clean recovery
-  maxConnectRetries: parseInt(process.env.BLE_MCP_MOCK_MAX_RETRIES || '20', 10), // More retries for 5s+ recovery
-  // MEASURED, not inherited. 997 real disconnect cycles against the Python bridge
-  // (2026-08-27 soak, archived at ~/soak-archives/2026-08-27-tra1153-writepath-ab):
-  // socket close -> device released is median 16ms, p99 21ms, MAX 30ms.
-  //
-  // The old value was 1100ms, commented "1.1s to ensure server is ready" -- timing
-  // copied from the TS bridge that has since been deleted, so it was 37x the real
-  // figure and paid on every disconnect in every test. 250ms keeps ~8x margin over
-  // the worst case actually observed.
-  postDisconnectDelay: parseInt(process.env.BLE_MCP_MOCK_CLEANUP_DELAY || '250', 10),
-  retryBackoffMultiplier: parseFloat(process.env.BLE_MCP_MOCK_BACKOFF || '1.3'), // Gentler backoff
-  logRetries: process.env.BLE_MCP_MOCK_LOG_RETRIES !== 'false'
+export interface MockConfig {
+  /** Delay before the first connect retry, in ms. */
+  connectRetryDelay: number;
+  /** How many times connect() retries a bridge-busy refusal. */
+  maxConnectRetries: number;
+  /**
+   * How long disconnect() waits after the socket closes, in ms.
+   *
+   * MEASURED, not inherited. 997 real disconnect cycles against the Python
+   * bridge (2026-08-27 soak, archived at
+   * ~/soak-archives/2026-08-27-tra1153-writepath-ab): socket close -> device
+   * released is median 16ms, p99 21ms, MAX 30ms. 250ms keeps ~8x margin over the
+   * worst case actually observed.
+   *
+   * The value before that was 1100ms, commented "1.1s to ensure server is ready"
+   * -- timing copied from the TypeScript bridge that has since been deleted, so
+   * it was 37x the real figure and paid on every disconnect in every test.
+   */
+  postDisconnectDelay: number;
+  /** Multiplier applied to the retry delay after each failed attempt. */
+  retryBackoffMultiplier: number;
+  /** Whether connect retries and the post-disconnect wait announce themselves. */
+  logRetries: boolean;
+}
+
+/**
+ * The defaults, as plain literals with no runtime behind them.
+ *
+ * They used to be `parseInt(process.env.X || '...')` evaluated at MODULE SCOPE --
+ * a Node API, at import time, in the file that is the single runtime-agnostic
+ * implementation. The browser bundle could only load it because
+ * scripts/build-browser-bundle.js substituted all five reads with esbuild
+ * `define` entries at build time.
+ *
+ * That substitution was a SECOND source for a value that has one, and it drifted:
+ * the define said BLE_MCP_MOCK_CLEANUP_DELAY was "1100" long after this file's
+ * default became 250, so every browser test paid 4.4x the measured figure while
+ * the source read 250 to anyone checking. One contract, two behaviours, selected
+ * by packaging -- which is the defect TRA-1187 exists to close.
+ */
+export const DEFAULT_MOCK_CONFIG: MockConfig = {
+  connectRetryDelay: 1200,
+  maxConnectRetries: 20,
+  postDisconnectDelay: 250,
+  retryBackoffMultiplier: 1.3,
+  logRetries: true
 };
 
-// Allow runtime configuration updates
-export function updateMockConfig(updates: Partial<typeof MOCK_CONFIG>): void {
-  MOCK_CONFIG = { ...MOCK_CONFIG, ...updates };
+/** Set by `updateMockConfig`. Beats the environment; the environment beats the defaults. */
+let configOverrides: Partial<MockConfig> = {};
+
+/**
+ * The environment, if there is one, reached through `globalThis` so a browser
+ * finds nothing rather than throwing on a bare `process`.
+ */
+function environmentConfig(): Partial<MockConfig> {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env;
+  if (!env) return {};
+
+  // An unparseable value is IGNORED, not propagated. parseInt('banana') is NaN,
+  // and NaN as a delay is worse than a wrong number: every comparison against it
+  // is false, so the wait it configures silently disappears.
+  const int = (raw: string | undefined): number | undefined => {
+    if (raw === undefined) return undefined;
+    const value = parseInt(raw, 10);
+    return Number.isFinite(value) ? value : undefined;
+  };
+  const float = (raw: string | undefined): number | undefined => {
+    if (raw === undefined) return undefined;
+    const value = parseFloat(raw);
+    return Number.isFinite(value) ? value : undefined;
+  };
+
+  const config: Partial<MockConfig> = {};
+
+  const connectRetryDelay = int(env.BLE_MCP_MOCK_RETRY_DELAY);
+  if (connectRetryDelay !== undefined) config.connectRetryDelay = connectRetryDelay;
+
+  const maxConnectRetries = int(env.BLE_MCP_MOCK_MAX_RETRIES);
+  if (maxConnectRetries !== undefined) config.maxConnectRetries = maxConnectRetries;
+
+  const postDisconnectDelay = int(env.BLE_MCP_MOCK_CLEANUP_DELAY);
+  if (postDisconnectDelay !== undefined) config.postDisconnectDelay = postDisconnectDelay;
+
+  const retryBackoffMultiplier = float(env.BLE_MCP_MOCK_BACKOFF);
+  if (retryBackoffMultiplier !== undefined) config.retryBackoffMultiplier = retryBackoffMultiplier;
+
+  if (env.BLE_MCP_MOCK_LOG_RETRIES !== undefined) {
+    config.logRetries = env.BLE_MCP_MOCK_LOG_RETRIES !== 'false';
+  }
+
+  return config;
+}
+
+/**
+ * The config in force right now: defaults < environment < updateMockConfig().
+ *
+ * Resolved on every call rather than cached. It is read a handful of times per
+ * connect or disconnect, so the cost is nothing -- and caching would restore the
+ * property that made the module-scope read a trap: a value set after import never
+ * landing, with nothing at the call site to say so.
+ */
+export function resolveMockConfig(): MockConfig {
+  return { ...DEFAULT_MOCK_CONFIG, ...environmentConfig(), ...configOverrides };
+}
+
+/**
+ * Allow runtime configuration updates. Wins over both the environment and the
+ * defaults; `null` clears back to asking them again.
+ *
+ * The clear is not a convenience. Without it the only way back from an override
+ * is to pass the defaults explicitly, which does not restore the default -- it
+ * PINS it, above the environment, permanently. Same shape as
+ * `testing.setAvailability(null)`, and for the same reason: a knob that can only
+ * be set to the other constant is lying for the rest of the process's life.
+ */
+export function updateMockConfig(updates: Partial<MockConfig> | null): void {
+  configOverrides = updates === null ? {} : { ...configOverrides, ...updates };
 }
 
 // Mock BluetoothRemoteGATTServer
@@ -349,9 +445,10 @@ class MockBluetoothRemoteGATTServer {
 
   async connect(): Promise<MockBluetoothRemoteGATTServer> {
     let lastError: Error | null = null;
-    let retryDelay = MOCK_CONFIG.connectRetryDelay;
+    const config = resolveMockConfig();
+    let retryDelay = config.connectRetryDelay;
     
-    for (let attempt = 1; attempt <= MOCK_CONFIG.maxConnectRetries; attempt++) {
+    for (let attempt = 1; attempt <= config.maxConnectRetries; attempt++) {
       try {
         // Pass BLE configuration including session if available
         const connectOptions: any = {};
@@ -383,7 +480,7 @@ class MockBluetoothRemoteGATTServer {
         }
         this.connected = true;
         
-        if (attempt > 1 && MOCK_CONFIG.logRetries) {
+        if (attempt > 1 && config.logRetries) {
           console.log(`[Mock] Connected successfully after ${attempt} attempts`);
         }
         
@@ -402,16 +499,16 @@ class MockBluetoothRemoteGATTServer {
           error.message?.includes(msg)
         );
         
-        if (isRetryable && attempt < MOCK_CONFIG.maxConnectRetries) {
-          if (MOCK_CONFIG.logRetries) {
-            console.log(`[Mock] Bridge busy (${error.message}), retry ${attempt}/${MOCK_CONFIG.maxConnectRetries} in ${retryDelay}ms...`);
+        if (isRetryable && attempt < config.maxConnectRetries) {
+          if (config.logRetries) {
+            console.log(`[Mock] Bridge busy (${error.message}), retry ${attempt}/${config.maxConnectRetries} in ${retryDelay}ms...`);
           }
           
           await new Promise(resolve => setTimeout(resolve, retryDelay));
           
           // Exponential backoff for subsequent retries
           retryDelay = Math.min(
-            retryDelay * MOCK_CONFIG.retryBackoffMultiplier,
+            retryDelay * config.retryBackoffMultiplier,
             10000 // Max 10 second delay
           );
           
@@ -454,11 +551,12 @@ class MockBluetoothRemoteGATTServer {
     this.connected = false;
     
     // Optional post-disconnect delay for tests that need it
-    if (MOCK_CONFIG.postDisconnectDelay > 0) {
-      if (MOCK_CONFIG.logRetries) {
-        console.log(`[Mock] Post-disconnect delay: ${MOCK_CONFIG.postDisconnectDelay}ms`);
+    const config = resolveMockConfig();
+    if (config.postDisconnectDelay > 0) {
+      if (config.logRetries) {
+        console.log(`[Mock] Post-disconnect delay: ${config.postDisconnectDelay}ms`);
       }
-      await new Promise(resolve => setTimeout(resolve, MOCK_CONFIG.postDisconnectDelay));
+      await new Promise(resolve => setTimeout(resolve, config.postDisconnectDelay));
     }
   }
   
