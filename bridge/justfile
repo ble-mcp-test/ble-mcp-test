@@ -27,4 +27,18 @@ firehose seconds="10":
 hardware:
     BLE_MCP_HARDWARE=1 uv run pytest tests/hardware -v -s
 
-validate: lint test
+# `validate` must mean the WHOLE gate from anywhere, so this delegates upward.
+#
+# It used to be `lint test` -- the Python half only. Run from this directory it
+# passed 414 tests, exited 0, and silently skipped every TypeScript test and the
+# TS lint. A narrow green is indistinguishable from a full one at the point of
+# reading, and CLAUDE.md's claim that "just validate is the whole gate" was false
+# for anyone standing here. Agents cd into bridge/ constantly.
+#
+# The root recipe calls `just lint` and `just test` in this file by name, never
+# `validate`, so there is no recursion.
+validate:
+    cd .. && just validate
+
+# The Python half on its own, when that is genuinely what you want.
+validate-py: lint test
