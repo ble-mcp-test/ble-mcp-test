@@ -99,6 +99,14 @@ export type WriteErrorCode = typeof WRITE_ERROR_CODES[keyof typeof WRITE_ERROR_C
  * The other three are definite non-delivery: `NOT_CONNECTED` never reached the
  * socket, `LINK_LOST` had the link fail underneath it, and `WRITE_REJECTED` is
  * the bridge itself reporting the write did not happen.
+ *
+ * ⚠ **`false` here is NECESSARY for a retry, not SUFFICIENT.** It answers only
+ * "can a retry duplicate this write". Whether a retry is WORTH anything is a
+ * question about the consumer's link, which this package cannot see: `LINK_LOST`
+ * and `NOT_CONNECTED` are both non-duplicative and both pointless to retry, and
+ * platform's TRA-1179 note records the harm -- if the link comes back, the retry
+ * lands a STALE command on a FRESH connection. Do not read this as a
+ * retry-worthiness flag.
  */
 const MAY_HAVE_REACHED_DEVICE: Record<WriteErrorCode, boolean> = {
   [WRITE_ERROR_CODES.ACK_TIMEOUT]: true,

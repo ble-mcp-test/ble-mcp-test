@@ -271,8 +271,26 @@ package owns keeping it correct for every code it ever adds.
 means only that no acknowledgement came back inside the cap. **The write may
 already have reached the device, so this rejection must never be matchable by a
 retry predicate** — the retry would be a second write, and for a stateful device
-protocol a duplicate command is not the same thing as a lost one. The other three
-codes are definite non-delivery and are the ones a consumer may retry.
+protocol a duplicate command is not the same thing as a lost one.
+
+**⚠ `mayHaveReachedDevice: false` is NECESSARY for a retry, not SUFFICIENT.** It
+answers exactly one question — *can this retry duplicate a write?* — and a
+consumer that reads it as *is this worth retrying?* will get a different question's
+answer. `LINK_LOST` and `NOT_CONNECTED` are both non-duplicative and both
+pointless to retry: there is no link to retry onto. Worse than pointless, in fact
+— platform's `cs108-ble-transport` records the harm from TRA-1179: if the link
+*does* come back, a retry lands a **stale command on a fresh connection**, which
+is the most damaging outcome available on this path.
+
+So the retry rule a consumer wants is this property **and** a local fact about
+its own link:
+
+    retry  <=  !err.mayHaveReachedDevice  AND  the link is still up
+
+which leaves `WRITE_REJECTED` as the one code this package can promise is worth
+retrying. That is still not an allowlist — a code added here slots in on the
+property with no consumer change — but the sufficiency lives on the consumer's
+side and this package must not claim it.
 
 The message text is human prose and is **free to be reworded**. That freedom is
 the point of the code.
