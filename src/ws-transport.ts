@@ -181,8 +181,30 @@ export class WebSocketTransport {
    * REJECTS on `ok: false` and on timeout. It does not resolve-with-failure,
    * because every caller of this is a `writeValue()` whose Web Bluetooth
    * contract is to reject when the write did not happen.
+   *
+   * ## Why the default is 1500ms, and why it is not a preference
+   *
+   * There are three timeouts stacked on this path, and the innermost has to fire
+   * first:
+   *
+   *     this ack timeout            1500ms   <- innermost, fires first
+   *     platform WRITE_BUDGET_MS    2000ms
+   *     platform CommandManager     2500ms
+   *
+   * It was 5000ms, which put it OUTSIDE both. A hung write then blew the
+   * consumer's write budget at 2000, its command rejected at 2500, and this
+   * promise finally rejected at 5000 -- into a caller that had stopped existing
+   * 2.5 seconds earlier. That does not merely lose the retry; it MANUFACTURES
+   * ORPHANED REJECTIONS, which is the same shape as the 1389 `Command timeout`
+   * entries in the 2026-08-27 soak: work completing for a caller that is already
+   * gone, reported as a timeout that names nothing useful.
+   *
+   * At 1500 a failed write surfaces inside the consumer's budget, so their retry
+   * path is reachable for hung writes and not only for fast failures. Raising it
+   * again means raising their budget past their command timeout, which #583
+   * deliberately sized it under -- so this is the end that moves.
    */
-  sendAwaitingAck(data: Uint8Array, timeoutMs = 5000): Promise<WriteAck> {
+  sendAwaitingAck(data: Uint8Array, timeoutMs = 1500): Promise<WriteAck> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return Promise.reject(new Error('Not connected'));
     }

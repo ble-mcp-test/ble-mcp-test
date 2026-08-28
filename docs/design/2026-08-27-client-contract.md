@@ -212,6 +212,39 @@ check while failing anything that called a method it had not thought to fake —
 delivers only the bytes sent. `new DataView(data.buffer)` alone would hand the
 consumer the whole backing buffer.
 
+### Writes
+
+Three methods, and the difference between them is a real guarantee rather than a
+naming convention.
+
+| member | resolves when | rejects when |
+|---|---|---|
+| `writeValue(data)` | the bridge acknowledges **that** write | `write_ack{ok:false}`, or no ack inside the timeout |
+| `writeValueWithResponse(data)` | same, **and** the ack reports `mode: 'with-response'` | as above, or the write went out `without-response` |
+| `writeValueWithoutResponse(data)` | the frame is handed to the transport | the transport is not connected |
+
+**`writeValue()` resolving on the acknowledgement is the clause that matters.**
+It used to resolve on enqueue and never reject, which made every consumer's
+write-failure path unreachable code — a retry branch that could not run and a
+`catch` that could not fire. Correlation is by `write_id`, minted per write and
+echoed by the bridge; positional correlation was rejected because a dropped ack
+would silently shift every later write onto the wrong promise.
+
+**`writeValueWithResponse` rejecting on a `without-response` ack** is what stops
+the pair being two names for one behaviour. The bridge's write mode is a runtime
+knob, so configuration cannot answer it and only the `mode` on each ack can. On a
+device whose write characteristic advertises `properties=['write']` — the CS108 —
+that rejection should never fire, which makes it a detector for a bridge
+misconfiguration that would otherwise be silent.
+
+**A stated gap, in the loose direction.** Real Chrome rejects
+`writeValueWithoutResponse` on a characteristic that does not advertise the
+property. The mock cannot, because the bridge does not put characteristic
+properties on the wire — so this is the one member where a call passing here
+would fail in Chrome. Closing it means adding properties to the `connected`
+frame. It is written down rather than hidden because the whole point of this
+document is that a gap nobody recorded is a gap nobody can catch.
+
 ### Listener semantics
 
 - **`(type, handler)` pairs are deduplicated**, as the DOM does. This is the
@@ -249,10 +282,9 @@ than as a broken guarantee. `tests/conformance` now asserts it.
 
 ## Deliberate divergences
 
-The mock is **narrower** than the real API in six places — five where it is
-stricter, and one where a member is absent. Each is a decision, recorded here so
-it stays one rather than becoming folklore, and each is asserted in arm A of the
-conformance suite with the real API's behaviour written beside it.
+The mock is **stricter** than the real API in five places. Each is a decision,
+recorded here so it stays one rather than becoming folklore, and each is asserted
+in arm A of the conformance suite with the real API's behaviour written beside it.
 
 | the mock | the real API | why |
 |---|---|---|
@@ -262,18 +294,27 @@ conformance suite with the real API's behaviour written beside it.
 | `testing.testCommand` **rejects** on an unsubscribed notify characteristic | n/a — mock-only surface | the wait can never be satisfied, so the alternative is writing to the device and then timing out. A command whose response is guaranteed to be dropped is a broken call, not a slow one, and reporting it as a timeout is this codebase's most expensive failure mode. Refusing rather than subscribing on the caller's behalf keeps subscription the caller's decision, and avoids leaving their characteristic subscribed without them asking. |
 | `testing.simulateNotification` **throws** on an unsubscribed characteristic | n/a — mock-only surface | a simulated notification is an *instruction*, not a device event. The transport path swallows a frame for an unsubscribed characteristic because a radio really does that. Swallowing an explicit request would make this API a check that cannot go red: it would deliver nothing, report nothing, and the test would pass having asserted on an empty list. |
 
-| `writeValue()` is the **only** write method; `writeValueWithResponse` and `writeValueWithoutResponse` are **absent** | Chrome has all three: `writeValueWithResponse` issues an ATT Write Request and resolves on the peer's Write Response, `writeValueWithoutResponse` issues an ATT Write Command and resolves once queued | **deferred, not done — this row IS the deferral.** TRA-1187's item 1 table said "add to the mock, un-stub Node's, put both in the contract"; that did not land, and until 2026-08-28 nothing recorded it, so the next reader of that table would have believed it shipped. The mock has no acknowledgement to resolve on until TRA-1153 item 5b lands `write_ack` on the client side. Shipping them before that means shipping two aliases of `writeValue()` — exactly what `src/node/` did, stubbed, commented *"in a real implementation, this would wait for acknowledgment"*. A method that claims to wait and does not is worse than an absent one: the absence is a `TypeError` at the call site, the alias is a guarantee that silently never held. **When 5b-client lands, delete this row and add fidelity clauses for all three.** |
-
 **Adding to this table is a decision, not a workaround.** A divergence that is not
 here is a defect.
 
-**A deferral in this table is still a decision**, and it carries a trigger and an
-owner. The `writeValueWith*` row is the only one, and it is deliberately the
-loudest: platform's `cs108-ble-transport.ts` declares both methods on a
-hand-written interface and calls neither, which is the motivating example this
-whole document was written around — a contract that existed only as the
-consumer's wish. The row plus its arm-A check are what make the gap falsifiable
-instead of silent.
+**RETIRED 2026-08-28: the `writeValueWith*` deferral.** This table briefly carried
+a sixth row — `writeValueWithResponse` / `writeValueWithoutResponse` recorded as
+*absent, deferred until there is an acknowledgement to resolve on*. TRA-1153
+5b-client landed that acknowledgement, so both methods now exist and are fidelity
+clauses above rather than divergences here. Its arm-A absence check went red by
+design on the commit that added them, which is the whole reason a deferral was
+safe to record: **the trigger fired the check, the check forced the row's
+deletion.** A deferral without a mechanism that fails when it expires is just a
+comment.
+
+**One consumer-side claim in the retired row has also expired**, and is corrected
+rather than deleted because it was this document's motivating example: platform's
+`cs108-ble-transport.ts` **used to declare** both methods on a hand-written
+interface while calling neither — a contract that existed only as the consumer's
+wish. Platform removed those declarations in their #598 precisely because the mock
+lacked the methods, and restores them now that it has them. So the example is
+history, not a live defect, and stating it in the present tense would send the
+next reader looking for a fiction that is no longer there.
 
 ---
 

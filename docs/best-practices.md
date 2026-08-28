@@ -194,23 +194,31 @@ pnpm run check:device
 
 ### Monitor Bridge State
 
-The bridge serves **no HTTP health endpoint**. It speaks WebSocket on
-`BLE_MCP_WS_PORT` (25153 by default) and nothing else over TCP; state is read
-through the MCP server, which attaches over a unix socket rather than a port.
+The bridge serves no HTTP **API**, but it does answer a plain GET — RFC 6455
+requires a WebSocket server to reject a non-upgrade request with **426 Upgrade
+Required**, and it does, on any path. That makes 426 a valid liveness probe:
 
 ```bash
-# Is the bridge listening at all?
-ss -ltn | grep 25153
+# 426 means the bridge is listening and speaking WebSocket.
+curl -s -o /dev/null -w "%{http_code}" http://localhost:25153/    # -> 426
 ```
+
+Anything else — connection refused, or a different status — means it is not the
+bridge on that port.
 
 For connection state, held device and traffic, use the MCP tools —
 `get_connection_state`, `read_stream`, `status`. See
 [MCP-SERVER.md](./MCP-SERVER.md).
 
 > This section previously suggested `fetch('http://localhost:8081/health')`. [tra-1186-historical]
-> That endpoint died with the TypeScript server (TRA-1161) and the Python bridge
-> has never served it, so the snippet returned a connection error against a
-> perfectly healthy bridge — reading as an outage rather than as a dead URL.
+> That endpoint died with the TypeScript server (TRA-1161), so the snippet
+> returned a connection error against a perfectly healthy bridge — an outage
+> reading rather than a dead URL.
+>
+> It was then briefly replaced with `ss -ltn`, on the stated premise that the
+> bridge "serves no HTTP at all". **That premise was wrong** and the platform
+> session caught it by probing rather than reasoning: only the *port* was stale,
+> not the technique. `426` was a working check the whole time.
 
 ## Common Pitfalls to Avoid
 
