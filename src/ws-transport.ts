@@ -6,12 +6,25 @@ export interface WSMessage {
   // in bridge/src/ble_bridge/ws/protocol.py, checked mechanically by
   // test_wire_types_have_a_typescript_consumer. `disconnected` is the one
   // exception -- it never crosses the wire, it is synthesised below in onclose.
-  type: 'connected' | 'data' | 'error' | 'warning' | 'disconnected';
+  type: 'connected' | 'data' | 'error' | 'warning' | 'disconnected' | 'write_ack';
   seq?: number;
   data?: number[];
   device?: string;
   error?: string;
   warning?: string;
+  /** `write_ack` only. See §8 of the WS protocol spec. */
+  ok?: boolean;
+  /** `write_ack` only: the GATT mode the bridge actually used for THAT write. */
+  mode?: 'with-response' | 'without-response';
+  /** Echoed verbatim from the `data` frame that caused this ack. Absent when the client sent none. */
+  write_id?: string;
+}
+
+/** What a write's acknowledgement tells the caller. */
+export interface WriteAck {
+  ok: boolean;
+  mode: 'with-response' | 'without-response';
+  error?: string;
 }
 
 export class WebSocketTransport {
@@ -22,7 +35,7 @@ export class WebSocketTransport {
   
   /**
    * No default URL. `injectWebBluetoothMock` already refuses to run without an
-   * explicit `serverUrl`, so the old `= 'ws://localhost:8080'` was unreachable
+   * explicit `serverUrl`, so the old `= 'ws://localhost:8080'` was unreachable [tra-1186-historical]
    * through the supported entry point -- a dead value that read like a live
    * guess, and pointed at the port the bridge no longer uses.
    */
@@ -134,10 +147,124 @@ export class WebSocketTransport {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       throw new Error('Not connected');
     }
-    this.ws.send(JSON.stringify({ 
-      type: 'data', 
-      data: Array.from(data) 
+    this.ws.send(JSON.stringify({
+      type: 'data',
+      data: Array.from(data)
     }));
+  }
+
+  /**
+   * Writes still pending an ack, keyed by the `write_id` we minted for them.
+   *
+   * The bridge's relay is serial, but this is keyed rather than a queue because
+   * positional correlation is exactly what §8 of the protocol spec rejected: a
+   * dropped or out-of-order ack would silently shift every subsequent write onto
+   * the wrong promise, and nothing would look wrong.
+   */
+  private pendingWrites = new Map<string, {
+    resolve: (ack: WriteAck) => void;
+    reject: (e: Error) => void;
+    timer: ReturnType<typeof setTimeout>;
+  }>();
+
+  private writeSeq = 0;
+
+  /**
+   * Send a write and resolve when the bridge acknowledges THAT write.
+   *
+   * Resolves with the ack -- including `mode`, which the caller needs because
+   * `ok: true` means different things under the two GATT modes: a peer ATT
+   * confirmation under with-response, and merely "handed to the proxy" under
+   * without-response. The mode is a runtime knob on the bridge, so it cannot be
+   * inferred from configuration and has to be read off each ack.
+   *
+   * REJECTS on `ok: false` and on timeout. It does not resolve-with-failure,
+   * because every caller of this is a `writeValue()` whose Web Bluetooth
+   * contract is to reject when the write did not happen.
+   *
+   * ## Why the default is 1500ms, and why it is not a preference
+   *
+   * There are three timeouts stacked on this path, and the innermost has to fire
+   * first:
+   *
+   *     this ack timeout            1500ms   <- innermost, fires first
+   *     platform WRITE_BUDGET_MS    2000ms
+   *     platform CommandManager     2500ms
+   *
+   * It was 5000ms, which put it OUTSIDE both. A hung write then blew the
+   * consumer's write budget at 2000, its command rejected at 2500, and this
+   * promise finally rejected at 5000 -- into a caller that had stopped existing
+   * 2.5 seconds earlier. That does not merely lose the retry; it MANUFACTURES
+   * ORPHANED REJECTIONS, which is the same shape as the 1389 `Command timeout`
+   * entries in the 2026-08-27 soak: work completing for a caller that is already
+   * gone, reported as a timeout that names nothing useful.
+   *
+   * At 1500 a failed write surfaces inside the consumer's budget, so their retry
+   * path is reachable for hung writes and not only for fast failures. Raising it
+   * again means raising their budget past their command timeout, which #583
+   * deliberately sized it under -- so this is the end that moves.
+   */
+  sendAwaitingAck(data: Uint8Array, timeoutMs = 1500): Promise<WriteAck> {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return Promise.reject(new Error('Not connected'));
+    }
+    const writeId = `w-${++this.writeSeq}`;
+
+    return new Promise<WriteAck>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingWrites.delete(writeId);
+        // Named as a missing acknowledgement rather than a generic timeout: the
+        // write may well have reached the device, and a caller retrying blindly
+        // on this needs to know it might be sending twice.
+        reject(new Error(
+          `write ${writeId} was not acknowledged within ${timeoutMs}ms; ` +
+          'the write may or may not have reached the device'
+        ));
+      }, timeoutMs);
+
+      this.pendingWrites.set(writeId, { resolve, reject, timer });
+
+      try {
+        this.ws!.send(JSON.stringify({ type: 'data', data: Array.from(data), write_id: writeId }));
+      } catch (e) {
+        clearTimeout(timer);
+        this.pendingWrites.delete(writeId);
+        reject(e instanceof Error ? e : new Error(String(e)));
+      }
+    });
+  }
+
+  /**
+   * Settle the write an ack names. Returns whether it was consumed, so the
+   * caller can decide about forwarding.
+   */
+  private settleWriteAck(msg: WSMessage): boolean {
+    if (msg.type !== 'write_ack' || !msg.write_id) return false;
+    const pending = this.pendingWrites.get(msg.write_id);
+    if (!pending) return false;   // an ack for a write we already timed out
+    this.pendingWrites.delete(msg.write_id);
+    clearTimeout(pending.timer);
+
+    const mode = msg.mode ?? 'with-response';
+    if (msg.ok) {
+      pending.resolve({ ok: true, mode });
+    } else {
+      pending.reject(new Error(msg.error ?? 'the bridge reported the write failed'));
+    }
+    return true;
+  }
+
+  /**
+   * Fail every in-flight write. Called when the link goes away: a write awaiting
+   * an ack that can no longer arrive would otherwise hang until its own timeout,
+   * which presents as slowness rather than as the disconnection it is.
+   */
+  private failPendingWrites(reason: string): void {
+    for (const [, pending] of this.pendingWrites) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error(reason));
+    }
+    this.pendingWrites.clear();
   }
   
   onMessage(callback: (msg: WSMessage) => void): void {
@@ -146,6 +273,11 @@ export class WebSocketTransport {
       this.ws.onmessage = (event) => {
         try {
           const msg: WSMessage = JSON.parse(event.data);
+          // Settle first, then forward. A write_ack is a transport concern, but
+          // it is still forwarded so nothing downstream is surprised by a wire
+          // message it cannot see -- the handlers are if/else chains with no
+          // throwing default, so an unrecognised type is ignored.
+          this.settleWriteAck(msg);
           if (this.messageHandler) {
             this.messageHandler(msg);
           }

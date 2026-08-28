@@ -14,9 +14,9 @@ BLE_MCP_WS_PORT=25153
 
 # BLE Device Configuration
 BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx
-BLE_MCP_SERVICE_UUID=9800
-BLE_MCP_WRITE_UUID=9900
-BLE_MCP_NOTIFY_UUID=9901
+BLE_MCP_SERVICE_UUID=00009800-0000-1000-8000-00805f9b34fb
+BLE_MCP_WRITE_UUID=00009900-0000-1000-8000-00805f9b34fb
+BLE_MCP_NOTIFY_UUID=00009901-0000-1000-8000-00805f9b34fb
 
 # Optional: Recovery timing
 BLE_MCP_RECOVERY_DELAY=1000
@@ -24,8 +24,13 @@ BLE_MCP_RECOVERY_DELAY=1000
 # Optional: Mock configuration
 BLE_MCP_MOCK_RETRY_DELAY=1200
 BLE_MCP_MOCK_MAX_RETRIES=20
-BLE_MCP_MOCK_CLEANUP_DELAY=1100
+BLE_MCP_MOCK_CLEANUP_DELAY=250
 ```
+
+> UUIDs must be the full lowercase 128-bit form. Since 0.8.0 the mock
+> canonicalises the way real Chromium does and **rejects short forms like
+> `9800` with a TypeError** — this section used to show them, and following it
+> failed on the first `getCharacteristic`.
 
 ### In Your Tests
 
@@ -44,9 +49,9 @@ function getWebSocketUrl() {
   
   // Add BLE configuration
   url.searchParams.set('device', process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108');
-  url.searchParams.set('service', process.env.BLE_MCP_SERVICE_UUID || '9800');
-  url.searchParams.set('write', process.env.BLE_MCP_WRITE_UUID || '9900');
-  url.searchParams.set('notify', process.env.BLE_MCP_NOTIFY_UUID || '9901');
+  url.searchParams.set('service', process.env.BLE_MCP_SERVICE_UUID || '00009800-0000-1000-8000-00805f9b34fb');
+  url.searchParams.set('write', process.env.BLE_MCP_WRITE_UUID || '00009900-0000-1000-8000-00805f9b34fb');
+  url.searchParams.set('notify', process.env.BLE_MCP_NOTIFY_UUID || '00009901-0000-1000-8000-00805f9b34fb');
   
   return url.toString();
 }
@@ -84,9 +89,9 @@ function getBleEnvironment() {
     wsHost: process.env.BLE_MCP_WS_HOST || 'localhost',
     wsPort: bridgePort(),
     device: process.env.BLE_MCP_DEVICE_IDENTIFIER || 'CS108',
-    service: process.env.BLE_MCP_SERVICE_UUID || '9800',
-    write: process.env.BLE_MCP_WRITE_UUID || '9900',
-    notify: process.env.BLE_MCP_NOTIFY_UUID || '9901'
+    service: process.env.BLE_MCP_SERVICE_UUID || '00009800-0000-1000-8000-00805f9b34fb',
+    write: process.env.BLE_MCP_WRITE_UUID || '00009900-0000-1000-8000-00805f9b34fb',
+    notify: process.env.BLE_MCP_NOTIFY_UUID || '00009901-0000-1000-8000-00805f9b34fb'
   };
 }
 
@@ -145,14 +150,19 @@ describe('Device Tests', () => {
 
 ### 2. Handle Recovery Timing
 
-The bridge has a 1s recovery period after clean disconnects. The mock automatically waits 1.1s before attempting reconnection.
+The mock waits `postDisconnectDelay` after a disconnect before reconnecting.
+It is **250ms**, and that number is measured rather than guessed: 997 real
+disconnect cycles against the Python bridge put socket-close-to-device-released
+at median 16ms, p99 21ms, max 30ms, so 250ms keeps roughly 8x margin over the
+worst case observed.
 
-If you need rapid reconnections:
-```javascript
-// Set shorter recovery for testing
-process.env.BLE_MCP_RECOVERY_DELAY = '500';
-process.env.BLE_MCP_MOCK_CLEANUP_DELAY = '600';
-```
+It was 1100ms, inherited from the deleted TypeScript bridge with the comment
+"1.1s to ensure server is ready". If you find advice recommending 600-1100ms
+here, it predates the measurement.
+
+Shortening it below the measured worst case buys nothing and risks racing the
+release — the bridge holds one writer slot, and a connect issued before the
+previous release is processed is refused `Device is busy`.
 
 ### 3. Error Handling
 
@@ -183,12 +193,32 @@ pnpm run check:device
 ```
 
 ### Monitor Bridge State
-```javascript
-// Use MCP tools to check bridge state
-const response = await fetch('http://localhost:8081/health');
-const health = await response.json();
-console.log('Bridge state:', health.state);
+
+The bridge serves no HTTP **API**, but it does answer a plain GET — RFC 6455
+requires a WebSocket server to reject a non-upgrade request with **426 Upgrade
+Required**, and it does, on any path. That makes 426 a valid liveness probe:
+
+```bash
+# 426 means the bridge is listening and speaking WebSocket.
+curl -s -o /dev/null -w "%{http_code}" http://localhost:25153/    # -> 426
 ```
+
+Anything else — connection refused, or a different status — means it is not the
+bridge on that port.
+
+For connection state, held device and traffic, use the MCP tools —
+`get_connection_state`, `read_stream`, `status`. See
+[MCP-SERVER.md](./MCP-SERVER.md).
+
+> This section previously suggested `fetch('http://localhost:8081/health')`. [tra-1186-historical]
+> That endpoint died with the TypeScript server (TRA-1161), so the snippet
+> returned a connection error against a perfectly healthy bridge — an outage
+> reading rather than a dead URL.
+>
+> It was then briefly replaced with `ss -ltn`, on the stated premise that the
+> bridge "serves no HTTP at all". **That premise was wrong** and the platform
+> session caught it by probing rather than reasoning: only the *port* was stale,
+> not the technique. `426` was a working check the whole time.
 
 ## Common Pitfalls to Avoid
 
@@ -207,7 +237,7 @@ test('simulated device test', async ({ page }) => {
   // ... setup mock as usual
   
   // Get characteristic
-  const characteristic = await service.getCharacteristic('9901');
+  const characteristic = await service.getCharacteristic('00009901-0000-1000-8000-00805f9b34fb');
   
   // Use testing API for device notification simulation  
   const { simulateNotification } = navigator.bluetooth.testing;

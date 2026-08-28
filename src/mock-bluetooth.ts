@@ -5,36 +5,41 @@
  * all calls through the WebSocketTransport, bypassing all native dialogs
  * 
  * ====================================================================
- * 🤖 AI DEBUGGING TIP: Using MCP for Enhanced Debugging
+ * 🤖 AI DEBUGGING TIP: reading the bridge's traffic while a test fails
  * ====================================================================
- * 
- * If you're an AI agent debugging an application that uses this mock,
- * the ble-mcp-test server provides powerful MCP (Model Context Protocol)
- * tools for real-time debugging:
- * 
- * Available MCP Tools:
- * - get_logs: View recent BLE communication with filtering
- * - search_packets: Find specific hex patterns in traffic
- * - get_connection_state: Check current BLE connection status
- * - status: Get server configuration and health
- * - scan_devices: Discover nearby BLE devices
- * 
- * Health Check:
- * - HTTP endpoint: http://localhost:8081/health
- * - Returns: { status: 'ok', timestamp: string, bridge: {...} }
- * - Use before running tests to ensure server is available
- * 
- * Example Usage:
- * 1. Use get_logs to see recent TX/RX packets
- * 2. Use search_packets to find specific command/response patterns
- * 3. Monitor connection state during debugging
- * 
- * The server runs MCP by default on stdio. For network access:
- * - Run with --mcp-http for HTTP transport on port 8081
- * - Or set MCP_TOKEN=secret for authenticated access
- * 
- * This enables real-time inspection of BLE communication without
- * modifying application code or adding console.log statements.
+ *
+ * If you are an agent debugging an application that uses this mock, the Python
+ * bridge exposes an MCP server that lets you read the raw BLE stream instead of
+ * adding console.log statements to the code under test.
+ *
+ * It connects over a UNIX SOCKET, not HTTP: /run/user/<uid>/ble-bridge.sock,
+ * mode 0600, owner only. There is no port, no health endpoint and no token --
+ * the socket's file permissions are the authentication.
+ *
+ * The tools, as the bridge actually registers them:
+ * - read_stream:          the raw BLE data stream, logs interleaved. Start here;
+ *                         this is most of the value.
+ * - get_logs:             recent bridge log lines, filterable
+ * - search_packets:       find a hex pattern in captured traffic
+ * - get_connection_state: who holds the device right now
+ * - get_write_mode / set_write_mode: with-response vs without-response
+ * - status:               bridge configuration and health
+ *
+ * See docs/MCP-SERVER.md for how to attach.
+ *
+ * ## What this block used to say, and why that mattered
+ *
+ * Until TRA-1186 it advertised `scan_devices` (removed -- there is no local
+ * radio; the bridge reaches the device through an ESPHome proxy), a health
+ * check at `http://localhost:8081/health`, an `--mcp-http` flag and a [tra-1186-historical]
+ * `MCP_TOKEN`. The HTTP transport was deleted with the TypeScript server in [tra-1186-historical]
+ * TRA-1161, so all four had been gone for some time.
+ *
+ * They are worth naming rather than quietly correcting, because of HOW they
+ * failed. An agent following them polls a health endpoint nothing serves and
+ * concludes THE BRIDGE IS DOWN -- a wrong diagnosis about a working system,
+ * arrived at by trusting this file. That is more expensive than no advice, and
+ * it shipped in `dist/`, so it reached every consumer of the package.
  * ====================================================================
  */
 
@@ -135,12 +140,61 @@ export class MockBluetoothRemoteGATTCharacteristic {
     this.service.server.device.registerCharacteristic(this.uuid, this);
   }
 
+  /**
+   * Write, and resolve when the bridge acknowledges THIS write.
+   *
+   * Real Web Bluetooth maps `writeValue` to write-with-response where the
+   * characteristic supports it, so it resolves after the peer's ATT response and
+   * rejects when the write did not happen. This used to resolve on enqueue and
+   * never reject, which made a consumer's write-failure path unreachable.
+   */
   async writeValue(value: BufferSource): Promise<void> {
-    const data = new Uint8Array(value as ArrayBuffer);
-    // Fire-and-forget - send returns void, no await needed
-    this.service.server.device.transport.send(data);
-    // Return immediately since BLE commands are fire-and-forget
-    // Responses come through notifications
+    await this.service.server.device.transport.sendAwaitingAck(new Uint8Array(value as ArrayBuffer));
+  }
+
+  /**
+   * Write-with-response: an ATT Write Request, resolved by the peer's response.
+   *
+   * Rejects if the bridge used `without-response` for this write, because then
+   * there was no peer confirmation and the guarantee this method's NAME makes
+   * would be a lie. The bridge's write mode is a runtime knob, so the only
+   * honest source is the `mode` on the ack itself.
+   *
+   * "When would that ever fire?" -- on the CS108, never, and that is the point.
+   * Its write characteristic advertises `properties=['write']`, so the
+   * without-response bit is absent and the bridge writing in that mode would be
+   * a spec violation on the wire rather than merely a mismatch with what the
+   * caller asked for. This rejection catches a misconfiguration that would
+   * otherwise be silent.
+   */
+  async writeValueWithResponse(value: BufferSource): Promise<void> {
+    const ack = await this.service.server.device.transport.sendAwaitingAck(
+      new Uint8Array(value as ArrayBuffer)
+    );
+    if (ack.mode !== 'with-response') {
+      throw new Error(
+        `writeValueWithResponse() cannot be honoured: the bridge wrote in '${ack.mode}' mode, ` +
+        'so nothing confirmed receipt. Set the bridge to with-response, or call ' +
+        'writeValueWithoutResponse() if that is what you meant.'
+      );
+    }
+  }
+
+  /**
+   * Write-without-response: an ATT Write Command. Resolves once the frame is
+   * handed off; nothing comes back from the peer, so there is nothing to await.
+   *
+   * KNOWN GAP, stated rather than hidden: real Chrome rejects this with a
+   * NotSupportedError on a characteristic that does not advertise the
+   * without-response property, and the CS108's write characteristic advertises
+   * `properties=['write']` only. The mock cannot make that check today because
+   * the bridge does not put characteristic properties on the wire. So this is
+   * the one write method where the mock is LOOSER than the real API, and a call
+   * that passes here would fail in Chrome. Closing it means adding properties to
+   * the `connected` frame.
+   */
+  async writeValueWithoutResponse(value: BufferSource): Promise<void> {
+    this.service.server.device.transport.send(new Uint8Array(value as ArrayBuffer));
   }
 
   /**
@@ -323,9 +377,36 @@ function readListenerOptions(options?: AddEventListenerOptions | boolean): boole
 }
 
 export interface MockConfig {
-  /** Delay before the first connect retry, in ms. */
+  /**
+   * Delay before the first connect retry, in ms.
+   *
+   * MEASURED (TRA-1153 item 6), by scripts/reconnect-probe.js against the live
+   * bridge, reconnecting with no client-side pacing at all:
+   *
+   *     delay    0ms -> 25% connect  (15/20 refused "Device is busy")
+   *     delay  100ms -> 95% connect  (1/20 refused)
+   *     delay  250ms -> 100% connect (0/20 refused)
+   *
+   * So the floor is between 100 and 250ms, and 250 clears it with the worst
+   * observed refusal below it. The previous 1200ms was ~10x that, inherited
+   * from the deleted TypeScript bridge.
+   *
+   * Why a full-suite soak could NOT produce this number: harvesting connect
+   * cycles as a side effect of running specs measures how long the CLIENT
+   * waited, not how long the bridge needed. Real suite data bottomed out at
+   * 791ms because nothing ever attempted sooner -- it could not speak to
+   * whether 100ms works. This probe attempts at 0.
+   */
   connectRetryDelay: number;
-  /** How many times connect() retries a bridge-busy refusal. */
+  /**
+   * How many times connect() retries a bridge-busy refusal.
+   *
+   * 5, not 20. At 250ms with 1.3x backoff that is ~2.4s before failing, against
+   * a floor that clears at one delay. Twenty retries with each capped at 10s
+   * meant a connect that kept being refused burned ~2.5 MINUTES before it
+   * failed -- which presents as a hang, this codebase's first named failure
+   * class, rather than as the refusal it is.
+   */
   maxConnectRetries: number;
   /**
    * How long disconnect() waits after the socket closes, in ms.
@@ -363,8 +444,8 @@ export interface MockConfig {
  * by packaging -- which is the defect TRA-1187 exists to close.
  */
 export const DEFAULT_MOCK_CONFIG: MockConfig = {
-  connectRetryDelay: 1200,
-  maxConnectRetries: 20,
+  connectRetryDelay: 250,
+  maxConnectRetries: 5,
   postDisconnectDelay: 250,
   retryBackoffMultiplier: 1.3,
   logRetries: true

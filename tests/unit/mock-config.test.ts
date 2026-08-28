@@ -39,8 +39,8 @@ describe('the resolved mock config', () => {
   it('falls back to the measured defaults with no environment set', () => {
     const config = resolveMockConfig();
     expect(config.postDisconnectDelay).toBe(250);
-    expect(config.connectRetryDelay).toBe(1200);
-    expect(config.maxConnectRetries).toBe(20);
+    expect(config.connectRetryDelay).toBe(250);
+    expect(config.maxConnectRetries).toBe(5);
     expect(config.retryBackoffMultiplier).toBe(1.3);
     expect(config.logRetries).toBe(true);
   });
@@ -53,7 +53,7 @@ describe('the resolved mock config', () => {
   it('reads the environment LAZILY, so a value set after import still lands', () => {
     // The module-scope read made this impossible: by the time a test could set
     // the variable, the value was already frozen into the module.
-    expect(resolveMockConfig().maxConnectRetries).toBe(20);
+    expect(resolveMockConfig().maxConnectRetries).toBe(5);
     process.env.BLE_MCP_MOCK_MAX_RETRIES = '3';
     expect(resolveMockConfig().maxConnectRetries).toBe(3);
   });

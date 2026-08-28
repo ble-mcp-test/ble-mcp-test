@@ -55,6 +55,10 @@ export interface StubBridgeOptions {
    * its own double rather than against anything a device does.
    */
   echoWrites?: boolean;
+  /** Ack every write with `ok: false`, so the rejection path can be exercised. */
+  failWrites?: boolean;
+  /** The `mode` to report on each ack. Default `with-response`, matching the bridge. */
+  writeMode?: 'with-response' | 'without-response';
 }
 
 export async function startStubBridge(options: StubBridgeOptions = {}): Promise<StubBridge> {
@@ -69,7 +73,7 @@ export async function startStubBridge(options: StubBridgeOptions = {}): Promise<
     sockets.push(socket);
 
     socket.on('message', raw => {
-      let message: { type?: string; data?: number[] };
+      let message: { type?: string; data?: number[]; write_id?: string };
       try {
         message = JSON.parse(raw.toString());
       } catch {
@@ -77,6 +81,17 @@ export async function startStubBridge(options: StubBridgeOptions = {}): Promise<
       }
       if (message.type === 'data' && Array.isArray(message.data)) {
         record.writes.push(message.data);
+        // `writeValue()` awaits this. Without it every write here would hang to
+        // its own timeout, which is a slow way to say "the stub is incomplete".
+        if (message.write_id) {
+          socket.send(JSON.stringify({
+            type: 'write_ack',
+            ok: options.failWrites ? false : true,
+            mode: options.writeMode ?? 'with-response',
+            write_id: message.write_id,
+            ...(options.failWrites ? { error: 'stub bridge: write failure on demand' } : {})
+          }));
+        }
         if (options.echoWrites) {
           socket.send(JSON.stringify({ type: 'data', data: message.data }));
         }

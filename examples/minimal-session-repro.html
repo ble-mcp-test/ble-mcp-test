@@ -62,7 +62,7 @@
         document.getElementById('inject').onclick = () => {
             try {
                 // Inject the mock - this is what happens on page load in the user's scenario
-                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
                 addLog('Mock injected successfully', 'success');
                 
                 // Show what session was created/reused
