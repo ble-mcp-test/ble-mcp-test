@@ -54,6 +54,19 @@ class TransportError(RuntimeError):
 class DeviceInfo:
     name: str
     id: str
+    #: The write characteristic's own account of what it supports, lowercase, as
+    #: the peripheral reports it -- e.g. ``["write"]`` for the CS108, whose
+    #: 0x9900 advertises write-with-response only.
+    #:
+    #: On the wire so the client can refuse a write mode the device does not
+    #: advertise. Real Chrome rejects ``writeValueWithoutResponse()`` on a
+    #: characteristic lacking the property; without this field the mock cannot,
+    #: and is LOOSER than the API it doubles -- a call that passes against the
+    #: mock and throws in the browser, which is the exact defect TRA-1187 exists
+    #: to prevent.
+    #:
+    #: Empty when the transport cannot report it; the client then does not gate.
+    write_properties: tuple[str, ...] = ()
 
 
 @runtime_checkable

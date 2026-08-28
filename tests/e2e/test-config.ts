@@ -285,8 +285,19 @@ export async function testSimulateNotification(page: Page, testBytes: number[] =
         await server.disconnect();
       }
     } catch (error: any) {
+      // RETHROW, do not collapse to false. Returning a boolean here destroyed a
+      // diagnostic the bridge had gone to trouble to produce: during a reader
+      // collision it sent `Device is busy: the command path is owned by another
+      // connection (session 'X')` -- holder named, remedies included -- and the
+      // spec reported `expected true, received false`. The cause was diagnosed
+      // from the bridge log instead, and briefly misfiled as a mock defect.
+      //
+      // The mock propagates that string faithfully; this helper was the only
+      // thing throwing it away. A helper that converts every failure into one
+      // bit cannot distinguish "the device sent nothing" from "someone else
+      // holds the reader", and those are different mornings.
       console.error('testSimulateNotification error:', error);
-      return false;
+      throw error;
     }
   }, { config: getBleConfig(), bytes: testBytes });
 }

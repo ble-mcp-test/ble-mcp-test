@@ -18,6 +18,13 @@ export interface WSMessage {
   mode?: 'with-response' | 'without-response';
   /** Echoed verbatim from the `data` frame that caused this ack. Absent when the client sent none. */
   write_id?: string;
+  /**
+   * `connected` only: the write characteristic's own account of what it
+   * supports, e.g. `['write']`. ABSENT when the bridge cannot report it -- which
+   * is different from an empty list, and the two call for different behaviour:
+   * absent means do not gate, empty would mean gate on nothing.
+   */
+  write_properties?: string[];
 }
 
 /** What a write's acknowledgement tells the caller. */
@@ -96,6 +103,10 @@ export class WebSocketTransport {
             console.warn(`[Transport] Server warning: ${msg.warning}`);
           } else if (msg.type === 'connected') {
             clearTimeout(timeout);
+            // Kept off the resolve value so `connect()` keeps its void contract.
+            // Absent stays undefined -- see the field's note: a bridge that
+            // cannot report properties must not read as a device with none.
+            this.writeProperties = msg.write_properties;
             resolve();
           } else if (msg.type === 'error') {
             clearTimeout(timeout);
@@ -168,6 +179,17 @@ export class WebSocketTransport {
   }>();
 
   private writeSeq = 0;
+
+  /**
+   * What the peripheral says its write characteristic supports, from the
+   * `connected` frame. `undefined` when the bridge did not report it.
+   *
+   * The mock gates `writeValueWithoutResponse()` on this, because real Chrome
+   * rejects that call on a characteristic lacking the property. Until this was
+   * on the wire the mock could not perform that check, which made it LOOSER than
+   * the API it doubles -- a call passing here and throwing in the browser.
+   */
+  writeProperties?: string[];
 
   /**
    * Send a write and resolve when the bridge acknowledges THAT write.

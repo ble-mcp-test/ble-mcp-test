@@ -137,21 +137,71 @@ async def test_the_busy_error_is_not_one_the_mock_silently_retries():
 
 
 def _mock_retryable_substrings() -> list[str]:
-    """The `retryableErrors` array from src/mock-bluetooth.ts.
+    """The `RETRYABLE_CONNECT_ERRORS` array from src/constants.ts.
 
-    A hard failure rather than a skip when the file is gone: a silent skip here
-    would leave the wording unchecked while the test still reported green.
+    It used to live inline in mock-bluetooth.ts as `const retryableErrors`. It
+    moved to constants.ts when the list turned out to contain three strings this
+    bridge has never emitted -- see test_every_retryable_substring_is_one_we_send.
+
+    A hard failure rather than a skip when the file is gone: a silent skip would
+    leave the wording unchecked while the test still reported green.
     """
     root = pathlib.Path(__file__).resolve().parents[2]
-    source = root / "src" / "mock-bluetooth.ts"
+    source = root / "src" / "constants.ts"
     assert source.is_file(), (
         f"{source} is missing. It owns the client's retry-on-substring list, which "
-        "this server's busy text must not collide with. If the mock has moved, point "
-        "this check at its new home -- do not delete it."
+        "this server's busy text must not collide with. If it has moved, point this "
+        "check at its new home -- do not delete it."
     )
     text = source.read_text()
-    start = text.index("const retryableErrors")
-    return re.findall(r"'([^']+)'", text[start : text.index("]", start)])
+    # Anchor on the assignment, not the declaration: `readonly string[]` contains
+    # a `]` that would truncate the slice to nothing and make every assertion
+    # below vacuously true.
+    start = text.index("RETRYABLE_CONNECT_ERRORS")
+    start = text.index("= [", start)
+    body = text[start : text.index("]", start)]
+    # Strip `//` comments FIRST. An apostrophe in ordinary prose -- "the bridge's
+    # own text" -- opens a spurious quote and the regex then returns a chunk of
+    # comment as if it were a retry substring. Found exactly that way.
+    body = re.sub(r"//[^\n]*", "", body)
+    return re.findall(r"'([^']+)'", body)
+
+
+def test_every_retryable_substring_is_one_we_send():
+    """The mirror of the busy check, and it exists because the list had rotted.
+
+    The busy test asks "does our refusal accidentally contain something the mock
+    retries on". It cannot see the opposite failure: a mock retrying on text this
+    bridge NEVER sends. That is what had happened -- `Bridge is disconnecting`,
+    `Bridge is connecting` and `only ready state accepts connections` were all
+    TypeScript-bridge-era wording, absent from this tree, so `maxConnectRetries`
+    could never fire against the Python bridge.
+
+    Its symptom is the ABSENCE of a retry, and nothing fails when a retry that
+    would have succeeded never happens -- which is why it survived a replatform,
+    a soak and a measured cut of the retry budget itself.
+
+    So: every substring the client retries on must appear in some error THIS
+    bridge can actually emit.
+    """
+    ours = [
+        getattr(p, name)
+        for name in dir(p)
+        if name.endswith(("_ERROR", "_ERROR_PREFIX", "_ERROR_ADVICE"))
+        and isinstance(getattr(p, name), str)
+    ]
+    assert ours, "found no error constants in protocol.py; the check would be vacuous"
+
+    retryable = _mock_retryable_substrings()
+    assert retryable, "found no retryable list; the check would be vacuous"
+
+    orphans = [r for r in retryable if not any(r in sent for sent in ours)]
+    assert orphans == [], (
+        f"the mock retries on text this bridge never sends: {orphans}. "
+        "Either the bridge reworded an error and the client was not updated, or "
+        "the entry is dead. A retry condition nothing can satisfy is a waiter "
+        "that cannot be woken."
+    )
 
 
 # --- the observer -------------------------------------------------------------

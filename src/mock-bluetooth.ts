@@ -45,6 +45,7 @@
 
 import { WebSocketTransport } from './ws-transport.js';
 import { canonicalUuid } from './uuid.js';
+import { RETRYABLE_CONNECT_ERRORS } from './constants.js';
 
 // Testing API interfaces
 export interface TestCommandOptions {
@@ -184,16 +185,26 @@ export class MockBluetoothRemoteGATTCharacteristic {
    * Write-without-response: an ATT Write Command. Resolves once the frame is
    * handed off; nothing comes back from the peer, so there is nothing to await.
    *
-   * KNOWN GAP, stated rather than hidden: real Chrome rejects this with a
-   * NotSupportedError on a characteristic that does not advertise the
-   * without-response property, and the CS108's write characteristic advertises
-   * `properties=['write']` only. The mock cannot make that check today because
-   * the bridge does not put characteristic properties on the wire. So this is
-   * the one write method where the mock is LOOSER than the real API, and a call
-   * that passes here would fail in Chrome. Closing it means adding properties to
-   * the `connected` frame.
+   * REJECTS on a characteristic that does not advertise the property, matching
+   * Chrome's NotSupportedError. The CS108's write characteristic advertises
+   * `properties=['write']` only, so this call is illegal against it -- and until
+   * the bridge put properties on the `connected` frame the mock could not tell,
+   * which made this the one method where the mock was LOOSER than the API it
+   * doubles: a call passing here and throwing in the browser.
+   *
+   * When the bridge does not report properties at all the check does not run.
+   * Absent is not the same as empty: a transport that cannot answer must not
+   * read as a device that supports nothing.
    */
   async writeValueWithoutResponse(value: BufferSource): Promise<void> {
+    const props = this.service.server.device.transport.writeProperties;
+    if (props && !props.includes('write_without_response')) {
+      throw new Error(
+        `writeValueWithoutResponse() is not supported by characteristic ${this.uuid}: ` +
+        `the peripheral advertises [${props.join(', ')}]. Real Web Bluetooth throws ` +
+        'NotSupportedError here. Use writeValue() or writeValueWithResponse().'
+      );
+    }
     this.service.server.device.transport.send(new Uint8Array(value as ArrayBuffer));
   }
 
@@ -575,14 +586,12 @@ class MockBluetoothRemoteGATTServer {
       } catch (error: any) {
         lastError = error;
         
-        // Check if error is retryable (bridge busy states)
-        const retryableErrors = [
-          'Bridge is disconnecting',
-          'Bridge is connecting', 
-          'only ready state accepts connections'
-        ];
-        
-        const isRetryable = retryableErrors.some(msg => 
+        // The retryable set lives in constants.ts, matched against the exact
+        // text the Python bridge sends. It used to be three inline strings that
+        // the bridge has never emitted, which made this whole branch dead.
+        const retryableErrors = RETRYABLE_CONNECT_ERRORS;
+
+        const isRetryable = retryableErrors.some(msg =>
           error.message?.includes(msg)
         );
         

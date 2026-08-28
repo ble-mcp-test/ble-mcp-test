@@ -20,6 +20,10 @@ the client→server `data` frame now carries. **Ten message types traverse the w
 amendment** — the "Corrected: 9" below is the count as it stood on 2026-08-23 and is left standing
 as the history it is.
 
+**Amended 2026-08-28 (TRA-1153 item 6 / TRA-1187).** §9 is new and specifies
+`write_properties` on the `connected` frame — the second field added since the port, and the
+first that describes the *peripheral* rather than the relay. The §2 server→client table gains it.
+
 **Amended 2026-08-28 (TRA-1187 item 4).** `src/node/` is deleted, so **there is one client, not
 two.** Every `NodeBleClient` citation below described a real second consumer when it was written;
 none of them names live code any more. The §2 and §3a tables are corrected in place, because they
@@ -103,7 +107,7 @@ rather than inherited.
 
 | Type | Emitted at | When | Client action | Shape |
 |---|---|---|---|---|
-| `connected` | `bridge-server.ts:145` | BLE connection established | resolve connect | `{type, device: string}` |
+| `connected` | `bridge-server.ts:145` | BLE connection established | resolve connect | `{type, device: string, write_properties?: string[]}` — see §9 |
 | `data` | `ws-handler.ts:88` | notification from device | deliver to notify handler | `{type, data: number[]}` **[inferred field]** |
 | `error` | `ws-handler.ts:105`, `bridge-server.ts:84` | param validation failure, or operation error | reject pending op | `{type, error: string}` |
 | `warning` | `ws-handler.ts:148` | non-fatal issue during cleanup | log, **keep waiting** | `{type, warning: string}` |
@@ -573,3 +577,47 @@ stale exemption fails and has to be removed.
    only if that decision reverses.
 3. The `force_cleanup` zombie defect needs a root cause before the port decides whether to
    reimplement, fix, or drop it.
+
+---
+
+## 9. `write_properties` — what the peripheral says it supports
+
+**Added 2026-08-28.** An optional field on `connected`, carrying the write characteristic's own
+account of its capabilities as the peripheral reports them, lowercase, in bleak's naming:
+
+```json
+{ "type": "connected", "device": "6C:79:B8:26:03:A7", "write_properties": ["write"] }
+```
+
+### Why a relay is reporting a device attribute at all
+
+Everything else on this wire describes the relay: who owns the command path, whether a write
+landed, what the link is doing. This describes the **device**, and it is here because a client
+cannot otherwise be as strict as the API it doubles.
+
+Real Chrome throws `NotSupportedError` when `writeValueWithoutResponse()` is called on a
+characteristic that does not advertise the property. The CS108's `0x9900` advertises
+`['write']` — write-with-response only — so that call is illegal against it. Without this field
+the mock cannot know, and **accepts a call that the browser rejects**: a test passing against
+the double and failing against the real thing, which is the defect TRA-1187 exists to prevent,
+pointed the other way.
+
+### Omitted, never empty
+
+A transport that cannot report properties leaves the field **out**. It is never sent as `[]`.
+
+The two are different claims — "I do not know" versus "this device supports nothing" — and they
+demand opposite client behaviour: do not gate, versus refuse every write. A client cannot
+distinguish an echoed empty list from a missing echo, so the encoder does not create the
+ambiguity. Same reasoning as `write_id` in §8.
+
+### Where it comes from
+
+`esphome.py` reads `properties` off the resolved write characteristic and puts it on
+`DeviceInfo`; `ws/server.py` passes it to `encode_connected`. It is the same value already
+printed in the per-connection `write path: mode=… properties=…` log line, which TRA-1153 §2
+asked to have re-derived where the write actually happens — so the log line and the wire field
+cannot disagree.
+
+**A transport that does not know may return an empty tuple**, and the field then disappears
+from the frame rather than misreporting the device.
