@@ -16,9 +16,9 @@ afterEach(async () => {
 
 function mockAgainst(url: string) {
   return new MockBluetooth(url, {
-    service: '9800',
-    write: '9900',
-    notify: '9901',
+    service: '0000f00d-0000-1000-8000-00805f9b34fb',
+    write: '0000c0de-0000-1000-8000-00805f9b34fb',
+    notify: '0000beef-0000-1000-8000-00805f9b34fb',
     sessionId: 'stub-bridge-test',
     timeout: 5000,
     onMultipleDevices: 'error'
@@ -43,7 +43,7 @@ describe('the stub bridge', () => {
     await device.gatt.connect();
 
     expect(bridge.latest!.params.get('_mv')).toBe(VERSION);
-    expect(bridge.latest!.params.get('service')).toBe('9800');
+    expect(bridge.latest!.params.get('service')).toBe('0000f00d-0000-1000-8000-00805f9b34fb');
     expect(bridge.latest!.params.get('session')).toBe('stub-bridge-test');
 
     await device.gatt.disconnect();
@@ -53,8 +53,8 @@ describe('the stub bridge', () => {
     bridge = await startStubBridge();
     const device: any = await mockAgainst(bridge.url).requestDevice();
     await device.gatt.connect();
-    const service = await device.gatt.getPrimaryService('9800');
-    const write = await service.getCharacteristic('9900');
+    const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
+    const write = await service.getCharacteristic('0000c0de-0000-1000-8000-00805f9b34fb');
 
     await write.writeValue(new Uint8Array([0xa7, 0xb3, 0x02]));
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -68,8 +68,8 @@ describe('the stub bridge', () => {
     bridge = await startStubBridge();
     const device: any = await mockAgainst(bridge.url).requestDevice();
     await device.gatt.connect();
-    const service = await device.gatt.getPrimaryService('9800');
-    const notify = await service.getCharacteristic('9901');
+    const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
+    const notify = await service.getCharacteristic('0000beef-0000-1000-8000-00805f9b34fb');
 
     const seen: number[][] = [];
     notify.addEventListener('characteristicvaluechanged', (event: any) =>
@@ -95,9 +95,9 @@ describe('the stub bridge', () => {
     bridge = await startStubBridge();
     const device: any = await mockAgainst(bridge.url).requestDevice();
     await device.gatt.connect();
-    const service = await device.gatt.getPrimaryService('9800');
-    const notify = await service.getCharacteristic('9901');
-    const write = await service.getCharacteristic('9900');
+    const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
+    const notify = await service.getCharacteristic('0000beef-0000-1000-8000-00805f9b34fb');
+    const write = await service.getCharacteristic('0000c0de-0000-1000-8000-00805f9b34fb');
 
     const seen: unknown[] = [];
     notify.addEventListener('characteristicvaluechanged', (e: unknown) => seen.push(e));

@@ -126,6 +126,16 @@ export interface ProviderCapabilities {
   dropLink: boolean;
   /** Is `navigator.bluetooth.testing` present? False for the real API, by definition. */
   testingApi: boolean;
+  /**
+   * Are this provider's configured UUIDs 16-/32-bit aliases of the Bluetooth
+   * Base UUID, so a check can spell one two ways?
+   *
+   * Arm A picks synthetic aliasable UUIDs deliberately. Arm B cannot: it drives
+   * whatever peripheral is in range, and a Nordic device's `6e400001-...` has no
+   * numeric alias at all. Checks that need two spellings are reported NOT RUN by
+   * name there, rather than silently degenerating into a tautology against one.
+   */
+  aliasableUuids: boolean;
 }
 
 export interface ConformanceProvider {
@@ -696,8 +706,153 @@ const ACCEPTED_OPTIONS: ConformanceCheck[] = [
   }
 ];
 
+// --- fidelity: UUID handling --------------------------------------------------
+//
+// Probed against Chromium 139 before these were written. The mock previously
+// accepted every spelling as an opaque Map key and canonicalised none, so four
+// spellings of one service were four service objects here and two in Chrome --
+// which breaks the identity clauses above for any consumer that spells a UUID
+// two ways. `.uuid` being canonical is the device-agnostic half; the two-
+// spellings half needs an aliasable UUID and says so.
+
+/** The canonical form: 128-bit, lowercase. Deliberately re-stated, not imported
+ *  from `src/uuid.ts` -- a contract that checks an implementation using that
+ *  implementation's own helper cannot catch the helper being wrong. */
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const BASE_SUFFIX = '-0000-1000-8000-00805f9b34fb';
+
+const UUIDS: ConformanceCheck[] = [
+  {
+    id: 'uuid/property-is-canonical',
+    clause: 'characteristic.uuid and service.uuid are the full lowercase 128-bit form, whatever spelling was used to look them up',
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      assert(
+        CANONICAL_UUID.test(session.service.uuid),
+        `service.uuid is not canonical 128-bit lowercase: got ${JSON.stringify(session.service.uuid)}`
+      );
+      assert(
+        CANONICAL_UUID.test(session.notifyCharacteristic.uuid),
+        `notify characteristic.uuid is not canonical 128-bit lowercase: got ${JSON.stringify(session.notifyCharacteristic.uuid)}`
+      );
+    }
+  },
+  {
+    id: 'uuid/rejects-bare-16-bit-string',
+    clause: "a bare '1234' is not a UUID; it is rejected with a TypeError",
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      // Probed in Chromium 139: TypeError at argument validation, BEFORE the
+      // adapter is consulted. Every config in this repo used this form.
+      await assertRejects(
+        () => session.service.getCharacteristic('1234'),
+        /Invalid Characteristic name/i,
+        "getCharacteristic('1234')"
+      );
+    }
+  },
+  {
+    id: 'uuid/rejects-uppercase-128-bit',
+    clause: 'an uppercase 128-bit UUID is rejected, not downcased',
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      // The old TypeScript bridge accepted uppercase and downcased it, so this
+      // is a trap with history rather than a hypothetical.
+      await assertRejects(
+        () => session.service.getCharacteristic('00001234-0000-1000-8000-00805F9B34FB'),
+        /Invalid Characteristic name/i,
+        'getCharacteristic() with uppercase hex'
+      );
+    }
+  },
+  {
+    id: 'uuid/alias-and-expansion-are-one-characteristic',
+    clause: 'a numeric alias and its expanded 128-bit string name the same characteristic, and return the same instance',
+    category: 'fidelity',
+    needs: ['aliasableUuids'],
+    async run(session) {
+      const canonical: string = session.notifyCharacteristic.uuid;
+      assert(
+        canonical.endsWith(BASE_SUFFIX),
+        `check requires an aliasable UUID, got ${canonical}`
+      );
+      const alias = parseInt(canonical.slice(0, 8), 16);
+
+      const viaAlias = await session.service.getCharacteristic(alias);
+      const viaString = await session.service.getCharacteristic(canonical);
+
+      // `assert`, not `assertEqual`: these are characteristic objects with a
+      // parent back-reference, so the stringifying comparator reports
+      // "Converting circular structure to JSON" instead of the actual defect.
+      // Found by breaking the mock and reading what the check said.
+      assert(
+        viaAlias === viaString,
+        'getCharacteristic(alias) and getCharacteristic(canonical string) returned ' +
+          `different instances: ${String(viaAlias?.uuid)} vs ${String(viaString?.uuid)}`
+      );
+      assert(
+        viaAlias === session.notifyCharacteristic,
+        'getCharacteristic(alias) did not return the instance the session was opened with ' +
+          `(alias -> ${String(viaAlias?.uuid)}, session -> ${String(session.notifyCharacteristic?.uuid)})`
+      );
+      // The non-tautological half of `uuid/property-is-canonical`: that check
+      // cannot go red in an arm whose provider already hands in canonical
+      // strings, but this lookup went in as a NUMBER, so a mock that keyed on
+      // the raw argument fails right here.
+      assert(
+        CANONICAL_UUID.test(viaAlias.uuid),
+        `characteristic looked up by numeric alias has non-canonical .uuid: ${JSON.stringify(viaAlias.uuid)}`
+      );
+    }
+  },
+  {
+    id: 'uuid/optional-services-are-validated',
+    clause: 'requestDevice validates optionalServices with the same rules as filters[].services',
+    category: 'fidelity',
+    needs: [],
+    async run(_session, provider) {
+      // Easy to miss, because the mock ignores optionalServices entirely when
+      // resolving a device -- so an invalid one there is inert here and fatal in
+      // Chrome. That asymmetry is exactly what this suite is for.
+      const bluetooth = provider.capabilities.testingApi
+        ? provider.bluetooth(_session)
+        : (globalThis as any).navigator.bluetooth;
+      await assertRejects(
+        () => bluetooth.requestDevice({
+          filters: [{ services: ['0000f00d-0000-1000-8000-00805f9b34fb'] }],
+          optionalServices: ['1234']
+        }),
+        /Invalid Service name/i,
+        "requestDevice with optionalServices: ['1234']"
+      );
+    }
+  },
+  {
+    id: 'uuid/standard-gatt-names-are-not-resolved',
+    clause: "a standard GATT name such as 'heart_rate' is rejected rather than resolved",
+    category: 'divergence',
+    needs: [],
+    realApiInstead:
+      "Chrome resolves 'heart_rate' to 0000180d-0000-1000-8000-00805f9b34fb via the " +
+      'assigned-numbers registry. The mock carries no copy of that registry: the devices ' +
+      'this drives use vendor UUIDs, and a stale table would be worse than no table. ' +
+      'The divergence is in the STRICT direction, so nothing passes here and fails in Chrome.',
+    async run(session) {
+      await assertRejects(
+        () => session.service.getCharacteristic('heart_rate'),
+        /standard GATT names/i,
+        "getCharacteristic('heart_rate')"
+      );
+    }
+  }
+];
+
 export const CONFORMANCE_CHECKS: ReadonlyArray<ConformanceCheck> = [
   ...CHAIN,
+  ...UUIDS,
   ...DELIVERY,
   ...LISTENERS,
   ...ACCEPTED_OPTIONS,

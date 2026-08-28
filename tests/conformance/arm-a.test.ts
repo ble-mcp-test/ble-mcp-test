@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { CONFORMANCE_CHECKS, partitionChecks, type ConformanceCheck } from './contract.js';
-import { createMockProvider, type MockProvider } from './mock-provider.js';
+import { createMockProvider, MOCK_PROVIDER_CAPABILITIES, type MockProvider } from './mock-provider.js';
 import { STUB_BRIDGE_CAVEAT } from './stub-bridge.js';
 import { armBStatus, banner, ARM_B_ENV } from './arm-status.js';
 
@@ -36,9 +36,12 @@ afterAll(async () => {
 
 const { runnable, skipped } = partitionChecks({
   // partitionChecks only reads capabilities, and arm A's are static -- so the
-  // suite can be built at collection time, before beforeAll has run.
+  // suite can be built at collection time, before beforeAll has run. The
+  // capabilities are IMPORTED rather than restated: this was a second literal,
+  // and the `as MockProvider` cast that made it compile is exactly what let it
+  // drift from the real one when a capability was added.
   name: 'arm A (mock + in-process stub bridge)',
-  capabilities: { injectNotification: true, dropLink: true, testingApi: true }
+  capabilities: MOCK_PROVIDER_CAPABILITIES
 } as MockProvider);
 
 function runCheck(check: ConformanceCheck) {

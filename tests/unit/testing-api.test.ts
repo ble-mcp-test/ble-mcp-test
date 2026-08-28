@@ -21,7 +21,7 @@ import {
 async function realDevice() {
   const bluetooth = new MockBluetooth('ws://localhost:25153', {
     sessionId: 'test',
-    service: '9800',
+    service: '0000f00d-0000-1000-8000-00805f9b34fb',
     timeout: 5000,
     onMultipleDevices: 'error'
   });
@@ -32,9 +32,9 @@ async function realDevice() {
   return device;
 }
 
-async function realCharacteristic(uuid = '9800'): Promise<MockBluetoothRemoteGATTCharacteristic> {
+async function realCharacteristic(uuid = '0000f00d-0000-1000-8000-00805f9b34fb'): Promise<MockBluetoothRemoteGATTCharacteristic> {
   const device = await realDevice();
-  const service = await device.gatt.getPrimaryService('9800');
+  const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
   const characteristic = await service.getCharacteristic(uuid);
   // TRA-1153 item 2 made the subscription real: nothing is delivered until this
   // is called, on the transport path or through the testing API. Subscribing in
@@ -304,8 +304,8 @@ describe('MockBluetooth Testing API', () => {
       // API a check that cannot go red: no event, no error, and an assertion on
       // an empty array passing for the wrong reason.
       const device = await realDevice();
-      const service = await device.gatt.getPrimaryService('9800');
-      const characteristic = await service.getCharacteristic('9800');
+      const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
+      const characteristic = await service.getCharacteristic('0000f00d-0000-1000-8000-00805f9b34fb');
       const received = collectNotifications(characteristic);
 
       characteristic.handleTransportMessage(new Uint8Array([0xA7]));
@@ -374,10 +374,10 @@ describe('MockBluetooth Testing API', () => {
 
     it('returns the same instance from every getCharacteristic call', async () => {
       const device = await realDevice();
-      const service = await device.gatt.getPrimaryService('9800');
+      const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
 
-      const first = await service.getCharacteristic('9800');
-      const second = await service.getCharacteristic('9800');
+      const first = await service.getCharacteristic('0000f00d-0000-1000-8000-00805f9b34fb');
+      const second = await service.getCharacteristic('0000f00d-0000-1000-8000-00805f9b34fb');
 
       // Identity is stable, which is what a real getCharacteristic does and what
       // lets a subscription gate be keyed to the instance at all.
@@ -390,12 +390,12 @@ describe('MockBluetooth Testing API', () => {
       // -- so a second getCharacteristic used to evict the first from it. The
       // earlier reference kept its listeners and silently stopped receiving.
       const device = await realDevice();
-      const service = await device.gatt.getPrimaryService('9800');
+      const service = await device.gatt.getPrimaryService('0000f00d-0000-1000-8000-00805f9b34fb');
 
-      const first = await service.getCharacteristic('9800');
+      const first = await service.getCharacteristic('0000f00d-0000-1000-8000-00805f9b34fb');
       await first.startNotifications();
       const firstReceived = collectNotifications(first);
-      const second = await service.getCharacteristic('9800'); // used to evict
+      const second = await service.getCharacteristic('0000f00d-0000-1000-8000-00805f9b34fb'); // used to evict
       const secondReceived = collectNotifications(second);
 
       // Drive the device's real routing path. No socket is ever opened, so the

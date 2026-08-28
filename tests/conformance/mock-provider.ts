@@ -11,11 +11,37 @@
  */
 import { MockBluetooth } from '../../src/index.js';
 import { startStubBridge, type StubBridge } from './stub-bridge.js';
-import type { ConformanceProvider, ConformanceSession } from './contract.js';
+import type { ConformanceProvider, ConformanceSession, ProviderCapabilities } from './contract.js';
 
-const SERVICE = '9800';
-const WRITE = '9900';
-const NOTIFY = '9901';
+/**
+ * Deliberately synthetic, and deliberately NOT the CS108's real UUIDs.
+ *
+ * These reach a stub bridge that accepts anything, so their only job is to be
+ * unmistakably fake -- using the reference device's real service here made an
+ * arbitrary fixture look load-bearing, and this repo is device-agnostic by
+ * design (CS108 is the reference device, not a requirement). They are 16-bit
+ * aliases of the Bluetooth Base UUID so that `aliasableUuids` holds and the
+ * two-spellings check can run.
+ */
+const SERVICE = '0000f00d-0000-1000-8000-00805f9b34fb';
+const WRITE = '0000c0de-0000-1000-8000-00805f9b34fb';
+const NOTIFY = '0000beef-0000-1000-8000-00805f9b34fb';
+
+/**
+ * Arm A's capabilities, exported because the suite must be partitioned at
+ * COLLECTION time -- before `beforeAll` has built the provider.
+ *
+ * It lived as a second literal in arm-a.test.ts, cast `as MockProvider`, and the
+ * cast is what let the two drift: adding a capability updated one copy and the
+ * compiler had been told not to look at the other. Same defect class as the
+ * ticket this suite was built for, one directory away.
+ */
+export const MOCK_PROVIDER_CAPABILITIES: ProviderCapabilities = {
+  injectNotification: true,
+  dropLink: true,
+  testingApi: true,
+  aliasableUuids: true
+};
 
 export interface MockProvider extends ConformanceProvider {
   /** Shut down the stub bridge. Call once, after all checks. */
@@ -28,11 +54,7 @@ export async function createMockProvider(): Promise<MockProvider> {
 
   return {
     name: 'arm A (mock + in-process stub bridge)',
-    capabilities: {
-      injectNotification: true,
-      dropLink: true,
-      testingApi: true
-    },
+    capabilities: MOCK_PROVIDER_CAPABILITIES,
 
     async open(): Promise<ConformanceSession> {
       const bluetooth = new MockBluetooth(bridge.url, {

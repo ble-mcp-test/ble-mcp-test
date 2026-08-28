@@ -39,6 +39,7 @@
  */
 
 import { WebSocketTransport } from './ws-transport.js';
+import { canonicalUuid } from './uuid.js';
 
 // Testing API interfaces
 export interface TestCommandOptions {
@@ -273,11 +274,16 @@ class MockBluetoothRemoteGATTService {
     public uuid: string
   ) {}
 
-  async getCharacteristic(characteristicUuid: string): Promise<MockBluetoothRemoteGATTCharacteristic> {
-    const existing = this.characteristics.get(characteristicUuid);
+  async getCharacteristic(characteristicUuid: string | number): Promise<MockBluetoothRemoteGATTCharacteristic> {
+    // Canonicalise BEFORE the cache lookup, or the cache is keyed on spelling
+    // rather than on identity and `0x9901` and its expansion become two
+    // characteristics -- which is the eviction bug this cache exists to prevent,
+    // reachable again through a second spelling.
+    const uuid = canonicalUuid(characteristicUuid, 'Characteristic');
+    const existing = this.characteristics.get(uuid);
     if (existing) return existing;
-    const characteristic = new MockBluetoothRemoteGATTCharacteristic(this, characteristicUuid);
-    this.characteristics.set(characteristicUuid, characteristic);
+    const characteristic = new MockBluetoothRemoteGATTCharacteristic(this, uuid);
+    this.characteristics.set(uuid, characteristic);
     return characteristic;
   }
 }
@@ -563,14 +569,15 @@ class MockBluetoothRemoteGATTServer {
   /** One service instance per UUID -- see the note on the characteristic cache. */
   private services = new Map<string, MockBluetoothRemoteGATTService>();
 
-  async getPrimaryService(serviceUuid: string): Promise<MockBluetoothRemoteGATTService> {
+  async getPrimaryService(serviceUuid: string | number): Promise<MockBluetoothRemoteGATTService> {
     if (!this.connected) {
       throw new Error('GATT Server not connected');
     }
-    const existing = this.services.get(serviceUuid);
+    const uuid = canonicalUuid(serviceUuid, 'Service');
+    const existing = this.services.get(uuid);
     if (existing) return existing;
-    const service = new MockBluetoothRemoteGATTService(this, serviceUuid);
-    this.services.set(serviceUuid, service);
+    const service = new MockBluetoothRemoteGATTService(this, uuid);
+    this.services.set(uuid, service);
     return service;
   }
 }
@@ -888,8 +895,13 @@ export class MockBluetooth {
         
         // Extract service UUID if provided
         if (filter.services && filter.services.length > 0) {
-          // Take the first service UUID from the filter
-          serviceUuid = filter.services[0];
+          // Canonicalise EVERY entry, not just the one taken: real Chrome
+          // validates the whole list, so validating only filters[0] would accept
+          // a request here that throws there.
+          const services = filter.services.map((uuid: string | number) =>
+            canonicalUuid(uuid, 'Service')
+          );
+          serviceUuid = services[0];
           console.log(`[MockBluetooth] Extracted service UUID from filter: ${serviceUuid}`);
         }
         
@@ -900,6 +912,16 @@ export class MockBluetooth {
       }
     }
     
+    // `optionalServices` does not influence which device the mock resolves, but
+    // Chrome validates it, so an invalid entry must fail here too. Inert input
+    // that is fatal one layer down is the asymmetry this whole contract exists
+    // to remove.
+    if (options?.optionalServices) {
+      for (const uuid of options.optionalServices) {
+        canonicalUuid(uuid, 'Service');
+      }
+    }
+
     // Create effective config, preferring filter values over injected config
     const effectiveConfig = {
       ...this.bleConfig,
