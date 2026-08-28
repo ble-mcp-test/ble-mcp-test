@@ -81,9 +81,21 @@ const FORBIDDEN: ReadonlyArray<{ pattern: RegExp; why: string; appliesTo?: RegEx
   }
 ];
 
-/** Files whose whole purpose is to record what used to be true. */
+/** This file. A guard cannot assert about the file that declares what it forbids. */
+const SELF = 'tests/unit/no-dead-server-instructions.test.ts';
+
+/**
+ * Files whose whole purpose is to record what used to be true, plus this one.
+ *
+ * The self-exclusion is not a convenience: every pattern above appears in this
+ * file by necessity, so without it the guard fails on itself and the only way to
+ * make it pass would be to weaken the patterns. It went unnoticed until the file
+ * was committed, because `git ls-files` does not list untracked files -- so the
+ * first green run had simply not looked here. That is the same self-match shape
+ * as `pgrep -f X` matching the shell that ran it.
+ */
 function isHistory(path: string): boolean {
-  return path === 'CHANGELOG.md' || /^docs\/design\/\d{4}-\d{2}-\d{2}-/.test(path);
+  return path === SELF || path === 'CHANGELOG.md' || /^docs\/design\/\d{4}-\d{2}-\d{2}-/.test(path);
 }
 
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
