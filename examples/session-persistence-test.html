@@ -227,7 +227,7 @@
                 clearTestHistory();
                 
                 // Initialize new session
-                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
                 
                 const bluetooth = navigator.bluetooth;
                 const sessionId = bluetooth.autoSessionId;
@@ -267,7 +267,7 @@
                 
                 // Re-inject the mock to see if it reuses the session
                 window.WebSocket = window.MockWebSocket;
-                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
                 
                 const bluetooth = navigator.bluetooth;
                 const currentSessionId = bluetooth.autoSessionId;
@@ -454,7 +454,7 @@
                 // Use mock WebSocket to avoid actual connections
                 window.WebSocket = window.MockWebSocket;
                 
-                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
                 
                 const bluetooth = navigator.bluetooth;
                 firstSessionId = bluetooth.autoSessionId;
@@ -477,7 +477,7 @@
         function secondInjection() {
             clearResults('secondResult');
             try {
-                window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+                window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
                 
                 const bluetooth = navigator.bluetooth;
                 secondSessionId = bluetooth.autoSessionId;
@@ -556,7 +556,7 @@
             window.WebSocket = window.MockWebSocket;
             capturedWebSocketUrls = [];
             
-            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
             const firstId = navigator.bluetooth.autoSessionId;
             const storedAfterFirst = localStorage.getItem('ble-mock-session-id');
             
@@ -572,7 +572,7 @@
             log('fullTestResult', `   WebSocket session: ${firstUrlSession}`);
             
             // Step 4: Second injection
-            window.WebBleMock.injectWebBluetoothMock('ws://localhost:8080');
+            window.WebBleMock.injectWebBluetoothMock('ws://localhost:25153');
             const secondId = navigator.bluetooth.autoSessionId;
             const storedAfterSecond = localStorage.getItem('ble-mock-session-id');
             

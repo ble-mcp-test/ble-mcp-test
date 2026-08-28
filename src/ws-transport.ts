@@ -22,7 +22,7 @@ export class WebSocketTransport {
   
   /**
    * No default URL. `injectWebBluetoothMock` already refuses to run without an
-   * explicit `serverUrl`, so the old `= 'ws://localhost:8080'` was unreachable
+   * explicit `serverUrl`, so the old `= 'ws://localhost:8080'` was unreachable [tra-1186-historical]
    * through the supported entry point -- a dead value that read like a live
    * guess, and pointed at the port the bridge no longer uses.
    */

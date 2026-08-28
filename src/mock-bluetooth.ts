@@ -5,36 +5,41 @@
  * all calls through the WebSocketTransport, bypassing all native dialogs
  * 
  * ====================================================================
- * 🤖 AI DEBUGGING TIP: Using MCP for Enhanced Debugging
+ * 🤖 AI DEBUGGING TIP: reading the bridge's traffic while a test fails
  * ====================================================================
- * 
- * If you're an AI agent debugging an application that uses this mock,
- * the ble-mcp-test server provides powerful MCP (Model Context Protocol)
- * tools for real-time debugging:
- * 
- * Available MCP Tools:
- * - get_logs: View recent BLE communication with filtering
- * - search_packets: Find specific hex patterns in traffic
- * - get_connection_state: Check current BLE connection status
- * - status: Get server configuration and health
- * - scan_devices: Discover nearby BLE devices
- * 
- * Health Check:
- * - HTTP endpoint: http://localhost:8081/health
- * - Returns: { status: 'ok', timestamp: string, bridge: {...} }
- * - Use before running tests to ensure server is available
- * 
- * Example Usage:
- * 1. Use get_logs to see recent TX/RX packets
- * 2. Use search_packets to find specific command/response patterns
- * 3. Monitor connection state during debugging
- * 
- * The server runs MCP by default on stdio. For network access:
- * - Run with --mcp-http for HTTP transport on port 8081
- * - Or set MCP_TOKEN=secret for authenticated access
- * 
- * This enables real-time inspection of BLE communication without
- * modifying application code or adding console.log statements.
+ *
+ * If you are an agent debugging an application that uses this mock, the Python
+ * bridge exposes an MCP server that lets you read the raw BLE stream instead of
+ * adding console.log statements to the code under test.
+ *
+ * It connects over a UNIX SOCKET, not HTTP: /run/user/<uid>/ble-bridge.sock,
+ * mode 0600, owner only. There is no port, no health endpoint and no token --
+ * the socket's file permissions are the authentication.
+ *
+ * The tools, as the bridge actually registers them:
+ * - read_stream:          the raw BLE data stream, logs interleaved. Start here;
+ *                         this is most of the value.
+ * - get_logs:             recent bridge log lines, filterable
+ * - search_packets:       find a hex pattern in captured traffic
+ * - get_connection_state: who holds the device right now
+ * - get_write_mode / set_write_mode: with-response vs without-response
+ * - status:               bridge configuration and health
+ *
+ * See docs/MCP-SERVER.md for how to attach.
+ *
+ * ## What this block used to say, and why that mattered
+ *
+ * Until TRA-1186 it advertised `scan_devices` (removed -- there is no local
+ * radio; the bridge reaches the device through an ESPHome proxy), a health
+ * check at `http://localhost:8081/health`, an `--mcp-http` flag and a [tra-1186-historical]
+ * `MCP_TOKEN`. The HTTP transport was deleted with the TypeScript server in [tra-1186-historical]
+ * TRA-1161, so all four had been gone for some time.
+ *
+ * They are worth naming rather than quietly correcting, because of HOW they
+ * failed. An agent following them polls a health endpoint nothing serves and
+ * concludes THE BRIDGE IS DOWN -- a wrong diagnosis about a working system,
+ * arrived at by trusting this file. That is more expensive than no advice, and
+ * it shipped in `dist/`, so it reached every consumer of the package.
  * ====================================================================
  */
 

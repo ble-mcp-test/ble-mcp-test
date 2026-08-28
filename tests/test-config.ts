@@ -58,64 +58,36 @@ export function getDeviceConfig() {
   };
 }
 
-export const WS_URL = getTestConfig().wsUrl;
+/*
+ * `WS_URL` and `setupTestServer()` were deleted by TRA-1186. Both had ZERO
+ * consumers -- `getTestConfig` above is the only export anything imports
+ * (tests/unit/config.test.ts).
+ *
+ * They described an architecture that no longer exists in any part: a
+ * PM2-supervised Rust bridge on 8080 alongside a Node service on 8081. The
+ * Rust spike and the TypeScript server are both deleted, nothing is
+ * supervised by PM2, and the bridge is Python on 25153. The failure path even
+ * told the reader to `pnpm start`, which has not been a script in this
+ * package since the server was removed -- so the one instruction it gave on
+ * the way out pointed at nothing.
+ */
 
-// Shared test server setup helper
-// Returns: null - tests now use the PM2-managed Rust bridge on port 8080
-export async function setupTestServer() {
-  // NOTE: With new Rust bridge architecture, we no longer start our own BridgeServer
-  // The PM2-managed server handles both Rust (8080) and Node (8081) services
-  const WebSocket = (await import('ws')).default;
-  
-  // With new Rust bridge, we always connect to the PM2-managed server
-  
-  // First, try to connect to the configured URL
-  const testWs = new WebSocket(WS_URL);
-  
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        testWs.close();
-        reject(new Error('Connection timeout'));
-      }, 2000);
-      
-      testWs.onopen = () => {
-        clearTimeout(timeout);
-        testWs.close();
-        resolve();
-      };
-      
-      testWs.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error('Connection failed'));
-      };
-    });
-    
-    // Connection successful, use Rust bridge server
-    console.log(`[Test] Connected to Rust bridge server at: ${WS_URL}`);
-    return null; // No local server needed - PM2 handles everything
-  } catch (error) {
-    // Connection failed - PM2 server should be running for new architecture
-    console.error(`[Test] Cannot connect to Rust bridge at ${WS_URL}`);
-    console.error(`[Test] Please ensure the bridge is running: pnpm start`);
-    throw new Error(`Cannot connect to Rust bridge server at ${WS_URL}. Run 'pnpm start' to start the server.`);
-  }
-}
-
-// Usage examples:
+// Usage examples. UUIDs are the full lowercase 128-bit form because that is
+// what the mock accepts -- since 0.8.0 it canonicalises the way real Chromium
+// does and rejects short forms like `9800` with a TypeError.
 //
 // 1. Run tests with real BLE device (e.g., nRF52 dongle):
 //    BLE_MCP_DEVICE_NAME=nRF52 \
-//    BLE_MCP_SERVICE_UUID=180f \
-//    BLE_MCP_WRITE_UUID=2a19 \
-//    BLE_MCP_NOTIFY_UUID=2a19 \
+//    BLE_MCP_SERVICE_UUID=0000180f-0000-1000-8000-00805f9b34fb \
+//    BLE_MCP_WRITE_UUID=00002a19-0000-1000-8000-00805f9b34fb \
+//    BLE_MCP_NOTIFY_UUID=00002a19-0000-1000-8000-00805f9b34fb \
 //    pnpm test
 //
 // 2. Run tests with CS108 RFID reader:
 //    BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx \
-//    BLE_MCP_SERVICE_UUID=9800 \
-//    BLE_MCP_WRITE_UUID=9900 \
-//    BLE_MCP_NOTIFY_UUID=9901 \
+//    BLE_MCP_SERVICE_UUID=00009800-0000-1000-8000-00805f9b34fb \
+//    BLE_MCP_WRITE_UUID=00009900-0000-1000-8000-00805f9b34fb \
+//    BLE_MCP_NOTIFY_UUID=00009901-0000-1000-8000-00805f9b34fb \
 //    pnpm test
 //
 // 5. Run tests against remote bridge server:
