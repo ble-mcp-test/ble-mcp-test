@@ -161,19 +161,19 @@ export interface TestResult {
  * Connects, sends command, returns success/failure
  */
 export async function testCommandHelper(page: Page): Promise<boolean> {
-  return page.evaluate(async ({ commandBytes, validation }) => {
+  return page.evaluate(async ({ commandBytes, validation, uuids }) => {
     try {
       const { testCommand } = (navigator.bluetooth as any).testing;
       
       // Connect to device
       const device = await navigator.bluetooth.requestDevice({
-        filters: [{ services: ['9800'] }]
+        filters: [{ services: [uuids.service] }]
       });
       
       await device.gatt!.connect();
-      const service = await device.gatt!.getPrimaryService('9800');
-      const writeChar = await service.getCharacteristic('9900');
-      const notifyChar = await service.getCharacteristic('9901');
+      const service = await device.gatt!.getPrimaryService(uuids.service);
+      const writeChar = await service.getCharacteristic(uuids.write);
+      const notifyChar = await service.getCharacteristic(uuids.notify);
       
       try {
         const result = await testCommand({
@@ -205,7 +205,15 @@ export async function testCommandHelper(page: Page): Promise<boolean> {
     }
   }, { 
     commandBytes: Array.from(TEST_COMMAND_BYTES),
-    validation: TEST_RESPONSE_VALIDATION
+    validation: TEST_RESPONSE_VALIDATION,
+    // Was three hardcoded '9800'/'9900'/'9901' literals. They are the CS108's,
+    // and this repo is device-agnostic by design -- so they come from the
+    // configured device like every other UUID in this file.
+    uuids: {
+      service: E2E_TEST_CONFIG.service,
+      write: E2E_TEST_CONFIG.write,
+      notify: E2E_TEST_CONFIG.notify
+    }
   });
 }
 
