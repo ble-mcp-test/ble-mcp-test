@@ -1,4 +1,4 @@
-import { CLOSE_CODE_MESSAGES } from './constants.js';
+import { WriteError, WRITE_ERROR_CODES } from './constants.js';
 import { VERSION } from './version.js';
 
 export interface WSMessage {
@@ -124,14 +124,29 @@ export class WebSocketTransport {
       
       this.ws!.onclose = (event: CloseEvent) => {
         this.ws = null;
+
+        // Writes still awaiting an ack can never get one now. Failing them here
+        // is what makes LINK_LOST reachable at all: without it they run out the
+        // full ack cap and surface as ACK_TIMEOUT, whose whole meaning is "the
+        // write MAY have reached the device" -- so a consumer correctly refuses
+        // to retry a write that definitively never left. Wrong answer, arrived
+        // at slowly, which is the worst combination.
+        this.failPendingWrites(
+          `the connection closed with code ${event.code} while this write was in flight`
+        );
         
         // Handle application-specific close codes (4000-4999) during connection
         if (event.code >= 4000 && event.code <= 4999) {
           clearTimeout(timeout);
           
-          // Create detailed error message based on close code
-          const closeCodeMessage = CLOSE_CODE_MESSAGES[event.code as keyof typeof CLOSE_CODE_MESSAGES];
-          const reason = event.reason || closeCodeMessage || 'Hardware connection failed';
+          // There used to be a CLOSE_CODE_MESSAGES[event.code] lookup here,
+          // mapping 4001-4006 to friendlier text. Those codes are TypeScript-
+          // bridge-era: `grep` for them across `bridge/` returns ZERO, so the
+          // Python bridge has never closed with one and the lookup could only
+          // ever miss. Deleted in 0.10.0 along with the table -- see the note in
+          // constants.ts. This branch keeps the generic range check, which any
+          // 4xxx close does satisfy.
+          const reason = event.reason || 'Hardware connection failed';
           
           console.error(`[WebSocketTransport] Connection failed with code ${event.code}: ${reason}`);
           
@@ -228,7 +243,10 @@ export class WebSocketTransport {
    */
   sendAwaitingAck(data: Uint8Array, timeoutMs = 1500): Promise<WriteAck> {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      return Promise.reject(new Error('Not connected'));
+      return Promise.reject(new WriteError(
+        WRITE_ERROR_CODES.NOT_CONNECTED,
+        'not connected: the frame was not sent'
+      ));
     }
     const writeId = `w-${++this.writeSeq}`;
 
@@ -238,7 +256,13 @@ export class WebSocketTransport {
         // Named as a missing acknowledgement rather than a generic timeout: the
         // write may well have reached the device, and a caller retrying blindly
         // on this needs to know it might be sending twice.
-        reject(new Error(
+        //
+        // ⚠ That warning used to live ONLY in this sentence, which made the
+        // sentence load-bearing across repositories. It is now carried by
+        // `mayHaveReachedDevice` on the error, and THAT is what a consumer reads
+        // to decide about retrying. The text below is free to be reworded.
+        reject(new WriteError(
+          WRITE_ERROR_CODES.ACK_TIMEOUT,
           `write ${writeId} was not acknowledged within ${timeoutMs}ms; ` +
           'the write may or may not have reached the device'
         ));
@@ -271,7 +295,13 @@ export class WebSocketTransport {
     if (msg.ok) {
       pending.resolve({ ok: true, mode });
     } else {
-      pending.reject(new Error(msg.error ?? 'the bridge reported the write failed'));
+      // Distinct from ACK_TIMEOUT on purpose: the bridge answered, so this is a
+      // definite non-delivery rather than an unknown one. It is the only write
+      // failure a consumer can retry without risking a duplicate command.
+      pending.reject(new WriteError(
+        WRITE_ERROR_CODES.WRITE_REJECTED,
+        msg.error ?? 'the bridge reported the write failed'
+      ));
     }
     return true;
   }
@@ -284,7 +314,7 @@ export class WebSocketTransport {
   private failPendingWrites(reason: string): void {
     for (const [, pending] of this.pendingWrites) {
       clearTimeout(pending.timer);
-      pending.reject(new Error(reason));
+      pending.reject(new WriteError(WRITE_ERROR_CODES.LINK_LOST, reason));
     }
     this.pendingWrites.clear();
   }
@@ -315,6 +345,9 @@ export class WebSocketTransport {
       this.ws.close();
       this.ws = null;
     }
+    // A local disconnect is still a link loss for anything in flight, and
+    // `close()` does not fire onclose synchronously.
+    this.failPendingWrites('the transport was disconnected while this write was in flight');
   }
   
   isConnected(): boolean {

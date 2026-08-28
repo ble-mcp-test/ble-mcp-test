@@ -57,6 +57,13 @@ export interface StubBridgeOptions {
   echoWrites?: boolean;
   /** Ack every write with `ok: false`, so the rejection path can be exercised. */
   failWrites?: boolean;
+  /**
+   * Accept writes and never acknowledge them, so the ack TIMEOUT path can be
+   * exercised. Distinct from `failWrites`: that one answers and says no, this
+   * one does not answer -- and the whole point of the write-error codes is that
+   * a consumer can tell those two apart.
+   */
+  withholdAcks?: boolean;
   /** The `mode` to report on each ack. Default `with-response`, matching the bridge. */
   writeMode?: 'with-response' | 'without-response';
   /**
@@ -95,7 +102,7 @@ export async function startStubBridge(options: StubBridgeOptions = {}): Promise<
         record.writes.push(message.data);
         // `writeValue()` awaits this. Without it every write here would hang to
         // its own timeout, which is a slow way to say "the stub is incomplete".
-        if (message.write_id) {
+        if (message.write_id && !options.withholdAcks) {
           socket.send(JSON.stringify({
             type: 'write_ack',
             ok: options.failWrites ? false : true,

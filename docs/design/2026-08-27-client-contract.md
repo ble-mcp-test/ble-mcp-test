@@ -250,6 +250,62 @@ and the client then does not gate. Sending `[]` would mean "supports nothing" an
 turn a missing capability into a hard failure on every write, which is worse than
 the looseness it replaced.
 
+#### What a write rejection IS — a code, never a sentence
+
+Every rejection from a write path is a **`WriteError`**, exported from the
+package entry point along with `WRITE_ERROR_CODES`. It carries:
+
+| member | |
+|---|---|
+| `name` | `'WriteError'` |
+| `code` | one of `ACK_TIMEOUT`, `WRITE_REJECTED`, `LINK_LOST`, `NOT_CONNECTED` |
+| `mayHaveReachedDevice` | whether the write may already be at the device |
+
+**A consumer decides about retrying by reading `mayHaveReachedDevice`, not by
+enumerating codes.** An allowlist of codes is a copy of this package's vocabulary
+living in the consumer's repository, and it silently misclassifies the next code
+added here. The property is a fact about the failure, so it cannot go stale; this
+package owns keeping it correct for every code it ever adds.
+
+**The reason it exists at all, which outlives the mechanism:** an `ACK_TIMEOUT`
+means only that no acknowledgement came back inside the cap. **The write may
+already have reached the device, so this rejection must never be matchable by a
+retry predicate** — the retry would be a second write, and for a stateful device
+protocol a duplicate command is not the same thing as a lost one. The other three
+codes are definite non-delivery and are the ones a consumer may retry.
+
+The message text is human prose and is **free to be reworded**. That freedom is
+the point of the code.
+
+> **What this replaced, recorded because the shape recurs.** Until 0.10.0 these
+> were bare `Error`s, so the only available discriminator was the message text —
+> and platform's transport matched `'Device busy'` / `'GATT operation already in
+> progress'` as substrings to decide whether to retry. That made an unreferenced
+> string literal in `ws-transport.ts` load-bearing across two repositories:
+> rewording it to contain "busy" would have made the timeout retryable and run
+> their retry loop past the command timeout that owns it, **with nothing in this
+> repository going red.** The only guard was a test in the consumer's repo, which
+> is the one place a change here cannot be seen. A code is an interface; prose is
+> not, however carefully worded.
+
+#### The ack cap is one end of a window, not a safety margin
+
+The `writeValue` ack timeout defaults to **1500ms**, and it is not tunable for
+comfort in either direction:
+
+- **Raising it** re-opens the failure it was lowered to close — the rejection
+  arrives after the consumer's command timeout has already rejected, which
+  manufactures orphaned rejections rather than merely losing a retry. It has to
+  stay inside platform's 2000ms write budget and 2500ms command timeout.
+- **Lowering it** is not simply tighter. The cap is the **right-hand edge of a
+  live window** in the consumer's retry arithmetic (their second window ends
+  exactly at the cap). Dropping it shortens that window from the far end, and far
+  enough down it closes entirely.
+
+Neither side can price a move to it alone: this package cannot see the consumer's
+windows, and the consumer cannot see what the cap costs the ack path. **Any change
+to it is a joint decision with both on the table.**
+
 ### Listener semantics
 
 - **`(type, handler)` pairs are deduplicated**, as the DOM does. This is the
