@@ -27,32 +27,42 @@ variables. CS108 UHF RFID is the reference device, not a requirement.
 
 ## What lives where
 
-This repository publishes **two clients**. The server is Python and lives in
-`bridge/`, which npm never sees.
+This repository publishes **one client**, in two entry points. The server is
+Python and lives in `bridge/`, which npm never sees.
 
 | Component | Path | Role |
 | -- | -- | -- |
-| Browser mock | `src/mock-bluetooth.ts` | Replaces `navigator.bluetooth`. Published as `ble-mcp-test/browser`. |
+| The mock | `src/mock-bluetooth.ts` | Replaces `navigator.bluetooth`. The whole implementation. |
+| Importable entry | `src/index.ts` | The `.` entry point. Hands you the classes; where they go is the caller's business. |
+| Injectable entry | `src/mock-browser-entry.ts` | The `./browser` esbuild IIFE. Assigns `window.WebBleMock`. |
 | Mock transport | `src/ws-transport.ts` | The mock's WebSocket client. |
-| Shared constants | `src/constants.ts` | UUIDs and defaults. |
-| Manifest helper | `src/package-metadata.ts` | Resolves name/version; both clients stamp `_mv` onto the connect URL. |
-| Node client | `src/node/` | Test-harness client for driving the bridge from Node. Published as `ble-mcp-test/node`. |
+| Shared constants | `src/constants.ts` | Close-code messages and defaults. |
+| UUID canonicalisation | `src/uuid.ts` | Accepts the two forms real Chromium accepts, and maps both to one canonical string. |
+| Version marker | `src/version.ts` | Generated from `package.json`; stamped onto the connect URL as `_mv`. |
 | Bridge | `bridge/` | The Python WebSocket relay. Not published to npm. |
 
-`mock-bluetooth.ts` imports exactly one local module, `ws-transport.ts`, which
-imports `constants.ts` and `package-metadata.ts`. That is the whole browser
-closure.
+`mock-bluetooth.ts` imports two local modules, `ws-transport.ts` and `uuid.ts`;
+`ws-transport.ts` imports `constants.ts` and `version.ts`. That is the whole
+closure, and it reaches no filesystem API — `tests/unit/entry-points.test.ts`
+asserts that, because the `.` entry point did not work until it was true.
 
-### Two clients, both supported
+### One implementation, two entry points
 
-The **browser mock** is the reason this project exists: it gives Playwright a
-`navigator.bluetooth` to drive, so a web app under test talks to real hardware
-without a browser that supports Web Bluetooth.
+The axis is **import vs inject**, not browser vs node. `window` appears nowhere
+in `MockBluetooth`, `MockGATT`, `MockService` or `MockCharacteristic` — only
+inside `injectWebBluetoothMock`, whose whole job is putting the mock onto a
+page's navigator. So `.` serves vitest, plain Node and bundlers, and `./browser`
+exists because Playwright's `addInitScript` and platform's `transformIndexHtml`
+genuinely cannot `import`.
 
-The **Node client** (`src/node/`) is a separate entry point for integration
-tests that drive a device's protocol directly, with no browser involved. It is a
-plain `ws` client — it does not care what language answers, only that the wire
-protocol holds. `trakrf/platform` is its live consumer.
+**There is no Node client.** `ble-mcp-test/node` shipped a second, hand-written
+GATT chain (`NodeBleClient` and friends) that nothing ever drove: no
+`requestDevice` existed on it in any released version, nothing constructed a
+`NodeBleDevice`, and every inbound frame went to one flat handler, so a
+hand-built device there resolved a service, resolved a characteristic, returned
+from `startNotifications()` and then never fired an event. It was deleted in
+0.9.0 by TRA-1187 item 4, after `trakrf/platform` — its only consumer — moved its
+integration suite onto the Web Bluetooth surface.
 
 ## Ownership model
 

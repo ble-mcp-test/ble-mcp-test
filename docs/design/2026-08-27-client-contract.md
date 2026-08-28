@@ -52,18 +52,30 @@ The corollary is where the damage actually happens, so state it positively:
 > build", never "this build is faithful to Web Bluetooth". Only the conformance
 > suite can say the second, and only its arm B can say it at all.
 
-### Under that, the mock-vs-Node tie-break
+### Under that, the mock-vs-Node tie-break — RESOLVED in 0.9.0
 
 Between the mock and the Node client, **the mock wins** — from a consumer's
 perspective the mock is the core use case and the Node client is the helper.
 Node-only surface with no Web Bluetooth basis is presumptively cruft, **and is
 deleted only after its consumers are moved, never before.**
 
-That ordering is a constraint, not a softening. `sendCommandAsync` is Node-only,
-has no Web Bluetooth basis, and has a live consumer. Deleting it before that
-consumer is moved forces the move to be built against a red tree — the worst
-possible condition for work whose whole point is first execution rather than
-confirmation.
+That ordering was a constraint, not a softening, and it was honoured. `trakrf/platform`
+PR #596 (`3885cf7f`, 2026-08-28) moved their integration suite onto the Web
+Bluetooth surface first; `src/node/` and the `./node` subpath were deleted after,
+in 0.9.0. There is now one implementation and no tie-break left to apply — the
+rule is kept here because it is the rule that produced the outcome, and because
+the next Node-only convenience will want the same test applied to it.
+
+**`sendCommandAsync` is the one member that needed a judgement rather than a
+rule, and the answer was neither promote nor delete.** It correlated a write with
+the next inbound frame — real behaviour, unlike the rest of the flat API. It is
+still not contract surface: correlation is not a Web Bluetooth concept, because
+real GATT gives you a write and a notification stream with nothing joining them,
+and any correlation is the device protocol's business. Promoting it would oblige
+every future packaging — pytest included — to reimplement a device-shaped idea
+the API it doubles does not have, which also cuts against TRA-1188. It moved into
+the consumer's own test tooling instead, as platform's `TransportCommandClient`,
+driven over the transport's `MessagePort`.
 
 ---
 
@@ -237,9 +249,10 @@ than as a broken guarantee. `tests/conformance` now asserts it.
 
 ## Deliberate divergences
 
-The mock is **stricter** than the real API in five places. Each is a decision,
-recorded here so it stays one rather than becoming folklore, and each is asserted
-in arm A of the conformance suite with the real API's behaviour written beside it.
+The mock is **narrower** than the real API in six places — five where it is
+stricter, and one where a member is absent. Each is a decision, recorded here so
+it stays one rather than becoming folklore, and each is asserted in arm A of the
+conformance suite with the real API's behaviour written beside it.
 
 | the mock | the real API | why |
 |---|---|---|
@@ -249,8 +262,18 @@ in arm A of the conformance suite with the real API's behaviour written beside i
 | `testing.testCommand` **rejects** on an unsubscribed notify characteristic | n/a — mock-only surface | the wait can never be satisfied, so the alternative is writing to the device and then timing out. A command whose response is guaranteed to be dropped is a broken call, not a slow one, and reporting it as a timeout is this codebase's most expensive failure mode. Refusing rather than subscribing on the caller's behalf keeps subscription the caller's decision, and avoids leaving their characteristic subscribed without them asking. |
 | `testing.simulateNotification` **throws** on an unsubscribed characteristic | n/a — mock-only surface | a simulated notification is an *instruction*, not a device event. The transport path swallows a frame for an unsubscribed characteristic because a radio really does that. Swallowing an explicit request would make this API a check that cannot go red: it would deliver nothing, report nothing, and the test would pass having asserted on an empty list. |
 
+| `writeValue()` is the **only** write method; `writeValueWithResponse` and `writeValueWithoutResponse` are **absent** | Chrome has all three: `writeValueWithResponse` issues an ATT Write Request and resolves on the peer's Write Response, `writeValueWithoutResponse` issues an ATT Write Command and resolves once queued | **deferred, not done — this row IS the deferral.** TRA-1187's item 1 table said "add to the mock, un-stub Node's, put both in the contract"; that did not land, and until 2026-08-28 nothing recorded it, so the next reader of that table would have believed it shipped. The mock has no acknowledgement to resolve on until TRA-1153 item 5b lands `write_ack` on the client side. Shipping them before that means shipping two aliases of `writeValue()` — exactly what `src/node/` did, stubbed, commented *"in a real implementation, this would wait for acknowledgment"*. A method that claims to wait and does not is worse than an absent one: the absence is a `TypeError` at the call site, the alias is a guarantee that silently never held. **When 5b-client lands, delete this row and add fidelity clauses for all three.** |
+
 **Adding to this table is a decision, not a workaround.** A divergence that is not
 here is a defect.
+
+**A deferral in this table is still a decision**, and it carries a trigger and an
+owner. The `writeValueWith*` row is the only one, and it is deliberately the
+loudest: platform's `cs108-ble-transport.ts` declares both methods on a
+hand-written interface and calls neither, which is the motivating example this
+whole document was written around — a contract that existed only as the
+consumer's wish. The row plus its arm-A check are what make the gap falsifiable
+instead of silent.
 
 ---
 

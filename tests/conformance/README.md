@@ -32,11 +32,10 @@ was.** Two separate claims got collapsed:
 - **Is the mock Web-Bluetooth-*shaped*?** Arm A, against the spec. Automated,
   every run, no hardware.
 - **Does exercising that shape produce Web-Bluetooth-*like results from real
-  hardware*?** The suites above this directory answer that, automated, against
-  the bridge and a live device: `tests/integration/` drives the mock's Web
-  Bluetooth surface directly from Node, and `tests/e2e/` drives the same surface
-  through the browser bundle under Playwright. Both reach the real reader by way
-  of the mock and the bridge.
+  hardware*?** `tests/e2e/` answers that, automated, against the bridge and a
+  live device: it drives the mock's Web Bluetooth surface through the browser
+  bundle under Playwright, reaching the real reader by way of the mock and the
+  bridge.
 
 Only the third question — *does the mock agree with Chromium's own
 implementation* — needs the interactive arm. It is the narrowest of the three,

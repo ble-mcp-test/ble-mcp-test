@@ -79,32 +79,6 @@ export const DEVICE_FILTERS = {
 } as const;
 
 /**
- * Create NodeBleClient options with shared configuration
- */
-export function createNodeClientConfig(overrides?: Partial<{
-  sessionId: string;
-  bridgeUrl: string;
-  service: string;
-  write: string;
-  notify: string;
-  deviceId?: string;
-  deviceName?: string;
-  debug?: boolean;
-}>) {
-  return {
-    sessionId: SHARED_TEST_CONFIG.sessionId,
-    bridgeUrl: SHARED_TEST_CONFIG.wsUrl,
-    service: SHARED_TEST_CONFIG.service,
-    write: SHARED_TEST_CONFIG.write,
-    notify: SHARED_TEST_CONFIG.notify,
-    deviceId: DEVICE_FILTERS.deviceId,
-    deviceName: DEVICE_FILTERS.deviceName,
-    debug: false,
-    ...overrides
-  };
-}
-
-/**
  * Create Web Bluetooth mock config for E2E tests
  */
 export function createWebBleMockConfig(overrides?: Partial<{

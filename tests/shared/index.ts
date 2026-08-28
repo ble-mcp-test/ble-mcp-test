@@ -20,6 +20,5 @@ export {
 export {
   SHARED_TEST_CONFIG,
   DEVICE_FILTERS,
-  createNodeClientConfig,
   createWebBleMockConfig
 } from './test-config.js';

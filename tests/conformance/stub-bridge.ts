@@ -19,9 +19,10 @@
  * `navigator.bluetooth` -- so any suite built on it can never be a fidelity
  * suite, no matter what it asserts. Arm A does a real connect against this.
  *
- * `ws` is used here and only here in the test tree. It is still a runtime
- * dependency of the package (via src/node/, item 4's subject); when that goes,
- * this is the reason it moves to devDependencies rather than disappearing.
+ * `ws` is used here and only here in the test tree. When TRA-1187 item 4 deleted
+ * `src/node/` -- its only runtime importer -- this file is why `ws` moved to
+ * devDependencies rather than disappearing. The package now ships with no
+ * runtime dependencies at all.
  */
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import type { AddressInfo } from 'net';

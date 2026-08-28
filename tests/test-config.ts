@@ -103,21 +103,15 @@ export async function setupTestServer() {
 }
 
 // Usage examples:
-// 
-// 1. Run integration tests without real devices (tests will skip if device not found):
-//    pnpm test:integration
 //
-// 2. Run integration tests with a specific test device:
-//    BLE_MCP_DEVICE=MockBLE pnpm test:integration
-//
-// 3. Run tests with real BLE device (e.g., nRF52 dongle):
+// 1. Run tests with real BLE device (e.g., nRF52 dongle):
 //    BLE_MCP_DEVICE_NAME=nRF52 \
 //    BLE_MCP_SERVICE_UUID=180f \
 //    BLE_MCP_WRITE_UUID=2a19 \
 //    BLE_MCP_NOTIFY_UUID=2a19 \
 //    pnpm test
 //
-// 4. Run tests with CS108 RFID reader:
+// 2. Run tests with CS108 RFID reader:
 //    BLE_MCP_DEVICE_IDENTIFIER=6c79b8xxxxxx \
 //    BLE_MCP_SERVICE_UUID=9800 \
 //    BLE_MCP_WRITE_UUID=9900 \

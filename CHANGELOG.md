@@ -5,20 +5,89 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.0]
+## [0.9.0]
 
 ### Removed
 
-- **BREAKING (public API): the `.` entry point is gone.** It is **removed, not
-  moved** — there is no replacement export for `import ... from 'ble-mcp-test'`.
-  The published surface is now exactly two entry points, both clients:
-  - `ble-mcp-test/browser` — the Web Bluetooth mock
-  - `ble-mcp-test/node` — the Node test-harness client (`NodeBleClient`)
+- **BREAKING (public API): `ble-mcp-test/node` is gone.** The `./node` subpath
+  export, `src/node/` and its five classes — `NodeBleClient`, `NodeBleDevice`,
+  `NodeBleGATT`, `NodeBleService`, `NodeBleCharacteristic` — are deleted. The
+  published surface is now exactly two entry points over **one** implementation:
+  - `ble-mcp-test` (`.`) — the Web Bluetooth mock, importable
+  - `ble-mcp-test/browser` — the same mock as an IIFE, for injection
 
-  `src/index.ts` re-exported `BridgeServer`, `NobleTransport`, `Logger`,
-  `LogBuffer`, `registerMcpTools` and the MCP HTTP transport functions, all of
-  which are deleted. `injectWebBluetoothMock`, `getBundleVersion` and
-  `WebSocketTransport` remain reachable through `ble-mcp-test/browser`.
+  The axis between them is import-vs-inject, not browser-vs-node. `.` is what a
+  Node consumer wants; it runs under plain Node and under jsdom.
+
+  **Why.** `./node` was never a second packaging of the contract, it was a second
+  *implementation* — and its Web Bluetooth half was unwired rather than merely
+  unexercised. No `requestDevice` existed on `NodeBleClient` in any released
+  version, nothing constructed a `NodeBleDevice`, and every inbound frame went to
+  one flat handler, so `device.handleNotification` was never called. A hand-built
+  device there connected, resolved a service, resolved a characteristic, returned
+  from `startNotifications()` — and then never fired an event. Everything
+  resolved; nothing arrived.
+
+  **Migrating.** `connect()` becomes `requestDevice` → `gatt.connect` →
+  `getPrimaryService` → `getCharacteristic`. `onNotification()` becomes
+  `startNotifications()` plus a `characteristicvaluechanged` listener.
+  Client-level `writeValue()` becomes the characteristic's `writeValue()`. See
+  [docs/API.md](docs/API.md).
+
+  **`sendCommandAsync()` has no replacement, deliberately.** It correlated a
+  write with the next inbound frame. Correlation is not a Web Bluetooth concept —
+  real GATT gives you a write and a notification stream with nothing joining them
+  — so it belongs in the consumer's device-protocol tooling rather than in a
+  contract every future packaging would have to reimplement.
+
+- **`ws` is no longer a runtime dependency.** `NodeBleClient` was its only
+  runtime importer. It remains a devDependency for the conformance suite's stub
+  bridge and the soak script. **This package now ships with no runtime
+  dependencies at all.**
+
+- The `test:integration` script and `tests/integration/`, which contained only
+  the Node client's tests. `pnpm test` now runs unit + conformance.
+
+### Changed
+
+- The client contract records the `writeValueWithResponse` /
+  `writeValueWithoutResponse` gap as an explicit **deferral** with a trigger,
+  rather than leaving it silent, and arm A of the conformance suite now asserts
+  their absence. They ship when TRA-1153 item 5b gives them an acknowledgement to
+  resolve on; until then, shipping them would mean shipping two aliases of
+  `writeValue()` that claim to wait and do not.
+
+## [0.8.0]
+
+> **Corrected 2026-08-28.** The entry-point item below originally read
+> *"**BREAKING (public API): the `.` entry point is gone.** It is **removed, not
+> moved** — there is no replacement export for `import ... from 'ble-mcp-test'`.
+> The published surface is now exactly two entry points, both clients."*
+>
+> **That describes `0.8.0-rc.1`, not the `0.8.0` that was published.** The entry
+> point was removed early in the release and then restored within it, and the
+> entry was never updated. Checked against the registry: published `0.8.0` ships
+> **three** — `.`, `./browser` and `./node`. The original wording is quoted here
+> rather than deleted, because a reader who saw it needs to know it was wrong;
+> but it is not left standing as the entry, because a released version's
+> changelog making a false claim about its own contents is a defect rather than
+> a record.
+
+### Removed
+
+- **BREAKING (public API): the `.` entry point's CONTENTS are gone.** The entry
+  point itself **ships in this release** and is the importable Web Bluetooth
+  mock. What was removed is everything it used to re-export: `src/index.ts`
+  carried `BridgeServer`, `NobleTransport`, `Logger`, `LogBuffer`,
+  `registerMcpTools` and the MCP HTTP transport functions, all of which are
+  deleted. `injectWebBluetoothMock`, `getBundleVersion` and `WebSocketTransport`
+  remain reachable, through `.` and through `ble-mcp-test/browser`.
+
+  The published surface of 0.8.0 is three entry points:
+  - `ble-mcp-test` (`.`) — the Web Bluetooth mock, importable
+  - `ble-mcp-test/browser` — the same mock as an IIFE, for injection
+  - `ble-mcp-test/node` — the Node test-harness client (`NodeBleClient`),
+    **removed in 0.9.0**
 
 - **BREAKING: the `bin` is gone.** The package installed an executable
   (`ble-mcp-test` → `dist/start-server.js`) that started the TypeScript server.
