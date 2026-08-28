@@ -63,12 +63,11 @@ export type {
 export { WebSocketTransport } from './ws-transport.js';
 export type { WSMessage } from './ws-transport.js';
 
-export {
-  WEBSOCKET_CLOSE_CODES,
-  CLOSE_CODE_MESSAGES,
-  BLEConnectionError,
-  mapErrorToCloseCode
-} from './constants.js';
-export type { WebSocketCloseCode } from './constants.js';
+// The consumer-visible write-failure contract. `WRITE_ERROR_CODES` is exported
+// so a consumer imports the code rather than hardcoding its text: a literal on
+// their side coupled to a literal on ours, with nothing checking the match, is
+// the defect this replaced wearing different clothes.
+export { WRITE_ERROR_CODES, WriteError, RETRYABLE_CONNECT_ERRORS } from './constants.js';
+export type { WriteErrorCode } from './constants.js';
 
 export { VERSION } from './version.js';

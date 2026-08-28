@@ -1,77 +1,12 @@
 /**
- * WebSocket Close Codes for BLE Connection Failures
- * 
- * Uses 4000-4999 range as specified by RFC 6455 for application-specific close codes.
- * Codes 1000-2999 are reserved by WebSocket specification.
+ * Cross-seam string and code contracts.
+ *
+ * What lives here is anything a CONSUMER or the PYTHON BRIDGE can observe and
+ * make a decision on. Keeping it in one file is what lets a guard exist at all:
+ * a value that is inlined at its use site cannot be pinned, named in a contract,
+ * or imported by the consumer that depends on it.
  */
 
-export const WEBSOCKET_CLOSE_CODES = {
-  HARDWARE_NOT_FOUND: 4001,
-  GATT_CONNECTION_FAILED: 4002,
-  SERVICE_NOT_FOUND: 4003, 
-  CHARACTERISTICS_NOT_FOUND: 4004,
-  BLE_DISCONNECTED: 4005,
-  CLEANUP_IN_PROGRESS: 4006
-} as const;
-
-export type WebSocketCloseCode = typeof WEBSOCKET_CLOSE_CODES[keyof typeof WEBSOCKET_CLOSE_CODES];
-
-export const CLOSE_CODE_MESSAGES = {
-  [WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND]: "BLE device not found - check hardware connection",
-  [WEBSOCKET_CLOSE_CODES.GATT_CONNECTION_FAILED]: "BLE hardware connection failed - restart ble-mcp-test service",
-  [WEBSOCKET_CLOSE_CODES.SERVICE_NOT_FOUND]: "Required BLE service not available on device",
-  [WEBSOCKET_CLOSE_CODES.CHARACTERISTICS_NOT_FOUND]: "Required BLE characteristics not found",
-  [WEBSOCKET_CLOSE_CODES.BLE_DISCONNECTED]: "BLE device disconnected unexpectedly",
-  [WEBSOCKET_CLOSE_CODES.CLEANUP_IN_PROGRESS]: "Cannot connect while cleanup is in progress"
-} as const;
-
-/**
- * BLE Connection Error class for typed error handling
- */
-export class BLEConnectionError extends Error {
-  constructor(
-    public code: keyof typeof WEBSOCKET_CLOSE_CODES, 
-    message: string
-  ) {
-    super(message);
-    this.name = 'BLEConnectionError';
-  }
-}
-
-/**
- * Map BLE connection error to appropriate WebSocket close code
- */
-export function mapErrorToCloseCode(error: any): WebSocketCloseCode {
-  if (error instanceof BLEConnectionError) {
-    return WEBSOCKET_CLOSE_CODES[error.code];
-  }
-  
-  // Fallback mapping based on error message patterns
-  const message = error.message?.toLowerCase() || '';
-  
-  if (message.includes('no devices found') || message.includes('device not found')) {
-    return WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND;
-  }
-  
-  if (message.includes('gatt') || message.includes('connection failed')) {
-    return WEBSOCKET_CLOSE_CODES.GATT_CONNECTION_FAILED;
-  }
-  
-  if (message.includes('service') && message.includes('not found')) {
-    return WEBSOCKET_CLOSE_CODES.SERVICE_NOT_FOUND;
-  }
-  
-  if (message.includes('characteristic') && message.includes('not found')) {
-    return WEBSOCKET_CLOSE_CODES.CHARACTERISTICS_NOT_FOUND;
-  }
-  
-  if (message.includes('disconnect')) {
-    return WEBSOCKET_CLOSE_CODES.BLE_DISCONNECTED;
-  }
-  
-  // Default to hardware not found for unknown connection errors
-  return WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND;
-}
 /**
  * Connect errors the mock may retry, matched as substrings.
  *
@@ -106,3 +41,96 @@ export const RETRYABLE_CONNECT_ERRORS: readonly string[] = [
   // asks to be retried, and it was the one the mock did not retry.
   'The command path is claimed but its device link is not up yet'
 ];
+
+/**
+ * Why a write failed, as a value a consumer can branch on.
+ *
+ * ## Why this exists at all
+ *
+ * Until 0.10.0 every write rejection was a bare `Error`, so the only thing a
+ * consumer could discriminate on was the message text. Platform's transport did
+ * exactly that -- `isRetryable()` matched `'GATT operation already in progress'`
+ * and `'Device busy'` as substrings. That worked only because the ack-timeout
+ * message happens not to contain either phrase.
+ *
+ * Which made an unreferenced string literal in `ws-transport.ts` load-bearing
+ * across two repositories: rewording it to include the word "busy" -- an
+ * entirely reasonable-looking edit here -- would have made the timeout retryable
+ * on their side, and their retry loop would then have run past the command
+ * timeout that owns it. **Nothing in this repository would have gone red.** The
+ * only guard was a test in the consumer's repository, which is the one place a
+ * change here cannot be seen.
+ *
+ * A code is a real interface. Prose is not, however carefully it is worded.
+ *
+ * ## Read `mayHaveReachedDevice`, not the code, to decide about retrying
+ *
+ * The code answers "what happened"; `mayHaveReachedDevice` answers the only
+ * question a retry actually turns on. They are separate on purpose: a consumer
+ * that enumerates codes it considers safe will silently misclassify the next
+ * code added here, which is the same failure this whole change exists to end.
+ * A consumer that reads the property cannot.
+ */
+export const WRITE_ERROR_CODES = {
+  /** No `write_ack` arrived inside the cap. See `WriteError.mayHaveReachedDevice`. */
+  ACK_TIMEOUT: 'ACK_TIMEOUT',
+  /** The bridge acknowledged the write and said it failed (`write_ack{ok:false}`). */
+  WRITE_REJECTED: 'WRITE_REJECTED',
+  /** The link went away while the write was in flight. */
+  LINK_LOST: 'LINK_LOST',
+  /** There was no open socket to write to; the frame never left. */
+  NOT_CONNECTED: 'NOT_CONNECTED'
+} as const;
+
+export type WriteErrorCode = typeof WRITE_ERROR_CODES[keyof typeof WRITE_ERROR_CODES];
+
+/**
+ * Which write failures may already have reached the device.
+ *
+ * ⚠ **A write that may have reached the device must not be retried blindly** --
+ * the retry is a second write, and for a stateful device protocol a duplicate
+ * command is not the same thing as a lost one.
+ *
+ * `ACK_TIMEOUT` is the whole reason this distinction is a value rather than a
+ * comment: a timeout says only that no acknowledgement came back inside the cap.
+ * The write may have been delivered and the ack lost, or delayed past the cap.
+ * The bridge cannot tell the difference and neither can the client.
+ *
+ * The other three are definite non-delivery: `NOT_CONNECTED` never reached the
+ * socket, `LINK_LOST` had the link fail underneath it, and `WRITE_REJECTED` is
+ * the bridge itself reporting the write did not happen.
+ *
+ * ⚠ **`false` here is NECESSARY for a retry, not SUFFICIENT.** It answers only
+ * "can a retry duplicate this write". Whether a retry is WORTH anything is a
+ * question about the consumer's link, which this package cannot see: `LINK_LOST`
+ * and `NOT_CONNECTED` are both non-duplicative and both pointless to retry, and
+ * platform's TRA-1179 note records the harm -- if the link comes back, the retry
+ * lands a STALE command on a FRESH connection. Do not read this as a
+ * retry-worthiness flag.
+ */
+const MAY_HAVE_REACHED_DEVICE: Record<WriteErrorCode, boolean> = {
+  [WRITE_ERROR_CODES.ACK_TIMEOUT]: true,
+  [WRITE_ERROR_CODES.WRITE_REJECTED]: false,
+  [WRITE_ERROR_CODES.LINK_LOST]: false,
+  [WRITE_ERROR_CODES.NOT_CONNECTED]: false
+};
+
+/**
+ * Every rejection from a write path carries one of these.
+ *
+ * `name` is `'WriteError'` and `code` is a `WriteErrorCode`, so a consumer can
+ * discriminate without reading `message`. The message stays human prose and is
+ * free to be reworded -- that freedom is the point.
+ */
+export class WriteError extends Error {
+  readonly name = 'WriteError';
+  readonly code: WriteErrorCode;
+  /** Whether the write may already have been delivered. See the table above. */
+  readonly mayHaveReachedDevice: boolean;
+
+  constructor(code: WriteErrorCode, message: string) {
+    super(message);
+    this.code = code;
+    this.mayHaveReachedDevice = MAY_HAVE_REACHED_DEVICE[code];
+  }
+}
