@@ -64,7 +64,14 @@ test: test-ts test-py
 
 build: build-ts
 
-validate: lint typecheck-ts test
+# `build` is NOT optional here. Two checks in tests/unit/entry-points.test.ts are
+# `it.skipIf(!built)` -- they verify the exports map is honoured and that the ESM
+# entry point reaches no filesystem API. Without a build in this recipe, a fresh
+# clone runs the gate GREEN with both silently absent, and the second is the guard
+# for the exact bug that made the `.` entry point unusable: a dynamic import()
+# reaching fs from inside connect(). A guard that quietly does not run has no
+# symptom, which is this repo's first named failure class wearing a build flag.
+validate: lint typecheck-ts build test
 
 # Arm B of the conformance suite: the SAME contract checks, against REAL Chromium
 # navigator.bluetooth instead of the mock. Opt-in, like `just hardware`, and for
