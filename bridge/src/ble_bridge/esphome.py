@@ -553,6 +553,7 @@ class BleakEsphomeSession:
         return DeviceInfo(
             name=self._ble_device.name or self._config.device_mac,
             id=self._config.device_mac,
+            write_properties=tuple(sorted(getattr(self._write_char, "properties", []) or [])),
         )
 
     async def start_notify(self, notify_uuid: str, sink: NotifySink) -> None:

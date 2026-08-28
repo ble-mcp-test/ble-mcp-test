@@ -154,9 +154,26 @@ def message_type(msg: dict[str, Any]) -> str | None:
     return msg.get(FIELD_TYPE)
 
 
-def encode_connected(device: str) -> str:
-    """src/bridge-server.ts:145 -- sent once the device link is established."""
-    return json.dumps({FIELD_TYPE: MSG_CONNECTED, FIELD_DEVICE: device})
+FIELD_WRITE_PROPERTIES: Final = "write_properties"
+
+
+def encode_connected(device: str, write_properties: tuple[str, ...] = ()) -> str:
+    """src/bridge-server.ts:145 -- sent once the device link is established.
+
+    `write_properties` is the write characteristic's own account of what it
+    supports. Present so a client can refuse a write mode the peripheral does not
+    advertise: real Chrome rejects `writeValueWithoutResponse()` on a
+    characteristic without the property, and a mock that cannot see the property
+    is looser than the API it doubles.
+
+    OMITTED, not null, when empty -- a client cannot tell an echoed empty list
+    from a transport that does not know, and those call for different behaviour
+    (do not gate, versus gate on nothing). Same reasoning as `write_id`.
+    """
+    frame: dict[str, object] = {FIELD_TYPE: MSG_CONNECTED, FIELD_DEVICE: device}
+    if write_properties:
+        frame[FIELD_WRITE_PROPERTIES] = list(write_properties)
+    return json.dumps(frame)
 
 
 def encode_data(payload: bytes) -> str:

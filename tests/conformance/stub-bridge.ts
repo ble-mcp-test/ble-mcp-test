@@ -59,6 +59,18 @@ export interface StubBridgeOptions {
   failWrites?: boolean;
   /** The `mode` to report on each ack. Default `with-response`, matching the bridge. */
   writeMode?: 'with-response' | 'without-response';
+  /**
+   * What the `connected` frame says the write characteristic supports.
+   *
+   * Defaults to BOTH write modes, deliberately: this is a synthetic device and a
+   * permissive default keeps the contract checks about the methods rather than
+   * about one peripheral's limits. Pass `['write']` to model the CS108, whose
+   * 0x9900 advertises write-with-response only.
+   *
+   * Pass `[]` to model a bridge that cannot report properties -- the frame then
+   * omits the field entirely, and the client must NOT gate.
+   */
+  writeProperties?: string[];
 }
 
 export async function startStubBridge(options: StubBridgeOptions = {}): Promise<StubBridge> {
@@ -100,7 +112,14 @@ export async function startStubBridge(options: StubBridgeOptions = {}): Promise<
 
     // The handshake frame the transport waits for. Anything else -- including
     // silence -- and connect() fails on its 10s timeout instead.
-    socket.send(JSON.stringify({ type: 'connected', device: 'stub-bridge' }));
+    const props = options.writeProperties ?? ['write', 'write_without_response'];
+    socket.send(JSON.stringify({
+      type: 'connected',
+      device: 'stub-bridge',
+      // Omitted rather than empty when there is nothing to report: the client
+      // treats absent as "do not gate" and empty as "supports nothing".
+      ...(props.length ? { write_properties: props } : {})
+    }));
   });
 
   await new Promise<void>(resolve => wss.once('listening', resolve));

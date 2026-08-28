@@ -72,3 +72,37 @@ export function mapErrorToCloseCode(error: any): WebSocketCloseCode {
   // Default to hardware not found for unknown connection errors
   return WEBSOCKET_CLOSE_CODES.HARDWARE_NOT_FOUND;
 }
+/**
+ * Connect errors the mock may retry, matched as substrings.
+ *
+ * ⚠ These are the EXACT texts the Python bridge sends. Kept here rather than
+ * inline so both the mock and the cross-language guard read one source, and so a
+ * reword on either side is a diff rather than a silent decay.
+ *
+ * ## What was here before, and why it was inert
+ *
+ * The list read `'Bridge is disconnecting'`, `'Bridge is connecting'` and
+ * `'only ready state accepts connections'`. **None of those three strings exists
+ * anywhere in `bridge/`** -- they are TypeScript-bridge-era wording that survived
+ * the replatform. So `maxConnectRetries` could never fire: every retry condition
+ * was unsatisfiable by anything the bridge actually emits.
+ *
+ * That is CLAUDE.md's first named failure class, sitting in the retry loop
+ * itself: a waiter whose condition cannot be satisfied by what is sent. It was
+ * invisible because its symptom is the ABSENCE of retrying, and nothing fails
+ * when a retry that would have succeeded never happens.
+ *
+ * ## `Device is busy` is deliberately NOT here
+ *
+ * It is a loud refusal -- another connection owns the command path, and no amount
+ * of waiting changes that. Retrying it would convert a precise refusal into a
+ * long pause followed by some other failure, which is the same failure class
+ * again. `test_the_busy_error_is_not_one_the_mock_silently_retries` in
+ * `bridge/tests/test_relay_ownership.py` enforces that from the Python side.
+ */
+export const RETRYABLE_CONNECT_ERRORS: readonly string[] = [
+  // ownership.py NotReadyError -> protocol.py NOT_READY_ERROR. The bridge's own
+  // text ends "This resolves in a moment; retry." -- it is the one refusal that
+  // asks to be retried, and it was the one the mock did not retry.
+  'The command path is claimed but its device link is not up yet'
+];

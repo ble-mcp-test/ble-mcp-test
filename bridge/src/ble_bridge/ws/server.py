@@ -293,7 +293,7 @@ class BridgeServer:
                 await _refuse(ws, str(exc))
                 return
             claim.ready(device)
-            await ws.send(p.encode_connected(device.name))
+            await ws.send(p.encode_connected(device.name, device.write_properties))
             logger.info("session %s owns the command path on %s", params.session, device.name)
 
             if idle is not None:
@@ -354,7 +354,7 @@ class BridgeServer:
 
         device = subscription.device
         assert device is not None  # observe() refuses a path that is not ready
-        await ws.send(p.encode_connected(device.name))
+        await ws.send(p.encode_connected(device.name, device.write_properties))
         logger.info("session %s is observing %s read-only", params.session, device.name)
 
         # No idle timer here, deliberately. An observer holds no device and no

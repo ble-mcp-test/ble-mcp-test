@@ -239,13 +239,16 @@ device whose write characteristic advertises `properties=['write']` — the CS10
 that rejection should never fire, which makes it a detector for a bridge
 misconfiguration that would otherwise be silent.
 
-**A stated gap, in the loose direction.** Real Chrome rejects
-`writeValueWithoutResponse` on a characteristic that does not advertise the
-property. The mock cannot, because the bridge does not put characteristic
-properties on the wire — so this is the one member where a call passing here
-would fail in Chrome. Closing it means adding properties to the `connected`
-frame. It is written down rather than hidden because the whole point of this
-document is that a gap nobody recorded is a gap nobody can catch.
+**The gate is real, not documentary.** `writeValueWithoutResponse` rejects on a
+characteristic that does not advertise the property, matching Chrome's
+`NotSupportedError`. The bridge puts `write_properties` on the `connected` frame,
+so the mock can see what the peripheral actually supports — on the CS108 that is
+`['write']`, which makes the call illegal there and the mock says so.
+
+**Absent is not empty.** A bridge that cannot report properties omits the field,
+and the client then does not gate. Sending `[]` would mean "supports nothing" and
+turn a missing capability into a hard failure on every write, which is worse than
+the looseness it replaced.
 
 ### Listener semantics
 
@@ -361,19 +364,26 @@ Recorded rather than decided, because a decision needs an owner.
   decision that this entry existed to force is the same asymmetry TRA-1187 was
   filed over, and deleting the second client removed it. The guarantees are now
   clauses under [Writes](#writes).
-- **Characteristic properties are not on the wire.** The `connected` frame does
-  not carry them, so `writeValueWithoutResponse()` cannot refuse a characteristic
-  that lacks the property — the one place the mock is **looser** than the real
-  API, where a call passes here and throws in Chrome. Agreed in principle with
-  platform as a mock defect under TRA-1187's guiding principle; not scheduled.
-  Closing it is a `connected`-frame field, a spec amendment, and one conformance
-  check. It cannot currently bite platform: one call site, `writeValue` only.
-- **The mock discards the bridge's refusal detail.** A `Device is busy` naming the
-  holding session is retried, exhausted, and surfaces to the caller as a generic
-  failure. Demonstrated live 2026-08-28 by a self-inflicted collision: the bridge
-  produced a precise, actionable refusal and the test reported `expected true,
-  received false`. Good attribution generated at one layer and destroyed before it
-  reaches the person who needs it.
+- **CLOSED 2026-08-28 — characteristic properties are now on the wire.** The
+  `connected` frame carries `write_properties`, so `writeValueWithoutResponse()`
+  refuses a characteristic that does not advertise the property, matching
+  Chrome's `NotSupportedError`. This was the one place the mock was **looser**
+  than the API it doubles — a call passing here and throwing in the browser,
+  which is TRA-1187's motivating example pointed the other way. Verified on the
+  real wire against the CS108: `{"type":"connected", … "write_properties":["write"]}`.
+  Absent is deliberately not empty: a bridge that cannot report properties must
+  not read as a device supporting none, so the field is omitted rather than sent
+  as `[]` and the client does not gate.
+- **WITHDRAWN 2026-08-28 — "the mock discards the bridge's refusal detail".** It
+  does not. Recorded here because the claim was made confidently, propagated, and
+  was wrong. Both sessions reproduced it independently: the mock surfaces
+  `Device is busy: the command path is owned by another connection (session 'X')`
+  verbatim, holder and remedies intact, all the way into the consumer's failure
+  output. The original diagnosis came from a collision whose specs failed on
+  *their own assertions and a connect timeout* — different paths — and the log
+  was read as though it explained the test failure. **A real diagnostic, a real
+  incident, and an invented causal link between them.**
+
 - **`testing.*` members with zero consumers.** The list is **`setAvailability`,
   `getReaderState`, and `testCommand`** — three members, and not the three the
   question was originally asked about. Two corrections, both verified against this
