@@ -64,6 +64,13 @@ export interface StubBridgeOptions {
    * a consumer can tell those two apart.
    */
   withholdAcks?: boolean;
+  /**
+   * Accept the socket and close it WITHOUT sending `connected`, as a bridge that
+   * dies or refuses mid-handshake does. Closes with 1000 -- an ordinary code, on
+   * purpose: the bridge has never sent a 4xxx, and gating the client's
+   * connect-failure path on 4xxx is what made a dead bridge look like a 10s hang.
+   */
+  closeBeforeConnected?: boolean;
   /** The `mode` to report on each ack. Default `with-response`, matching the bridge. */
   writeMode?: 'with-response' | 'without-response';
   /**
@@ -90,6 +97,11 @@ export async function startStubBridge(options: StubBridgeOptions = {}): Promise<
     const record: StubBridgeConnection = { params, writes: [] };
     connections.push(record);
     sockets.push(socket);
+
+    if (options.closeBeforeConnected) {
+      socket.close(1000);
+      return;
+    }
 
     socket.on('message', raw => {
       let message: { type?: string; data?: number[]; write_id?: string };

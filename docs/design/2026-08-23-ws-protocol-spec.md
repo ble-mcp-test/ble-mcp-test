@@ -621,3 +621,64 @@ cannot disagree.
 
 **A transport that does not know may return an empty tuple**, and the field then disappears
 from the frame rather than misreporting the device.
+
+## 10. `error` frames carry a `code` — TRA-1187, 0.12.0
+
+Every `error` frame carries a machine-readable `code` alongside its prose:
+
+```json
+{"type": "error", "error": "Device is busy: the command path is owned by another connection (session 'abc'). …", "code": "DEVICE_BUSY"}
+```
+
+**A client MUST discriminate on `code` and MUST NOT match on `error`.** The
+message is prose for a human reading a log and is free to be reworded; the code
+is the interface.
+
+`code` is **required** at every emission site. `encode_error()` takes it as a
+positional argument and raises on anything outside `ERROR_CODES`, so a typo is a
+crash in the bridge rather than an unrecognised code the client silently declines
+to act on. A default value was considered and rejected: a default is how half the
+frames end up carrying a placeholder nobody notices.
+
+| code | when |
+|---|---|
+| `MISSING_PARAMS` | service / write / notify absent or blank |
+| `INVALID_PARAM` | a parameter was present but unusable |
+| `DEVICE_BUSY` | another connection owns the command path |
+| `NOT_READY` | claimed, device link not up yet — **the only retryable one** |
+| `NOTHING_TO_OBSERVE` | no connection owns the path, so there is no stream |
+| `TAKEOVER_STALLED` | the displaced session did not release in time |
+| `TRANSPORT_FAILED` | the device link could not be established |
+| `IDLE_TIMEOUT` | the lease expired with no frame from the client |
+| `WRITE_FAILED` | a write failed after the handshake |
+| `EVICTED` | another connection took the path with `force=true` |
+| `STREAM_ENDED` | the owner is gone; an observer's stream is over |
+| `OBSERVER_MAY_NOT_WRITE` | a `role=observer` connection tried to write |
+
+### Why this replaced substring matching, and what it cost
+
+The client used to match message **substrings** to decide whether a connect was
+worth retrying. That list had already rotted in a way nothing could catch: it held
+`Bridge is disconnecting`, `Bridge is connecting` and `only ready state accepts
+connections` — **TypeScript-bridge-era wording, none of which this bridge has ever
+sent.** So `maxConnectRetries` could not fire at all.
+
+Its symptom was the **absence** of a retry. Nothing fails when a retry that would
+have succeeded never happens, which is why it survived a replatform, a soak, and a
+measured cut of the very retry budget it had disabled.
+
+A code cannot decay that way, and two guards hold it mechanically across the
+language boundary rather than by review:
+
+- `test_every_retryable_code_is_one_we_send` — every code the client retries on is
+  one this bridge can emit
+- `test_the_retryable_set_matches_the_servers_own_declaration` — both sides declare
+  the retryable set and must agree
+
+### `DEVICE_BUSY` is deliberately not retryable
+
+Another connection owns the command path; waiting does not change that. Retrying
+converts a precise refusal into a long pause followed by some other failure — the
+same class of defect, reintroduced by a one-line edit.
+`test_the_busy_refusal_is_not_one_the_mock_silently_retries` enforces it.
+

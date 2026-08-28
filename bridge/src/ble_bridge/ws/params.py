@@ -53,9 +53,13 @@ class Role(StrEnum):
 class MissingParametersError(ValueError):
     """One of service / write / notify was absent or blank."""
 
+    code = "MISSING_PARAMS"
+
 
 class InvalidParameterError(ValueError):
     """A parameter was present but could not be used."""
+
+    code = "INVALID_PARAM"
 
 
 def uuid4_str() -> str:

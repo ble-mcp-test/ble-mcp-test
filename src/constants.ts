@@ -8,39 +8,90 @@
  */
 
 /**
- * Connect errors the mock may retry, matched as substrings.
+ * Connect refusals the mock may retry, matched on the wire `code`.
  *
- * ⚠ These are the EXACT texts the Python bridge sends. Kept here rather than
- * inline so both the mock and the cross-language guard read one source, and so a
- * reword on either side is a diff rather than a silent decay.
+ * ⚠ These are CODES, not message text. Until 0.12.0 this list held message
+ * SUBSTRINGS -- and it had already decayed once in a way nothing could catch:
+ * it named three strings the Python bridge has never sent, so the retry branch
+ * was unreachable and `maxConnectRetries` could not fire. Its symptom was the
+ * ABSENCE of a retry, and nothing fails when a retry that would have succeeded
+ * never happens.
  *
- * ## What was here before, and why it was inert
+ * A code cannot decay that way. It is a closed set on the bridge
+ * (`ERROR_CODES` in ws/protocol.py, enforced by `encode_error`), and
+ * `test_every_retryable_code_is_one_we_send` compares this list against it
+ * mechanically across the language boundary.
  *
- * The list read `'Bridge is disconnecting'`, `'Bridge is connecting'` and
- * `'only ready state accepts connections'`. **None of those three strings exists
- * anywhere in `bridge/`** -- they are TypeScript-bridge-era wording that survived
- * the replatform. So `maxConnectRetries` could never fire: every retry condition
- * was unsatisfiable by anything the bridge actually emits.
+ * ## `DEVICE_BUSY` is deliberately NOT here
  *
- * That is CLAUDE.md's first named failure class, sitting in the retry loop
- * itself: a waiter whose condition cannot be satisfied by what is sent. It was
- * invisible because its symptom is the ABSENCE of retrying, and nothing fails
- * when a retry that would have succeeded never happens.
- *
- * ## `Device is busy` is deliberately NOT here
- *
- * It is a loud refusal -- another connection owns the command path, and no amount
- * of waiting changes that. Retrying it would convert a precise refusal into a
+ * It is a loud refusal -- another connection owns the command path, and no
+ * amount of waiting changes that. Retrying it converts a precise refusal into a
  * long pause followed by some other failure, which is the same failure class
- * again. `test_the_busy_error_is_not_one_the_mock_silently_retries` in
- * `bridge/tests/test_relay_ownership.py` enforces that from the Python side.
+ * again. `test_the_busy_error_is_not_one_the_mock_silently_retries` enforces it
+ * from the Python side.
+ *
+ * ## An error frame with no code is NOT retried
+ *
+ * Absent is not retryable. That is the safe direction and it is deliberate: a
+ * missing code means the two sides disagree about the protocol, and guessing is
+ * how a silent fallback gets built.
  */
-export const RETRYABLE_CONNECT_ERRORS: readonly string[] = [
-  // ownership.py NotReadyError -> protocol.py NOT_READY_ERROR. The bridge's own
-  // text ends "This resolves in a moment; retry." -- it is the one refusal that
-  // asks to be retried, and it was the one the mock did not retry.
-  'The command path is claimed but its device link is not up yet'
+export const RETRYABLE_CONNECT_CODES: readonly string[] = [
+  // ownership.py CommandPathNotReady -> protocol.py ERR_NOT_READY. The one
+  // refusal that asks to be retried.
+  'NOT_READY'
 ];
+
+/**
+ * Why a CONNECT failed, on the error the mock rejects with.
+ *
+ * Two sources, deliberately one namespace:
+ *
+ * - a `code` the bridge put on its `error` frame (see ERROR_CODES in
+ *   ws/protocol.py) -- a refusal the server chose to send
+ * - a locally-detected failure, below -- the socket died or closed before the
+ *   handshake finished, so there was no frame to carry a code
+ *
+ * A consumer reads `err.code` either way and never parses `err.message`.
+ */
+export const CONNECT_ERROR_CODES = {
+  /** The socket errored. No frame, so the bridge said nothing. */
+  SOCKET_ERROR: 'SOCKET_ERROR',
+  /**
+   * The socket closed before `connected` arrived.
+   *
+   * Before 0.12.0 this case had no rejection at all -- only close codes
+   * 4000-4999 failed the handshake, and the bridge has never sent one, so the
+   * caller waited out the full 10s connect timeout instead.
+   */
+  CLOSED_BEFORE_CONNECTED: 'CLOSED_BEFORE_CONNECTED',
+  /** The handshake did not finish inside the connect timeout. */
+  TIMEOUT: 'TIMEOUT'
+} as const;
+
+/** Every connect rejection carries a `code`; `name` is `'ConnectError'`. */
+export class ConnectError extends Error {
+  readonly name = 'ConnectError';
+  readonly code: string;
+
+  constructor(message: string, code: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+/**
+ * Build a connect rejection.
+ *
+ * `code` is optional ONLY because a bridge frame might arrive without one, and
+ * that case must be visible rather than papered over: it becomes `UNTYPED`,
+ * which is not in RETRYABLE_CONNECT_CODES and therefore never retried. Absent is
+ * not retryable -- a missing code means the two sides disagree about the
+ * protocol, and guessing is how a silent fallback gets built.
+ */
+export function connectError(message: string, code?: string): ConnectError {
+  return new ConnectError(message, code ?? 'UNTYPED');
+}
 
 /**
  * Why a write failed, as a value a consumer can branch on.

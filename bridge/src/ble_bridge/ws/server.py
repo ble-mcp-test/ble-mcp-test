@@ -177,7 +177,7 @@ class BridgeServer:
             # bridge-server.ts:84 -- send the error, then close. No transport is
             # built and no claim is made, so a rejected connection never touches
             # the device.
-            await _refuse(ws, str(exc))
+            await _refuse(ws, str(exc), exc.code)
             return
 
         _log_mock_version(params)
@@ -194,7 +194,7 @@ class BridgeServer:
             claim = self._path.claim(params.session, force=params.force)
         except OwnershipError as exc:
             logger.warning("refused a writer for session %s: %s", params.session, exc)
-            await _refuse(ws, str(exc))
+            await _refuse(ws, str(exc), exc.code)
             return
 
         try:
@@ -243,7 +243,7 @@ class BridgeServer:
                 displaced.session,
                 EVICTION_TEARDOWN_TIMEOUT_S,
             )
-            await _refuse(ws, p.TAKEOVER_STALLED_ERROR)
+            await _refuse(ws, p.TAKEOVER_STALLED_ERROR, p.ERR_TAKEOVER_STALLED)
             return False
 
         await ws.send(
@@ -290,7 +290,7 @@ class BridgeServer:
                 # `1011 internal error` instead. 1011 means "a condition with no
                 # message"; there is a message.
                 logger.warning("session %s could not connect: %s", params.session, exc)
-                await _refuse(ws, str(exc))
+                await _refuse(ws, str(exc), p.ERR_TRANSPORT_FAILED)
                 return
             claim.ready(device)
             await ws.send(p.encode_connected(device.name, device.write_properties))
@@ -328,14 +328,19 @@ class BridgeServer:
                 ws,
                 f"{p.IDLE_TIMEOUT_ERROR_PREFIX} of {idle.timeout:g}s. "
                 f"{p.IDLE_TIMEOUT_ERROR_ADVICE}",
+                p.ERR_IDLE_TIMEOUT,
             )
         elif outcome.get("receiving") is not None:
             # The write failed. `_receive_writer` has already logged it; this is
             # the half that used to be missing entirely -- telling the client.
-            await _refuse(ws, str(outcome["receiving"]))
+            await _refuse(ws, str(outcome["receiving"]), p.ERR_WRITE_FAILED)
         elif outcome.get("draining") is True and claim.evicted_by is not None:
             # Only an eviction ends the stream while the socket is still open.
-            await _refuse(ws, f"{p.EVICTED_ERROR_PREFIX} (session {claim.evicted_by!r}).")
+            await _refuse(
+                ws,
+                f"{p.EVICTED_ERROR_PREFIX} (session {claim.evicted_by!r}).",
+                p.ERR_EVICTED,
+            )
 
     # --- the observer ---------------------------------------------------------
 
@@ -349,7 +354,7 @@ class BridgeServer:
             subscription = self._path.observe(params.session)
         except OwnershipError as exc:
             logger.warning("refused an observer for session %s: %s", params.session, exc)
-            await _refuse(ws, str(exc))
+            await _refuse(ws, str(exc), exc.code)
             return
 
         device = subscription.device
@@ -368,7 +373,7 @@ class BridgeServer:
             }
         )
         if outcome.get("draining") is True:
-            await _refuse(ws, p.STREAM_ENDED_ERROR)
+            await _refuse(ws, p.STREAM_ENDED_ERROR, p.ERR_STREAM_ENDED)
 
 
 # --- per-connection loops -----------------------------------------------------
@@ -457,7 +462,9 @@ async def _receive_observer(ws: ServerConnection) -> None:
     try:
         async for raw in ws:
             if _write_or_none(raw) is not None:
-                await ws.send(p.encode_error(p.OBSERVER_MAY_NOT_WRITE_ERROR))
+                await ws.send(
+                    p.encode_error(p.OBSERVER_MAY_NOT_WRITE_ERROR, p.ERR_OBSERVER_MAY_NOT_WRITE)
+                )
     except websockets.exceptions.ConnectionClosed:
         pass
 
@@ -548,10 +555,14 @@ async def _race(loops: dict[str, asyncio.Task[Any]]) -> dict[str, Any]:
     return outcome
 
 
-async def _refuse(ws: ServerConnection, message: str) -> None:
-    """Say why, then close. Never close silently."""
+async def _refuse(ws: ServerConnection, message: str, code: str) -> None:
+    """Say why, then close. Never close silently.
+
+    `code` is required at every call site. It is what the client discriminates
+    on; the message is prose for a human reading a log.
+    """
     try:
-        await ws.send(p.encode_error(message))
+        await ws.send(p.encode_error(message, code))
     except websockets.exceptions.ConnectionClosed:
         return
     await ws.close()

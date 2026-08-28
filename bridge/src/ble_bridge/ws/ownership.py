@@ -51,8 +51,11 @@ class OwnershipError(Exception):
     """A claim on the command path was refused.
 
     The message is client-facing and is sent verbatim in an `error` frame, so the
-    text lives in protocol.py alongside every other wire string.
+    text lives in protocol.py alongside every other wire string. `code` is what
+    the client actually discriminates on -- the text is free to be reworded.
     """
+
+    code: str = p.ERR_DEVICE_BUSY
 
 
 class CommandPathBusy(OwnershipError):
@@ -62,9 +65,13 @@ class CommandPathBusy(OwnershipError):
         super().__init__(f"{p.BUSY_ERROR_PREFIX} (session {holder!r}). {p.BUSY_ERROR_ADVICE}")
         self.holder = holder
 
+    code = p.ERR_DEVICE_BUSY
+
 
 class CommandPathNotReady(OwnershipError):
     """The path is claimed but its device link is not up yet. Worth retrying."""
+
+    code = p.ERR_NOT_READY
 
     def __init__(self) -> None:
         super().__init__(p.NOT_READY_ERROR)
@@ -72,6 +79,8 @@ class CommandPathNotReady(OwnershipError):
 
 class NothingToObserve(OwnershipError):
     """No connection owns the command path, so there is no stream to attach to."""
+
+    code = p.ERR_NOTHING_TO_OBSERVE
 
     def __init__(self) -> None:
         super().__init__(p.NOTHING_TO_OBSERVE_ERROR)

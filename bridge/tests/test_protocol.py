@@ -161,7 +161,46 @@ def _ws_transport_connect_body() -> str:
 
 
 def test_error_shape():
-    assert json.loads(p.encode_error("boom")) == {"type": "error", "error": "boom"}
+    assert json.loads(p.encode_error("boom", p.ERR_NOT_READY)) == {
+        "type": "error",
+        "error": "boom",
+        "code": "NOT_READY",
+    }
+
+
+def test_encode_error_refuses_a_code_outside_the_closed_set():
+    """A typo must be a crash here, not an unrecognised code on the wire.
+
+    An unknown code reaches the client as something not in
+    RETRYABLE_CONNECT_CODES, so a refusal meant to be retryable silently stops
+    being retried -- the absence-shaped failure this whole change removed.
+    """
+    with pytest.raises(ValueError, match="unknown error code"):
+        p.encode_error("boom", "NOT_A_REAL_CODE")
+
+
+def test_no_error_code_is_declared_without_being_reachable():
+    """Every code in the closed set is one some call site can actually send.
+
+    The mirror of the client-side check: a code nothing emits is a branch the
+    client can never take, which is the same dead-condition class one layer over.
+    """
+    server = (pathlib.Path(__file__).resolve().parents[1]
+              / "src" / "ble_bridge" / "ws" / "server.py").read_text()
+    ownership = (pathlib.Path(__file__).resolve().parents[1]
+                 / "src" / "ble_bridge" / "ws" / "ownership.py").read_text()
+    params = (pathlib.Path(__file__).resolve().parents[1]
+              / "src" / "ble_bridge" / "ws" / "params.py").read_text()
+    reachable = server + ownership + params
+    orphans = [
+        code for code in p.ERROR_CODES
+        # by constant name (p.ERR_FOO) or by literal (params.py uses the literal)
+        if f"ERR_{code}" not in reachable and f'"{code}"' not in reachable
+    ]
+    assert orphans == [], (
+        f"declared but never sent: {orphans}. A code no call site emits is a "
+        "client branch that can never be taken."
+    )
 
 
 def test_missing_params_text_is_verbatim():

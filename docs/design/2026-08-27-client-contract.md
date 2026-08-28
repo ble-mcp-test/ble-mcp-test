@@ -335,6 +335,35 @@ a macrotask and the guarantee breaks.
 > is the one place a change here cannot be seen. A code is an interface; prose is
 > not, however carefully worded.
 
+#### A connect rejection is a code too
+
+Every rejection from `gatt.connect()` is a **`ConnectError`** with a `code`,
+exported alongside `CONNECT_ERROR_CODES`:
+
+| source | codes |
+|---|---|
+| the bridge's `error` frame | whatever §10 of the WS protocol spec lists — `DEVICE_BUSY`, `NOT_READY`, … |
+| detected locally, no frame | `SOCKET_ERROR`, `CLOSED_BEFORE_CONNECTED`, `TIMEOUT` |
+
+A frame that somehow arrives without a code yields `UNTYPED`, which is **not**
+retryable. Absent is not retryable, deliberately: a missing code means the two
+sides disagree about the protocol, and guessing is how a silent fallback gets
+built.
+
+**`CLOSED_BEFORE_CONNECTED` is new in 0.12.0 and it replaces a ten-second hang.**
+The handshake used to fail promptly only on WebSocket close codes 4000-4999, and
+the bridge has never sent one — so every real connect-time close fell through and
+the caller waited out the full 10s connect timeout instead. A dead bridge
+presented as ten seconds of nothing rather than as a connection failure.
+
+> Worth recording because the reasoning that protected it was the problem. This
+> was found before a 17-hour connect-heavy baseline and deferred **twice** — on
+> the argument that changing connect semantics before a baseline destroys
+> attribution. There was no baseline yet to attribute against: the run in
+> question was the first one. **A rule that is sound in general can be vacuous in
+> the specific case, and it still reads as rigour.** The cost of deferring would
+> have been 17 hours characterising a connect path we already knew was broken.
+
 #### The ack cap is one end of a window, not a safety margin
 
 The `writeValue` ack timeout defaults to **1500ms**, and it is not tunable for
