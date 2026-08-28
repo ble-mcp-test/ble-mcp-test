@@ -303,19 +303,27 @@ def test_write_ack_omits_error_when_the_write_succeeded():
 
 
 def test_write_ack_never_uses_the_field_name_id():
-    """src/node/NodeBleClient.ts dispatches on `msg.id` BEFORE it looks at `msg.type`,
-    and deletes the handler it dispatches to. An ack carrying `id` that collided with a
-    pending request id would resolve the wrong request AND drop the real response -- a
-    hang that mentions nothing about writes. Naming the field `write_id` makes that
-    unrepresentable rather than merely unlikely. The hazard is read back out of the
-    client so this goes red if either side moves.
+    """The field is `write_id`, never `id`.
+
+    ORIGINALLY this test read the hazard back out of `src/node/NodeBleClient.ts`, which
+    dispatched on `msg.id` BEFORE it looked at `msg.type` and deleted the handler it
+    dispatched to: an ack carrying `id` that collided with a pending request id would
+    resolve the wrong request AND drop the real response -- a hang that mentions nothing
+    about writes. That client was deleted by TRA-1187 item 4 (0.9.0), so the specific
+    hazard is gone and the read-back is no longer possible.
+
+    The old failure message said the constraint could then be revisited "deliberately,
+    not by deleting this check." REVISITED 2026-08-28, and the answer is KEEP:
+
+    - `write_id` is on the wire and implemented in the bridge. Renaming it would be a
+      protocol break that buys nothing.
+    - A correlation token distinct from a transport-level message id is the right shape
+      independent of which client reads it. The Node client's dispatch order made the
+      collision catastrophic; it was never what made a shared name wrong.
+
+    So this is now a plain invariant on the encoder rather than a two-sided guard. It
+    still goes red if the bridge starts emitting `id`.
     """
-    root = pathlib.Path(__file__).resolve().parents[2]
-    client = (root / "src" / "node" / "NodeBleClient.ts").read_text()
-    assert "msg.id && this.messageHandlers.has(msg.id)" in client, (
-        "NodeBleClient no longer pre-dispatches on msg.id. If that hazard is gone the "
-        "constraint can be revisited -- deliberately, not by deleting this check."
-    )
     for frame in (
         p.encode_write_ack(True, mode="with-response"),
         p.encode_write_ack(False, mode="without-response", write_id="w-1", error="boom"),

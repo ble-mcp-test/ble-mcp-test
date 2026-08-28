@@ -263,99 +263,65 @@ test('BLE device communication', async ({ page }) => {
 });
 ```
 
-## Node.js Usage (v0.5.11+)
+## Node.js Usage
 
-Use ble-mcp-test directly in Node.js applications for integration testing:
+The same mock, imported rather than injected. There is no separate Node client —
+`.` and `./browser` are two packagings of one implementation, and the axis
+between them is import-vs-inject, not browser-vs-node.
 
 **Requirements:**
-- Node.js 14+ for the client (uses only `ws` and built-in `events`)
+- Node.js 24+ (this package's floor; the transport uses the global `WebSocket`)
 - A running bridge (Python, in `bridge/`) and a reachable device
 
 ```javascript
-import { NodeBleClient } from 'ble-mcp-test/node';
+import { MockBluetooth } from 'ble-mcp-test';
 
-// Create client instance
-const client = new NodeBleClient({
-  sessionId: `myapp-node-${os.hostname()}`,  // Required: prevents session conflicts
-  bridgeUrl: 'ws://localhost:25153',          // Required: bridge server URL
-  service: '9800',                           // Required: service UUID for discovery
-  write: '9900',                             // Required: write characteristic UUID
-  notify: '9901',                            // Required: notify characteristic UUID
-  deviceName: 'CS108',                       // Optional: device name filter
-  debug: true                                // Optional: enable debug logging
+const SERVICE = '00009800-0000-1000-8000-00805f9b34fb';
+const WRITE   = '00009900-0000-1000-8000-00805f9b34fb';
+const NOTIFY  = '00009901-0000-1000-8000-00805f9b34fb';
+
+const bluetooth = new MockBluetooth('ws://localhost:25153', {
+  service: SERVICE,
+  write: WRITE,
+  notify: NOTIFY,
+  sessionId: `myapp-node-${os.hostname()}`
 });
 
-// Single connect() call establishes full BLE connection
-await client.connect();
+const device = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
+const server = await device.gatt.connect();
+const svc    = await server.getPrimaryService(SERVICE);
+const write  = await svc.getCharacteristic(WRITE);
+const notify = await svc.getCharacteristic(NOTIFY);
 
-// Option 1: Simple request/response pattern (recommended)
-const command = new Uint8Array([0xA7, 0xB3, 0xC2, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x00]);
-const response = await client.sendCommandAsync(command);
-console.log('Device response:', Array.from(response).map(b => b.toString(16).padStart(2, '0')).join(' '));
-
-// Option 2: Persistent notification handler for ongoing device events
-client.onNotification((data) => {
-  console.log('Device notification:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+notify.addEventListener('characteristicvaluechanged', (event) => {
+  const view = event.target.value;   // a real DataView
+  console.log('notification:', Array.from(new Uint8Array(view.buffer)));
 });
-await client.writeValue(command);
+await notify.startNotifications();
 
-// Cleanup
-await client.disconnect();
+await write.writeValue(new Uint8Array([0xA7, 0xB3, 0xC2, 0x00, 0x00, 0x11, 0x01, 0x00, 0x00, 0x00]));
+
+device.gatt.disconnect();
 ```
 
-### Node.js vs Browser API Differences
+UUIDs must be in canonical form. Since 0.8.0 the mock canonicalises the way real
+Chromium does, and rejects spellings Chrome rejects — `'9800'` throws.
 
-| Feature | Browser Mock | Node.js Transport |
-|---------|-------------|-------------------|
-| Import | `import 'ble-mcp-test'` | `import { NodeBleClient } from 'ble-mcp-test/node'` |
-| Initialization | `injectWebBluetoothMock()` | `new NodeBleClient()` |
-| Global API | Replaces `navigator.bluetooth` | Standalone client instance |
-| Events | DOM EventTarget | Node.js EventEmitter |
-| Module Format | UMD bundle | ESM export |
-| Node.js Version | N/A (runs in browser) | 14+ (client only) |
-| Browser Support | Any browser (replaces Web Bluetooth) | N/A (Node.js only) |
+### Import vs inject
 
-### Integration Testing Example
+| | `ble-mcp-test` | `ble-mcp-test/browser` |
+|---|---|---|
+| Import | `import { MockBluetooth } from 'ble-mcp-test'` | IIFE; assigns `window.WebBleMock` |
+| For | vitest, plain Node, bundlers | Playwright `addInitScript`, vite `transformIndexHtml` |
+| Why | anything that can `import` | anything that cannot |
 
-```javascript
-// test/integration/ble-device.test.js
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { NodeBleClient } from 'ble-mcp-test/node';
+Both give you the same classes and the same behaviour. `injectWebBluetoothMock()`
+is exported from both and works under jsdom as well as in a page.
 
-describe('BLE Device Integration', () => {
-  let client;
-
-  beforeAll(async () => {
-    client = new NodeBleClient({
-      sessionId: `integration-test-${os.hostname()}`,
-      bridgeUrl: 'ws://localhost:25153',
-      service: '9800',
-      write: '9900',
-      notify: '9901'
-    });
-    await client.connect();
-  });
-
-  afterAll(async () => {
-    await client?.disconnect();
-  });
-
-  it('should read battery voltage', async () => {
-    // Send battery voltage command using simplified API
-    const cmd = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
-    const response = await client.sendCommandAsync(cmd);
-
-    // Verify response format
-    expect(response[8]).toBe(0xA0);  // Command echo
-    expect(response[9]).toBe(0x00);
-    
-    // Extract voltage (bytes 10-11, big-endian)
-    const voltage = (response[10] << 8) | response[11];
-    expect(voltage).toBeGreaterThan(3000); // > 3.0V
-    expect(voltage).toBeLessThan(4500);    // < 4.5V
-  });
-});
-```
+> **`ble-mcp-test/node` was removed in 0.9.0.** It shipped a second GATT chain
+> that nothing ever drove, plus a flat `connect()` / `writeValue()` /
+> `onNotification()` / `sendCommandAsync()` API with no Web Bluetooth
+> counterpart. See [docs/API.md](docs/API.md) for what each member becomes.
 
 ## Session Management (v0.5.2+)
 

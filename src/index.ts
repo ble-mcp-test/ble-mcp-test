@@ -26,16 +26,14 @@
  * re-exported BridgeServer, NobleTransport and the MCP server, all deleted --
  * not because a root entry was wrong.
  *
- * ## What this file is NOT
- *
- * It is not a third packaging alongside `./node`. `src/node/` is a separate,
- * hand-written GATT chain that nothing has ever driven: no `requestDevice`
- * exists on `NodeBleClient` in any published or unpublished version, nothing
- * constructs a `NodeBleDevice`, and `NodeBleClient` routes every inbound frame
- * to one flat handler, so `device.handleNotification` is never called. A
- * hand-built device there connects, resolves a service, resolves a
- * characteristic, returns from `startNotifications()` -- and then never fires an
- * event. Its fate is TRA-1187 item 4, sequenced after platform moves off it.
+ * There is no third packaging. `./node` was one until 0.9.0: a separate,
+ * hand-written GATT chain that nothing had ever driven -- no `requestDevice` on
+ * `NodeBleClient` in any version published or unpublished, nothing constructing
+ * a `NodeBleDevice`, every inbound frame routed to one flat handler so
+ * `device.handleNotification` was never called. A hand-built device there
+ * connected, resolved a service, resolved a characteristic, returned from
+ * `startNotifications()` -- and then never fired an event. It was deleted by
+ * TRA-1187 item 4 once `trakrf/platform` moved off its flat API.
  *
  * The contract every packaging must satisfy is
  * docs/design/2026-08-27-client-contract.md, and tests/conformance/ is what

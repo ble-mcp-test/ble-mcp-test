@@ -63,10 +63,13 @@ FIELD_DEVICE: Final = "device"
 FIELD_DATA: Final = "data"
 FIELD_ERROR: Final = "error"
 FIELD_WARNING: Final = "warning"
-#: Deliberately not `id`. src/node/NodeBleClient.ts:241 dispatches on `msg.id`
-#: BEFORE it looks at `msg.type` and deletes the handler it dispatches to, so an
-#: ack carrying `id` could resolve the wrong pending request and drop the real
-#: response. Pinned by test_write_ack_never_uses_the_field_name_id.
+#: Deliberately not `id`. The original reason was src/node/NodeBleClient.ts:241,
+#: which dispatched on `msg.id` BEFORE it looked at `msg.type` and deleted the
+#: handler it dispatched to, so an ack carrying `id` could resolve the wrong
+#: pending request and drop the real response. That client was deleted in 0.9.0
+#: (TRA-1187 item 4); the name stays because renaming a field already on the wire
+#: buys nothing, and a correlation token distinct from a transport message id is
+#: the right shape regardless. Pinned by test_write_ack_never_uses_the_field_name_id.
 FIELD_WRITE_ID: Final = "write_id"
 FIELD_OK: Final = "ok"
 FIELD_MODE: Final = "mode"

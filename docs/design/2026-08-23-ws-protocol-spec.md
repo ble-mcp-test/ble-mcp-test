@@ -20,6 +20,14 @@ the client→server `data` frame now carries. **Ten message types traverse the w
 amendment** — the "Corrected: 9" below is the count as it stood on 2026-08-23 and is left standing
 as the history it is.
 
+**Amended 2026-08-28 (TRA-1187 item 4).** `src/node/` is deleted, so **there is one client, not
+two.** Every `NodeBleClient` citation below described a real second consumer when it was written;
+none of them names live code any more. The §2 and §3a tables are corrected in place, because they
+are read as the current contract. The §§1-5 *provenance* and *Correction to the ADR* notes are left
+standing as the history they are — rewriting a dated finding to match today's tree destroys the
+record of what was actually observed. Where a rationale below turns on `NodeBleClient`'s behaviour,
+the rationale is kept and marked, because the decision it produced still stands.
+
 Two of the three were absent because nothing had gone wrong in them yet. **Release timing was
 absent, and four e2e specs encoded a contradictory assumption for months with nothing to contradict
 them** — the document specified who may claim the path but never when it comes free, so a test
@@ -108,8 +116,8 @@ rather than inherited.
 
 | Type | Sent at | Server handler | Shape |
 |---|---|---|---|
-| `data` | `ws-transport.ts:135`, `NodeBleClient.ts:50,376` | `ws-handler.ts:46` — write to device | `{type, data: number[], write_id?}` — `write_id` added by TRA-1153 item 5b, see §8 |
-| `force_cleanup` | `ws-transport.ts:196`, `NodeBleClient.ts:322` | `ws-handler.ts:52` | `{type, token?: string}` |
+| `data` | `ws-transport.ts:135` | `ws-handler.ts:46` — write to device | `{type, data: number[], write_id?}` — `write_id` added by TRA-1153 item 5b, see §8 |
+| `force_cleanup` | `ws-transport.ts:196` | `ws-handler.ts:52` | `{type, token?: string}` |
 
 **Note on `warning`:** the client's handling is explicitly *"Continue waiting for completion"*
 (`ws-transport.ts:176-178`). It is an interstitial notice inside a cleanup handshake, not a terminal
@@ -131,7 +139,7 @@ Handlers exist for messages nothing ever sends. Dead weight; the port should omi
 | `cleanup_session` | `ws-handler.ts:56` | none in `src/` |
 | `admin_cleanup` | `ws-handler.ts:60` | none in `src/` |
 | `cleanup_complete` | `ws-transport.ts:180` | **none in `src/`** |
-| `ack` | `NodeBleClient.ts:314` | none in `src/` |
+| `ack` | **none in `src/`** — was `NodeBleClient.ts:314` until TRA-1187 item 4 | none in `src/` |
 
 `cleanup_complete` deserves attention: the client waits on
 `msg.type === 'cleanup_complete' || msg.type === 'force_cleanup_complete'`. Only the second is ever
@@ -474,8 +482,14 @@ by the time the ack is composed.
 
 ### The correlation token is `write_id`, and it is deliberately not `id`
 
-`src/node/NodeBleClient.ts:241` dispatches on `msg.id` **before** it looks at `msg.type`, and
-*deletes* the handler it dispatches to:
+**The reason is historical as of 2026-08-28; the decision stands.** `src/node/` was deleted by
+TRA-1187 item 4, so the collision described here can no longer occur — but `write_id` is on the wire
+and in the Python bridge, renaming it would be a protocol break for nothing, and a correlation token
+distinct from a transport-level message id is the right shape regardless of which client is reading
+it. Kept because a reader who finds `write_id` and wonders why it is not `id` deserves the answer.
+
+`src/node/NodeBleClient.ts:241` dispatched on `msg.id` **before** it looked at `msg.type`, and
+*deleted* the handler it dispatched to:
 
 ```ts
 if (msg.id && this.messageHandlers.has(msg.id)) { … handler(msg); return; }
@@ -528,14 +542,20 @@ own blast radius and is deliberately not part of this amendment.
 
 ### The emitter ships ahead of any consumer, on purpose
 
-As of this amendment **nothing consumes `write_ack`.** Which of the three `writeValue`
-implementations consumes it — `mock-bluetooth.ts:137`, `node/NodeBleCharacteristic.ts:57`,
-`node/NodeBleClient.ts:44` — and whether `writeValue()` gains the ability to reject, is TRA-1187
-items 3 and 4. **`writeValue()` cannot reject on any client until that lands.**
+As of this amendment **nothing consumes `write_ack`.**
 
-Shipping the emitter alone is safe rather than assumed-safe: all three client message handlers
-(`ws-transport.ts:78`, `mock-bluetooth.ts:530`, `NodeBleClient.ts:249`) are `if`/`else if` chains
-with no throwing default, so an unrecognised `write_ack` is ignored.
+**Simplified 2026-08-28 by TRA-1187 item 4.** The question used to be *which of three `writeValue`
+implementations* consumes it — `mock-bluetooth.ts:137`, `node/NodeBleCharacteristic.ts:57`,
+`node/NodeBleClient.ts:44`. Two of those were in `src/node/` and are deleted, so **there is one
+`writeValue` left**, `mock-bluetooth.ts:137`, and the per-client decision that produced the
+asymmetry TRA-1187 was filed over no longer exists. What remains is a single contract question —
+what `writeValue()` guarantees once it consumes an ack, and whether it gains the ability to reject —
+and that is TRA-1153 item 5b-client, now unblocked. **`writeValue()` cannot reject until that
+lands.**
+
+Shipping the emitter alone is safe rather than assumed-safe: both surviving client message handlers
+(`ws-transport.ts:78`, `mock-bluetooth.ts:530`) are `if`/`else if` chains with no throwing default,
+so an unrecognised `write_ack` is ignored.
 
 This is the one shape §3b of the spec calls dangerous — an emitter with no consumer is a silent
 failure path, not merely unused code — so it is held open deliberately and visibly rather than by

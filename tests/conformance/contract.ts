@@ -873,6 +873,47 @@ const UUIDS: ConformanceCheck[] = [
         "getCharacteristic('heart_rate')"
       );
     }
+  },
+  {
+    id: 'divergence/write-value-with-and-without-response-are-absent',
+    clause:
+      'writeValue() is the ONLY write method; writeValueWithResponse and ' +
+      'writeValueWithoutResponse are deliberately absent, pending TRA-1153 item 5b',
+    category: 'divergence',
+    needs: [],
+    realApiInstead:
+      'Chrome has all three. writeValueWithResponse issues an ATT Write Request and ' +
+      'resolves on the peer Write Response; writeValueWithoutResponse issues an ATT ' +
+      'Write Command and resolves once queued. The mock has no ack to resolve on until ' +
+      'TRA-1153 item 5b lands write_ack on the client side, so shipping them now means ' +
+      'shipping two aliases of writeValue() -- which is what src/node/ did, stubbed and ' +
+      'commented "in a real implementation, this would wait for acknowledgment". ' +
+      'A method that claims to wait and does not is worse than an absent one: the ' +
+      'absence is a TypeError at the call site, the alias is a guarantee that silently ' +
+      'never held. THIS CHECK IS THE DEFERRAL, not the decision -- when 5b-client lands, ' +
+      'delete it and add fidelity checks for all three methods.',
+    async run(session) {
+      // Absence asserted, not assumed. Platform's cs108-ble-transport.ts declares
+      // both methods on its own hand-written interface and calls neither; that
+      // declaration typechecks against a wish rather than against this object,
+      // which is the defect this whole suite exists to end. If someone adds these
+      // to the mock without deciding what they guarantee, this goes red.
+      assertEqual(
+        typeof session.writeCharacteristic.writeValue,
+        'function',
+        'writeValue is the one write method the mock has'
+      );
+      assertEqual(
+        typeof session.writeCharacteristic.writeValueWithResponse,
+        'undefined',
+        'writeValueWithResponse is absent until write_ack gives it something to resolve on'
+      );
+      assertEqual(
+        typeof session.writeCharacteristic.writeValueWithoutResponse,
+        'undefined',
+        'writeValueWithoutResponse is absent; it ships with its pair, not before it'
+      );
+    }
   }
 ];
 

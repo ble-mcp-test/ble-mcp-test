@@ -1,7 +1,7 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.8.0",
-  "description": "Web Bluetooth API mock and a Node test-harness client for driving real BLE hardware from headless tests.",
+  "version": "0.9.0",
+  "description": "Web Bluetooth API mock for driving real BLE hardware from headless tests.",
   "keywords": [
     "ble",
     "bluetooth",
@@ -42,11 +42,7 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./browser": "./dist/web-ble-mock.bundle.js",
-    "./node": {
-      "types": "./dist/node/index.d.ts",
-      "import": "./dist/node/index.js"
-    }
+    "./browser": "./dist/web-ble-mock.bundle.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -62,13 +58,12 @@
     "version:sync": "node scripts/generate-version.js",
     "dev": "tsc --watch",
     "pretest": "node scripts/pre-test-cleanup.js",
-    "test": "pnpm run pretest && vitest run tests/unit tests/integration",
+    "test": "pnpm run pretest && vitest run tests/unit tests/conformance",
     "test:run": "pnpm run pretest && vitest run",
     "test:watch": "vitest",
     "test:e2e": "pnpm run pretest && pnpm exec playwright test",
     "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test",
     "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
-    "test:integration": "CHECK_BLE_DEVICE=true pnpm run pretest && vitest run tests/integration",
     "test:unit": "pnpm run pretest && vitest run tests/unit",
     "test:conformance": "vitest run tests/conformance",
     "test:conformance:real": "pnpm exec playwright test -c playwright.conformance.config.ts",
@@ -78,9 +73,6 @@
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test"
-  },
-  "dependencies": {
-    "ws": "^8.16.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",
@@ -99,6 +91,7 @@
     "playwright": "^1.54.1",
     "supertest": "^6.3.4",
     "typescript": "^5.3.3",
-    "vitest": "^1.2.0"
+    "vitest": "^1.2.0",
+    "ws": "^8.16.0"
   }
 }

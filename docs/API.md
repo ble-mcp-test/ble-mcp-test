@@ -174,174 +174,60 @@ This is useful for:
 - Simulating specific device states or error conditions
 - Testing while the real device is performing other operations
 
-## Node.js API
+## Using the mock from Node
 
-### NodeBleClient
-
-A clean, Node.js BLE client that communicates with real BLE devices through the bridge server. 
-
-#### Constructor
+There is no separate Node client. The `.` entry point is the same
+implementation the browser gets, importable from vitest, plain Node or a
+bundler:
 
 ```typescript
-import { NodeBleClient } from 'ble-mcp-test/node';
+import { MockBluetooth } from 'ble-mcp-test';
 
-const client = new NodeBleClient(options: NodeBleClientOptions);
-```
-
-#### Options Interface
-
-```typescript
-interface NodeBleClientOptions {
-  sessionId: string;              // REQUIRED - unique session identifier
-  bridgeUrl: string;              // REQUIRED - WebSocket bridge URL
-  service: string;                // REQUIRED - Service UUID for discovery
-  write: string;                  // REQUIRED - Write characteristic UUID
-  notify: string;                 // REQUIRED - Notify characteristic UUID
-  deviceId?: string;              // OPTIONAL - Exact device ID for filtering
-  deviceName?: string;            // OPTIONAL - Partial device name for filtering
-  debug?: boolean;                // OPTIONAL - Enable debug logging
-  timeout?: number;               // OPTIONAL - Connection timeout
-  reconnectAttempts?: number;     // OPTIONAL - Number of reconnection attempts (default: 3)
-  reconnectDelay?: number;        // OPTIONAL - Initial reconnection delay in ms (default: 1000)
-}
-```
-
-#### Basic Usage
-
-```javascript
-import { NodeBleClient } from 'ble-mcp-test/node';
-import os from 'os';
-
-// Create client with required parameters
-const client = new NodeBleClient({
-  sessionId: `my-app-${os.hostname()}`,         // REQUIRED - prevents session conflicts
-  bridgeUrl: 'ws://localhost:25153',             // REQUIRED - bridge server URL
-  service: '9800',                              // REQUIRED - primary service UUID
-  write: '9900',                                // REQUIRED - write characteristic
-  notify: '9901',                               // REQUIRED - notify characteristic
-  debug: true
+const bluetooth = new MockBluetooth('ws://localhost:25153', {
+  service: '00009800-0000-1000-8000-00805f9b34fb',
+  write:   '00009900-0000-1000-8000-00805f9b34fb',
+  notify:  '00009901-0000-1000-8000-00805f9b34fb',
+  sessionId: 'my-session'
 });
 
-// Connect to bridge and BLE device in one call
-await client.connect();
+const device = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
+const server = await device.gatt.connect();
+const svc    = await server.getPrimaryService(SERVICE);
+const notify = await svc.getCharacteristic(NOTIFY);
 
-// Option 1: Simple request/response pattern (recommended)
-const command = new Uint8Array([0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x00]);
-const response = await client.sendCommandAsync(command);
-console.log('Response:', Array.from(response).map(b => b.toString(16).padStart(2, '0')).join(' '));
-
-// Option 2: Manual notification handling for ongoing device events
-client.onNotification((data) => {
-  console.log('Device notification:', Array.from(data).map(b => b.toString(16).padStart(2, '0')).join(' '));
+notify.addEventListener('characteristicvaluechanged', (event) => {
+  const value = (event.target as BluetoothRemoteGATTCharacteristic).value;
+  // value is a real DataView
 });
-await client.writeValue(command);
-
-// Cleanup
-await client.disconnect();
+await notify.startNotifications();
 ```
 
-#### Device Filtering (Optional)
+`injectWebBluetoothMock()` also works under jsdom, if you would rather drive
+`navigator.bluetooth` than hold the object yourself.
 
-For environments with multiple BLE devices:
-
-```javascript
-// Filter by exact device ID
-const client = new NodeBleClient({
-  sessionId: 'device-farm-session',
-  bridgeUrl: 'ws://device-farm:25153',
-  service: '9800',
-  write: '9900',
-  notify: '9901',
-  deviceId: '6c79b8xxxxxx'  // Connect to specific device
-});
-
-// Filter by device name (partial match)
-const client = new NodeBleClient({
-  sessionId: 'lab-session',
-  bridgeUrl: 'ws://localhost:25153',
-  service: '9800',
-  write: '9900',
-  notify: '9901',
-  deviceName: 'Test Device'  // Matches any device containing "Test Device"
-});
-```
-
-#### Methods
-
-**`async connect(): Promise<void>`**
-- Establishes WebSocket connection to bridge and connects to BLE device
-- Single call replaces multi-step Web Bluetooth ceremony
-- Throws error if connection fails or times out
-
-**`async writeValue(data: Uint8Array): Promise<void>`**
-- Sends data directly to the BLE device's write characteristic
-- Throws error if not connected or write fails
-- No need to get characteristic objects
-
-**`onNotification(handler: (data: Uint8Array) => void): void`**
-- Sets up notification handler for incoming BLE data
-- Handler receives raw Uint8Array data from device
-- Replaces characteristic.addEventListener pattern
-
-**`async sendCommandAsync(command: Uint8Array, timeoutMs?: number): Promise<Uint8Array>`**
-- **NEW**: Combined send-command-and-wait-for-response method
-- Sends command to device and awaits single response notification
-- Returns device response as Uint8Array
-- Default timeout: 5000ms (configurable)
-- Ideal for request/response patterns (recommended approach)
-- Temporarily overrides notification handler during command execution
-
-**`async disconnect(): Promise<void>`**
-- Cleanly disconnects from BLE device and closes WebSocket
-- Safe to call multiple times
-
-**`async destroy(): Promise<void>`**
-- Performs disconnect and removes all event listeners
-- Call when permanently done with client
-
-**`isConnected(): boolean`**
-- Returns true if both WebSocket and BLE connections are active
-
-**`getSessionId(): string`**
-- Returns the session ID used for this client
-
-**`getAvailability(): Promise<boolean>`**
-- Always returns true (bridge makes BLE available)
-
-#### Error Handling
-
-The client throws descriptive errors for common issues:
-
-```javascript
-try {
-  const client = new NodeBleClient({
-    // Missing sessionId
-    bridgeUrl: 'ws://localhost:25153',
-    service: '9800',
-    write: '9900',
-    notify: '9901'
-  });
-} catch (error) {
-  // Error: sessionId is required - this prevents session conflicts and ensures predictable BLE connection management
-}
-
-try {
-  await client.writeValue(data);
-} catch (error) {
-  if (error.message.includes('Client not connected')) {
-    console.log('Need to call connect() first');
-  } else if (error.message.includes('Connection timeout')) {
-    console.log('Bridge server may not be running');
-  }
-}
-```
-
-#### API Features
-
-- **Service-UUID Discovery**: Fast, reliable device connection using service UUIDs
-- **Single Connect**: One call establishes complete WebSocket + BLE connection  
-- **Session Management**: Required `sessionId` prevents connection conflicts
-- **Optional Filtering**: Filter by exact `deviceId` or partial `deviceName` when needed
+> **`ble-mcp-test/node` was removed in 0.9.0.** It shipped a second,
+> hand-written GATT chain — `NodeBleClient`, `NodeBleDevice`, `NodeBleGATT`,
+> `NodeBleService`, `NodeBleCharacteristic` — plus a flat `connect()` /
+> `writeValue()` / `onNotification()` / `sendCommandAsync()` API with no Web
+> Bluetooth counterpart. Nothing ever drove its GATT half: no `requestDevice`
+> existed on `NodeBleClient` in any released version, nothing constructed a
+> `NodeBleDevice`, and every inbound frame went to one flat handler, so a
+> hand-built device resolved a service, resolved a characteristic, returned from
+> `startNotifications()` and then never fired an event.
+>
+> **Migrating.** Use the `.` entry point above. `connect()` becomes
+> `requestDevice` → `gatt.connect` → `getPrimaryService` → `getCharacteristic`;
+> `onNotification()` becomes `startNotifications()` plus a
+> `characteristicvaluechanged` listener; `writeValue()` becomes the
+> characteristic's `writeValue()`.
+>
+> `sendCommandAsync()` has no replacement here, deliberately. It correlated a
+> write with the next inbound frame, and correlation is not a Web Bluetooth
+> concept — real GATT gives you a write and a notification stream with nothing
+> joining them. Any correlation is the device protocol's business, so it belongs
+> in the consumer's own test tooling rather than in a contract every future
+> packaging would have to reimplement. See
+> [the client contract](design/2026-08-27-client-contract.md).
 
 ## WebSocket Protocol
 

@@ -110,14 +110,14 @@ describe('my feature', () => {
 });
 ```
 
-### Integration Tests (BLE Required)
+### Hardware Tests (BLE Required)
 ```bash
 # Set up test environment
 export WS_URL=ws://localhost:25153
 export BLE_DEVICE_PREFIX=CS108  # Or your device
 
-# Run integration tests
-pnpm test tests/integration
+# Playwright, against a live device through a running bridge
+pnpm test:e2e
 ```
 
 ## Submitting Your Work

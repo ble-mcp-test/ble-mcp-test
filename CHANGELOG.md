@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0]
+
+### Removed
+
+- **BREAKING (public API): `ble-mcp-test/node` is gone.** The `./node` subpath
+  export, `src/node/` and its five classes — `NodeBleClient`, `NodeBleDevice`,
+  `NodeBleGATT`, `NodeBleService`, `NodeBleCharacteristic` — are deleted. The
+  published surface is now exactly two entry points over **one** implementation:
+  - `ble-mcp-test` (`.`) — the Web Bluetooth mock, importable
+  - `ble-mcp-test/browser` — the same mock as an IIFE, for injection
+
+  The axis between them is import-vs-inject, not browser-vs-node. `.` is what a
+  Node consumer wants; it runs under plain Node and under jsdom.
+
+  **Why.** `./node` was never a second packaging of the contract, it was a second
+  *implementation* — and its Web Bluetooth half was unwired rather than merely
+  unexercised. No `requestDevice` existed on `NodeBleClient` in any released
+  version, nothing constructed a `NodeBleDevice`, and every inbound frame went to
+  one flat handler, so `device.handleNotification` was never called. A hand-built
+  device there connected, resolved a service, resolved a characteristic, returned
+  from `startNotifications()` — and then never fired an event. Everything
+  resolved; nothing arrived.
+
+  **Migrating.** `connect()` becomes `requestDevice` → `gatt.connect` →
+  `getPrimaryService` → `getCharacteristic`. `onNotification()` becomes
+  `startNotifications()` plus a `characteristicvaluechanged` listener.
+  Client-level `writeValue()` becomes the characteristic's `writeValue()`. See
+  [docs/API.md](docs/API.md).
+
+  **`sendCommandAsync()` has no replacement, deliberately.** It correlated a
+  write with the next inbound frame. Correlation is not a Web Bluetooth concept —
+  real GATT gives you a write and a notification stream with nothing joining them
+  — so it belongs in the consumer's device-protocol tooling rather than in a
+  contract every future packaging would have to reimplement.
+
+- **`ws` is no longer a runtime dependency.** `NodeBleClient` was its only
+  runtime importer. It remains a devDependency for the conformance suite's stub
+  bridge and the soak script. **This package now ships with no runtime
+  dependencies at all.**
+
+- The `test:integration` script and `tests/integration/`, which contained only
+  the Node client's tests. `pnpm test` now runs unit + conformance.
+
+### Changed
+
+- The client contract records the `writeValueWithResponse` /
+  `writeValueWithoutResponse` gap as an explicit **deferral** with a trigger,
+  rather than leaving it silent, and arm A of the conformance suite now asserts
+  their absence. They ship when TRA-1153 item 5b gives them an acknowledgement to
+  resolve on; until then, shipping them would mean shipping two aliases of
+  `writeValue()` that claim to wait and do not.
+
 ## [0.8.0]
 
 ### Removed

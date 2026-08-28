@@ -50,7 +50,7 @@ all_passed=true
 test_command "pnpm test $TEST_FILE" "Main test command (pnpm test)" || all_passed=false
 test_command "pnpm test:run $TEST_FILE" "Test run command (pnpm test:run)" || all_passed=false
 test_command "pnpm test:unit" "Unit tests" || all_passed=false
-test_command "pnpm test:integration" "Integration tests" || all_passed=false
+test_command "pnpm test:conformance" "Conformance tests" || all_passed=false
 
 # Clean up
 rm -f "$TEST_FILE"

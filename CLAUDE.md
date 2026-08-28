@@ -16,7 +16,7 @@ Device-agnostic by design: any GATT device works, configured by UUID env vars. C
 
 One bridge: **Python**, in `bridge/`. There is no local-radio path.
 
-This repo publishes **two clients** and no server: the browser mock (`ble-mcp-test/browser`) and the Node test-harness client (`src/node/`, `ble-mcp-test/node`). Both are supported; `trakrf/platform` consumes both.
+This repo publishes **one client** and no server: the Web Bluetooth mock, in two entry points — `.` for anything that can `import`, `./browser` for what cannot. `ble-mcp-test/node` was deleted in 0.9.0; there is no second implementation.
 
 The bridge holds **one writer slot** — not a pool, and not keyed on session. A second connection is refused `Device is busy` even carrying the same session id. Release completes when the server processes the socket close, so **await disconnect** or the next connect races it.
 
