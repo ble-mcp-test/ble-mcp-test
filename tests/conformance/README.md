@@ -68,9 +68,14 @@ with nothing to contradict them.
 just conformance-real
 ```
 
-**⚠ This arm has never been run.** It was written under TRA-1187 and no result has
-been recorded. Arm A's green does not cover it — blocking exactly that inference
-is what the banner is for.
+**⚠ This arm has never been run.** It was written under TRA-1187 and no result
+has been recorded. Arm A's green does not cover it — blocking exactly that
+inference is what the banner is for.
+
+Being unrun is not the same as being unfinished. Requirement 4 below is why: this
+arm is interactive by construction, so "has anyone sat down at the box with the
+adapter and clicked through the chooser" is the only thing standing between here
+and a result.
 
 It needs, and none of these is optional:
 
@@ -93,13 +98,41 @@ It needs, and none of these is optional:
    `[Errno 97] Address family not supported by protocol` means no, whatever
    `/sys` says.
 3. a powered peripheral in range advertising the configured service
-4. an answer to the chooser problem. `requestDevice()` needs a user gesture and
-   shows a device picker; Playwright has no handler for the Web Bluetooth chooser
-   and Chromium has no `--use-fake-ui`-style bypass for it. That is unfinished
-   work, not a setting someone forgot. Chromium's CDP `Bluetooth.*` emulation is
-   **not** the answer — it presents a fake adapter, which would have arm B
+4. **a human at the keyboard.** `requestDevice()` requires transient activation
+   and a user-driven chooser. The spec mandates both — *"Check that the algorithm
+   is triggered while its relevant global object has a transient activation,
+   otherwise throw a `SecurityError`"* and *"prompt the user to choose one of the
+   devices in scanResult"* — and gives the reason: *"Pairing individual devices
+   instead of device classes requires at least a user action before a device can
+   be exploited."*
+   ([spec](https://webbluetoothcg.github.io/web-bluetooth/#requestDevice-user-gesture))
+
+   **That requirement is why this project exists**, so it is not a gap in arm B —
+   it is arm B's permanent shape. A headless CI box cannot produce the gesture or
+   answer the chooser, and routing around that is the whole point of the bridge
+   and the mock. Arm B is therefore a **manual check, run by a human on a box with
+   a real adapter**, not automation nobody has written yet.
+
+   Two roads out of this were already walked and closed. A patched Chromium build
+   was evaluated and lost to the bridge once the debug tooling was weighed. CDP
+   `BluetoothEmulation` presents a **fake adapter**, which would have arm B
    asserting the mock against another double and destroy the only reason this arm
-   exists.
+   exists. Neither is a live option; do not re-propose them.
+5. **a secure context and the feature flag**, both probed on Chromium 139 and
+   both silent when missing:
+   - `navigator.bluetooth` **does not exist** in Playwright's Chromium without
+     `--enable-features=WebBluetooth` — in the headless shell *or* the full
+     channel. It is set in `playwright.conformance.config.ts`.
+   - `about:blank` is **not a secure context** (its origin is `null`), so the API
+     is absent there whatever the flags say. Arm B serves its page from
+     `localhost`. It used to navigate to `about:blank`, which would have made the
+     first hardware run die on `Cannot read properties of undefined (reading
+     'requestDevice')` — an error that reads as a broken adapter.
+6. **the three `BLE_MCP_*_UUID` variables, in canonical form.** There is no
+   fallback: this repo is device-agnostic, and the old `?? '9800'` default aimed
+   a hardware run at one vendor's reader. Worse, real Chromium rejects that
+   spelling outright, so arm B would have died at the first call on every
+   machine, before the chooser, looking like a hardware fault.
 
 Arm B declares `injectNotification: false` and `dropLink: false`, because a real
 peripheral sends what it sends when it sends it. The checks that need those
@@ -132,6 +165,16 @@ has any evidence about. Two breaks demonstrated on this branch:
 | remove the identity cache from `getCharacteristic` | `chain/characteristic-identity` | `getCharacteristic returned a different instance` |
 | same break | `notify/second-lookup-does-not-evict-the-first-reference` | `notifications reaching the original reference: expected 1, got 0` |
 | flip `connected` after the await in `disconnect()` | `chain/disconnect-is-synchronous` | `connected immediately after calling disconnect(): expected false, got true` |
+| key `getCharacteristic` on the raw argument instead of the canonical UUID | `uuid/rejects-bare-16-bit-string` | `getCharacteristic('1234'): resolved, but should have rejected` |
+| same break | `uuid/rejects-uppercase-128-bit` | `getCharacteristic() with uppercase hex: resolved, but should have rejected` |
+| same break | `uuid/alias-and-expansion-are-one-characteristic` | `getCharacteristic(alias) and getCharacteristic(canonical string) returned different instances: 48879 vs 0000beef-0000-1000-8000-00805f9b34fb` |
+
+That last row is worth reading twice: `48879` is `0xbeef` used verbatim as a map
+key. The message only says that because breaking the mock showed the first
+version of the check reporting `Converting circular structure to JSON` instead —
+`assertEqual` stringifies, and a characteristic holds a parent back-reference. A
+check whose failure message is unreadable is only half a control, and there is no
+way to discover that without watching it fail.
 
 The second row is the interesting one. It is the *silent* half of the eviction
 bug — identity and delivery are two different questions, and the delivery failure

@@ -140,6 +140,47 @@ listeners while silently receiving nothing — no error, anywhere. Identity and
 delivery are two separate questions, and the delivery half is the one that reaches
 a consumer as silence.
 
+### UUIDs
+
+**A UUID argument is canonicalised before it is used as an identity, and a
+spelling the real API rejects is rejected here too.**
+
+| form | accepted | resolves to |
+|---|---|---|
+| `0x9800` (number, 16- or 32-bit alias) | yes | `00009800-0000-1000-8000-00805f9b34fb` |
+| `'00009800-0000-1000-8000-00805f9b34fb'` | yes | itself |
+| `'9800'` | **no** — `TypeError` | — |
+| `'00009800-…-00805F9B34FB'` (uppercase) | **no** — `TypeError` | — |
+
+This is not read off the spec; it was probed against Chromium 139. A rejected
+form throws `TypeError` at argument validation, while an accepted one reaches
+`NotFoundError: Bluetooth adapter not available` — so acceptance is observable on
+a machine with no adapter, which is how the table above was built.
+
+Validation applies to `filters[].services`, `optionalServices`,
+`getPrimaryService` and `getCharacteristic`. `optionalServices` is easy to miss
+because the mock ignores it when resolving a device: an invalid entry there is
+inert here and fatal in Chrome, which is precisely the asymmetry this document
+exists to remove.
+
+**Why this is an identity clause and not input hygiene.** The two accepted forms
+name *one* service in Chrome and used to name *two* here, because the mock keyed
+its caches on the raw argument. So every identity guarantee in the table above —
+same instance per UUID, one registry entry to evict — held only for a consumer
+that spelled a UUID the same way twice. Spelling it two ways silently produced
+two characteristics, the second evicting the first from the device's fan-out
+registry, and the first then received nothing. That is the delivery failure this
+contract already calls the expensive one, reachable through a second spelling.
+
+**The configuration object is a different surface, and stays permissive.** The
+`{ service, write, notify }` passed to `injectWebBluetoothMock` is *not* Web
+Bluetooth — it is this package's own config, forwarded to the bridge as
+WebSocket query parameters, and the bridge normalises it in exactly one place
+(`normalise_uuid` in `bridge/src/ble_bridge/esphome.py`). The mock imitates
+Chrome on Chrome's surface; the bridge imitates nothing and keeps its own
+tolerance. Test configuration nevertheless uses the canonical form, because the
+same values are fed to `requestDevice`.
+
 ### Notifications
 
 | member | guarantee |
@@ -196,7 +237,7 @@ than as a broken guarantee. `tests/conformance` now asserts it.
 
 ## Deliberate divergences
 
-The mock is **stricter** than the real API in three places. Each is a decision,
+The mock is **stricter** than the real API in four places. Each is a decision,
 recorded here so it stays one rather than becoming folklore, and each is asserted
 in arm A of the conformance suite with the real API's behaviour written beside it.
 
@@ -204,6 +245,7 @@ in arm A of the conformance suite with the real API's behaviour written beside i
 |---|---|---|
 | `stopNotifications()` on a characteristic that never started **rejects**, naming the situation | Chrome resolves; the spec does not require a prior `startNotifications()` | a consumer wraps this call in an empty catch. That catch is dead while the method is a no-op; making it a real gate makes it reachable, and "already stopped" versus "transport gone" is a different debugging session for whoever unwraps it. |
 | `addEventListener` **throws** on an option it does not implement — `capture`, `passive`, anything else | the DOM accepts them silently, because it implements them | a dropped option produces correct-*looking* behaviour that is wrong only later and elsewhere. This mock's own `testCommand` passed `{ once: true }` for months to a method that took no options argument at all, and so relied on a guarantee it never got. A throw is a control that can go red. |
+| a standard GATT **name** (`'heart_rate'`) is **rejected** | Chrome resolves it to `0000180d-0000-1000-8000-00805f9b34fb` from the assigned-numbers registry | the devices this drives use vendor UUIDs, so the registry buys nothing, and a stale copy of it would be worse than none. The divergence is in the strict direction: nothing passes against the mock and then fails in Chrome. |
 | `testing.simulateNotification` **throws** on an unsubscribed characteristic | n/a — mock-only surface | a simulated notification is an *instruction*, not a device event. The transport path swallows a frame for an unsubscribed characteristic because a radio really does that. Swallowing an explicit request would make this API a check that cannot go red: it would deliver nothing, report nothing, and the test would pass having asserted on an empty list. |
 
 **Adding to this table is a decision, not a workaround.** A divergence that is not
