@@ -98,6 +98,7 @@ async def test_missing_parameters_yield_the_documented_error_then_close(relay, q
         assert json.loads(await ws.recv()) == {
             "type": "error",
             "error": "Missing required parameters: service, write, notify",
+            "code": "MISSING_PARAMS",
         }
         with pytest.raises(websockets.exceptions.ConnectionClosed):
             await ws.recv()

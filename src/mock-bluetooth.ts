@@ -45,7 +45,7 @@
 
 import { WebSocketTransport } from './ws-transport.js';
 import { canonicalUuid } from './uuid.js';
-import { RETRYABLE_CONNECT_ERRORS } from './constants.js';
+import { RETRYABLE_CONNECT_CODES } from './constants.js';
 
 // Testing API interfaces
 export interface TestCommandOptions {
@@ -586,18 +586,16 @@ class MockBluetoothRemoteGATTServer {
       } catch (error: any) {
         lastError = error;
         
-        // The retryable set lives in constants.ts, matched against the exact
-        // text the Python bridge sends. It used to be three inline strings that
-        // the bridge has never emitted, which made this whole branch dead.
-        const retryableErrors = RETRYABLE_CONNECT_ERRORS;
-
-        const isRetryable = retryableErrors.some(msg =>
-          error.message?.includes(msg)
-        );
+        // Discriminate on the wire CODE, never on the message text. Until
+        // 0.12.0 this matched substrings, and it had already decayed once in a
+        // way nothing could catch -- three strings the bridge has never sent, so
+        // the branch was unreachable and its symptom was the ABSENCE of a retry.
+        const isRetryable = typeof error?.code === 'string'
+          && RETRYABLE_CONNECT_CODES.includes(error.code);
         
         if (isRetryable && attempt < config.maxConnectRetries) {
           if (config.logRetries) {
-            console.log(`[Mock] Bridge busy (${error.message}), retry ${attempt}/${config.maxConnectRetries} in ${retryDelay}ms...`);
+            console.log(`[Mock] Bridge not ready (${error.code}: ${error.message}), retry ${attempt}/${config.maxConnectRetries} in ${retryDelay}ms...`);
           }
           
           await new Promise(resolve => setTimeout(resolve, retryDelay));

@@ -58,6 +58,54 @@ CLIENT_MESSAGE_TYPES: Final = (MSG_DATA,)
 #: reads the branches out of the TypeScript and compares them against exactly this.
 HANDSHAKE_TERMINAL_TYPES: Final = (MSG_CONNECTED, MSG_ERROR)
 
+#: Every `error` frame carries one. A client MUST discriminate on this and never
+#: on the message text -- the text is human prose and is free to be reworded.
+#:
+#: This replaced substring matching on the client side (RETRYABLE_CONNECT_ERRORS
+#: in src/constants.ts). That list had already been wrong once in a way nothing
+#: could catch: it held three strings this server has never sent, so the mock's
+#: connect retry could not fire at all. A code cannot decay that way -- a rename
+#: is a diff on both sides, and test_every_retryable_code_is_one_we_send holds it
+#: mechanically across the language boundary.
+FIELD_CODE: Final = "code"
+
+ERR_MISSING_PARAMS: Final = "MISSING_PARAMS"
+ERR_INVALID_PARAM: Final = "INVALID_PARAM"
+ERR_DEVICE_BUSY: Final = "DEVICE_BUSY"
+#: The ONLY refusal that asks to be retried. See NOT_READY_ERROR below.
+ERR_NOT_READY: Final = "NOT_READY"
+ERR_NOTHING_TO_OBSERVE: Final = "NOTHING_TO_OBSERVE"
+ERR_TAKEOVER_STALLED: Final = "TAKEOVER_STALLED"
+ERR_TRANSPORT_FAILED: Final = "TRANSPORT_FAILED"
+ERR_IDLE_TIMEOUT: Final = "IDLE_TIMEOUT"
+ERR_WRITE_FAILED: Final = "WRITE_FAILED"
+ERR_EVICTED: Final = "EVICTED"
+ERR_STREAM_ENDED: Final = "STREAM_ENDED"
+ERR_OBSERVER_MAY_NOT_WRITE: Final = "OBSERVER_MAY_NOT_WRITE"
+
+#: Closed set. `encode_error` refuses anything outside it, so a typo is a crash
+#: here rather than an unrecognised code the client silently declines to retry.
+ERROR_CODES: Final = (
+    ERR_MISSING_PARAMS,
+    ERR_INVALID_PARAM,
+    ERR_DEVICE_BUSY,
+    ERR_NOT_READY,
+    ERR_NOTHING_TO_OBSERVE,
+    ERR_TAKEOVER_STALLED,
+    ERR_TRANSPORT_FAILED,
+    ERR_IDLE_TIMEOUT,
+    ERR_WRITE_FAILED,
+    ERR_EVICTED,
+    ERR_STREAM_ENDED,
+    ERR_OBSERVER_MAY_NOT_WRITE,
+)
+
+#: The codes a client may retry a CONNECT on. Exactly one: waiting is what fixes
+#: it. `DEVICE_BUSY` is deliberately absent -- another connection owns the path
+#: and no amount of waiting changes that; retrying converts a precise refusal
+#: into a long pause followed by some other failure.
+RETRYABLE_CONNECT_CODES: Final = (ERR_NOT_READY,)
+
 FIELD_TYPE: Final = "type"
 FIELD_DEVICE: Final = "device"
 FIELD_DATA: Final = "data"
@@ -186,8 +234,17 @@ def encode_data(payload: bytes) -> str:
     return json.dumps({FIELD_TYPE: MSG_DATA, FIELD_DATA: list(payload)})
 
 
-def encode_error(message: str) -> str:
-    return json.dumps({FIELD_TYPE: MSG_ERROR, FIELD_ERROR: message})
+def encode_error(message: str, code: str) -> str:
+    """`code` is required and must be in ERROR_CODES.
+
+    Required rather than defaulted: a default is how half the frames end up
+    carrying a placeholder nobody notices, and the client's retry decision then
+    silently degrades to "unknown, do not retry" for a refusal that was meant to
+    be retryable.
+    """
+    if code not in ERROR_CODES:
+        raise ValueError(f"unknown error code {code!r}; add it to ERROR_CODES")
+    return json.dumps({FIELD_TYPE: MSG_ERROR, FIELD_ERROR: message, FIELD_CODE: code})
 
 
 def encode_warning(message: str) -> str:

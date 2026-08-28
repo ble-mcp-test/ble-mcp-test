@@ -121,86 +121,86 @@ async def test_a_shared_session_id_does_not_widen_the_claim(relay):
             assert (await recv(second))[p.FIELD_ERROR].startswith(p.BUSY_ERROR_PREFIX)
 
 
-async def test_the_busy_error_is_not_one_the_mock_silently_retries():
-    """The rejection must not be converted back into a wait by a string match.
+async def test_the_busy_refusal_is_not_one_the_mock_silently_retries():
+    """`DEVICE_BUSY` must not be in the client's retryable set.
 
-    mock-bluetooth.ts:249-262 retries on three substrings, backing off to ten
-    seconds and logging only. If the busy text contained one of them, the loud
-    refusal this ticket exists to produce would present to the caller as a long
-    pause and then some other failure -- failure class 1, reintroduced by wording.
-    Checked mechanically because wording is exactly what drifts.
+    Another connection owns the command path; no amount of waiting changes that.
+    Retrying converts a precise refusal into a long pause followed by some other
+    failure -- failure class 1, reintroduced by a one-line edit.
+
+    This used to compare WORDING, because wording was the interface. It compares
+    CODES now, which is why the check got shorter: there is nothing left to drift.
     """
-    retryable = _mock_retryable_substrings()
-    assert retryable, "found no retryable list in mock-bluetooth.ts; the check would be vacuous"
-    hit = [r for r in retryable if r in p.BUSY_ERROR_PREFIX or r in p.BUSY_ERROR_ADVICE]
-    assert hit == [], f"the busy error contains a substring the mock retries on: {hit}"
+    retryable = _mock_retryable_codes()
+    assert retryable, "found no retryable list in src/constants.ts; the check would be vacuous"
+    assert p.ERR_DEVICE_BUSY not in retryable, (
+        f"{p.ERR_DEVICE_BUSY} is in the client's retryable set. The loud refusal "
+        "this ticket exists to produce would present as a long pause instead."
+    )
 
 
-def _mock_retryable_substrings() -> list[str]:
-    """The `RETRYABLE_CONNECT_ERRORS` array from src/constants.ts.
-
-    It used to live inline in mock-bluetooth.ts as `const retryableErrors`. It
-    moved to constants.ts when the list turned out to contain three strings this
-    bridge has never emitted -- see test_every_retryable_substring_is_one_we_send.
+def _mock_retryable_codes() -> list[str]:
+    """The `RETRYABLE_CONNECT_CODES` array from src/constants.ts.
 
     A hard failure rather than a skip when the file is gone: a silent skip would
-    leave the wording unchecked while the test still reported green.
+    leave the pairing unchecked while the test still reported green.
     """
     root = pathlib.Path(__file__).resolve().parents[2]
     source = root / "src" / "constants.ts"
     assert source.is_file(), (
-        f"{source} is missing. It owns the client's retry-on-substring list, which "
-        "this server's busy text must not collide with. If it has moved, point this "
-        "check at its new home -- do not delete it."
+        f"{source} is missing. It owns the codes the client retries a connect on, "
+        "which must be a subset of what this server sends. If it has moved, point "
+        "this check at its new home -- do not delete it."
     )
     text = source.read_text()
     # Anchor on the assignment, not the declaration: `readonly string[]` contains
     # a `]` that would truncate the slice to nothing and make every assertion
     # below vacuously true.
-    start = text.index("RETRYABLE_CONNECT_ERRORS")
+    start = text.index("RETRYABLE_CONNECT_CODES")
     start = text.index("= [", start)
     body = text[start : text.index("]", start)]
-    # Strip `//` comments FIRST. An apostrophe in ordinary prose -- "the bridge's
-    # own text" -- opens a spurious quote and the regex then returns a chunk of
-    # comment as if it were a retry substring. Found exactly that way.
+    # Strip `//` comments FIRST -- an apostrophe in prose opens a spurious quote
+    # and the regex then returns a chunk of comment as if it were a code.
     body = re.sub(r"//[^\n]*", "", body)
     return re.findall(r"'([^']+)'", body)
 
 
-def test_every_retryable_substring_is_one_we_send():
-    """The mirror of the busy check, and it exists because the list had rotted.
+def test_every_retryable_code_is_one_we_send():
+    """Every code the client retries on must be one this bridge can emit.
 
-    The busy test asks "does our refusal accidentally contain something the mock
-    retries on". It cannot see the opposite failure: a mock retrying on text this
-    bridge NEVER sends. That is what had happened -- `Bridge is disconnecting`,
-    `Bridge is connecting` and `only ready state accepts connections` were all
-    TypeScript-bridge-era wording, absent from this tree, so `maxConnectRetries`
-    could never fire against the Python bridge.
+    The list this replaced held three MESSAGE SUBSTRINGS the bridge had never
+    sent -- TypeScript-bridge-era wording that survived the replatform -- so
+    `maxConnectRetries` could not fire at all. Its symptom was the ABSENCE of a
+    retry, and nothing fails when a retry that would have succeeded never
+    happens, which is how it survived a replatform, a soak, and a measured cut of
+    the retry budget it had disabled.
 
-    Its symptom is the ABSENCE of a retry, and nothing fails when a retry that
-    would have succeeded never happens -- which is why it survived a replatform,
-    a soak and a measured cut of the retry budget itself.
-
-    So: every substring the client retries on must appear in some error THIS
-    bridge can actually emit.
+    Codes cannot rot the same way: they are a closed set here, `encode_error`
+    refuses anything outside it, and this compares the two sets directly.
     """
-    ours = [
-        getattr(p, name)
-        for name in dir(p)
-        if name.endswith(("_ERROR", "_ERROR_PREFIX", "_ERROR_ADVICE"))
-        and isinstance(getattr(p, name), str)
-    ]
-    assert ours, "found no error constants in protocol.py; the check would be vacuous"
-
-    retryable = _mock_retryable_substrings()
+    retryable = _mock_retryable_codes()
     assert retryable, "found no retryable list; the check would be vacuous"
+    assert p.ERROR_CODES, "found no error codes in protocol.py; the check would be vacuous"
 
-    orphans = [r for r in retryable if not any(r in sent for sent in ours)]
+    orphans = [c for c in retryable if c not in p.ERROR_CODES]
     assert orphans == [], (
-        f"the mock retries on text this bridge never sends: {orphans}. "
-        "Either the bridge reworded an error and the client was not updated, or "
-        "the entry is dead. A retry condition nothing can satisfy is a waiter "
-        "that cannot be woken."
+        f"the mock retries on codes this bridge never sends: {orphans}. Either the "
+        "bridge dropped a code and the client was not updated, or the entry is "
+        "dead. A retry condition nothing can satisfy is a waiter that cannot be "
+        "woken."
+    )
+
+
+def test_the_retryable_set_matches_the_servers_own_declaration():
+    """Both sides name the retryable set; they must agree.
+
+    Two declarations of one fact is a smell, but the alternative is the client
+    importing from Python. So they stay separate and this makes disagreement a
+    failure rather than a surprise at runtime.
+    """
+    assert sorted(_mock_retryable_codes()) == sorted(p.RETRYABLE_CONNECT_CODES), (
+        "src/constants.ts RETRYABLE_CONNECT_CODES and protocol.py "
+        "RETRYABLE_CONNECT_CODES disagree."
     )
 
 

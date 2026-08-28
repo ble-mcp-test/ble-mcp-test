@@ -1,4 +1,4 @@
-import { WriteError, WRITE_ERROR_CODES } from './constants.js';
+import { WriteError, WRITE_ERROR_CODES, CONNECT_ERROR_CODES, connectError } from './constants.js';
 import { VERSION } from './version.js';
 
 export interface WSMessage {
@@ -11,6 +11,12 @@ export interface WSMessage {
   data?: number[];
   device?: string;
   error?: string;
+  /**
+   * `error` only: the machine-readable reason. See ERROR_CODES in
+   * ws/protocol.py. A client discriminates on THIS, never on `error`, which is
+   * human prose and free to be reworded.
+   */
+  code?: string;
   warning?: string;
   /** `write_ack` only. See §8 of the WS protocol spec. */
   ok?: boolean;
@@ -85,7 +91,7 @@ export class WebSocketTransport {
     
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Connection timeout'));
+        reject(connectError('connect timed out', CONNECT_ERROR_CODES.TIMEOUT));
       }, 10000);
       
       this.ws!.onopen = () => {
@@ -110,7 +116,7 @@ export class WebSocketTransport {
             resolve();
           } else if (msg.type === 'error') {
             clearTimeout(timeout);
-            reject(new Error(msg.error || 'Connection failed'));
+            reject(connectError(msg.error || 'Connection failed', msg.code));
           }
         } catch {
           // Ignore invalid messages
@@ -119,7 +125,7 @@ export class WebSocketTransport {
       
       this.ws!.onerror = () => {
         clearTimeout(timeout);
-        reject(new Error('WebSocket error'));
+        reject(connectError('WebSocket error', CONNECT_ERROR_CODES.SOCKET_ERROR));
       };
       
       this.ws!.onclose = (event: CloseEvent) => {
@@ -160,33 +166,26 @@ export class WebSocketTransport {
           `the connection closed with code ${event.code} while this write was in flight`
         );
         
-        // Handle application-specific close codes (4000-4999) during connection
-        if (event.code >= 4000 && event.code <= 4999) {
-          clearTimeout(timeout);
-          
-          // There used to be a CLOSE_CODE_MESSAGES[event.code] lookup here,
-          // mapping 4001-4006 to friendlier text. Those codes are TypeScript-
-          // bridge-era: `grep` for them across `bridge/` returns ZERO, so the
-          // Python bridge has never closed with one and the lookup could only
-          // ever miss. Deleted in 0.10.0 along with the table -- see the note in
-          // constants.ts. This branch keeps the generic range check, which any
-          // 4xxx close does satisfy.
-          const reason = event.reason || 'Hardware connection failed';
-          
-          console.error(`[WebSocketTransport] Connection failed with code ${event.code}: ${reason}`);
-          
-          // Create error with close code for upstream handling
-          const error = new Error(`Connection failed: ${reason}`) as Error & { code: number };
-          error.code = event.code;
-          
-          reject(error);
-          return;
-        }
+        // ANY close before `connected` fails the handshake, immediately.
+        //
+        // This used to be gated on `event.code >= 4000 && <= 4999`, and the
+        // Python bridge has NEVER closed with a 4xxx code -- so every real
+        // connect-time close (bridge down, refused, killed mid-handshake) fell
+        // past this branch and the caller waited out the full 10s connect
+        // timeout instead of failing. A dead bridge presented as ten seconds of
+        // nothing rather than as a connection failure.
+        //
+        // Third instance of that class in this one handler's history, and the
+        // one that cost the most: it sat directly on the path a 17h connect
+        // soak was about to characterise, so the run would have measured the
+        // bug's wall-clock rather than the radio's.
+        clearTimeout(timeout);
+        const reason = event.reason || `the connection closed with code ${event.code}`;
+        reject(connectError(
+          `connect failed: ${reason}`,
+          CONNECT_ERROR_CODES.CLOSED_BEFORE_CONNECTED
+        ));
         
-        // `disconnected` is dispatched at the TOP of this handler now, before
-        // the writes are failed. It used to be emitted here, after the 4xxx
-        // branch -- which also meant a 4xxx close returned early and never sent
-        // it at all.
       };
     });
   }

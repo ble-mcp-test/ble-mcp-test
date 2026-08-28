@@ -67,7 +67,13 @@ export type { WSMessage } from './ws-transport.js';
 // so a consumer imports the code rather than hardcoding its text: a literal on
 // their side coupled to a literal on ours, with nothing checking the match, is
 // the defect this replaced wearing different clothes.
-export { WRITE_ERROR_CODES, WriteError, RETRYABLE_CONNECT_ERRORS } from './constants.js';
+export {
+  WRITE_ERROR_CODES,
+  WriteError,
+  CONNECT_ERROR_CODES,
+  ConnectError,
+  RETRYABLE_CONNECT_CODES
+} from './constants.js';
 export type { WriteErrorCode } from './constants.js';
 
 export { VERSION } from './version.js';
