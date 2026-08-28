@@ -59,18 +59,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.8.0]
 
+> **Corrected 2026-08-28.** The entry-point item below originally read
+> *"**BREAKING (public API): the `.` entry point is gone.** It is **removed, not
+> moved** — there is no replacement export for `import ... from 'ble-mcp-test'`.
+> The published surface is now exactly two entry points, both clients."*
+>
+> **That describes `0.8.0-rc.1`, not the `0.8.0` that was published.** The entry
+> point was removed early in the release and then restored within it, and the
+> entry was never updated. Checked against the registry: published `0.8.0` ships
+> **three** — `.`, `./browser` and `./node`. The original wording is quoted here
+> rather than deleted, because a reader who saw it needs to know it was wrong;
+> but it is not left standing as the entry, because a released version's
+> changelog making a false claim about its own contents is a defect rather than
+> a record.
+
 ### Removed
 
-- **BREAKING (public API): the `.` entry point is gone.** It is **removed, not
-  moved** — there is no replacement export for `import ... from 'ble-mcp-test'`.
-  The published surface is now exactly two entry points, both clients:
-  - `ble-mcp-test/browser` — the Web Bluetooth mock
-  - `ble-mcp-test/node` — the Node test-harness client (`NodeBleClient`)
+- **BREAKING (public API): the `.` entry point's CONTENTS are gone.** The entry
+  point itself **ships in this release** and is the importable Web Bluetooth
+  mock. What was removed is everything it used to re-export: `src/index.ts`
+  carried `BridgeServer`, `NobleTransport`, `Logger`, `LogBuffer`,
+  `registerMcpTools` and the MCP HTTP transport functions, all of which are
+  deleted. `injectWebBluetoothMock`, `getBundleVersion` and `WebSocketTransport`
+  remain reachable, through `.` and through `ble-mcp-test/browser`.
 
-  `src/index.ts` re-exported `BridgeServer`, `NobleTransport`, `Logger`,
-  `LogBuffer`, `registerMcpTools` and the MCP HTTP transport functions, all of
-  which are deleted. `injectWebBluetoothMock`, `getBundleVersion` and
-  `WebSocketTransport` remain reachable through `ble-mcp-test/browser`.
+  The published surface of 0.8.0 is three entry points:
+  - `ble-mcp-test` (`.`) — the Web Bluetooth mock, importable
+  - `ble-mcp-test/browser` — the same mock as an IIFE, for injection
+  - `ble-mcp-test/node` — the Node test-harness client (`NodeBleClient`),
+    **removed in 0.9.0**
 
 - **BREAKING: the `bin` is gone.** The package installed an executable
   (`ble-mcp-test` → `dist/start-server.js`) that started the TypeScript server.
