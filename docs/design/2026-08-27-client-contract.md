@@ -199,9 +199,11 @@ same values are fed to `requestDevice`.
 |---|---|
 | `characteristic.startNotifications()` | resolves to the characteristic itself, and **gates delivery**: nothing arrives before it. |
 | `characteristic.stopNotifications()` | stops delivery. |
-| `characteristic.writeValue(value)` | sends the bytes. Resolution does **not** currently imply an ATT acknowledgement — see [Open](#open). |
+| `characteristic.writeValue(value)` | see [Writes](#writes) — it resolves on the bridge's acknowledgement of that write, and rejects when the write failed. |
 | `characteristic.addEventListener('characteristicvaluechanged', h, opts)` | see listener semantics below. |
 | `device.addEventListener('gattserverdisconnected', h)` | fires on the **device**, not the server, and only on a **transport-level drop** — never on an explicit `gatt.disconnect()`. |
+
+| `characteristic.dispatchEvent(event)` | the **public** notification-injection point, matching the real API's `EventTarget`. `testing.simulateNotification` goes through it rather than around it, so anything asserted about one holds for the other. |
 
 **The event value is a real `DataView`.** Not a duck-typed stand-in: the old shape
 carried `buffer`/`byteLength`/`byteOffset`/`getUint8` and satisfied any structural
@@ -259,6 +261,12 @@ document is that a gap nobody recorded is a gap nobody can catch.
   removes what it names.
 - **Absence, `false`, and `{ once: true }` are accepted.** Anything else throws —
   see below.
+
+### Lifecycle, mock-only
+
+| member | guarantee |
+|---|---|
+| `bluetooth.teardown()` | releases the transport and resolves even if nothing was connected. Tolerates an already-closed session, because a teardown that throws on a failed setup masks the failure it was meant to clean up after. Not a Web Bluetooth member — real `navigator.bluetooth` has no lifecycle to unwind. |
 
 ### The `testing` object
 
@@ -346,13 +354,26 @@ because it looks two-armed — and the summary travels while the config does not
 
 Recorded rather than decided, because a decision needs an owner.
 
-- **`write_ack` and what `writeValue()` resolves on.** TRA-1153 item 5b. The wire
-  half has landed; which `writeValue` consumes the ack, and what its resolution
-  then guarantees, is a contract change and belongs in this document when it is
-  made. Note that with a contract this is "add it once, both packagings implement
-  it, conformance covers both" — there is no per-client decision to make. Without
-  one, that per-client decision is exactly what produced the asymmetry TRA-1187
-  was filed over.
+- **CLOSED 2026-08-28 — `write_ack` and what `writeValue()` resolves on.** This
+  entry asked which `writeValue` consumes the ack. By the time 5b-client landed
+  the question had dissolved rather than been answered: TRA-1187 item 4 deleted
+  `src/node/`, so **there is one `writeValue`, not three.** The per-client
+  decision that this entry existed to force is the same asymmetry TRA-1187 was
+  filed over, and deleting the second client removed it. The guarantees are now
+  clauses under [Writes](#writes).
+- **Characteristic properties are not on the wire.** The `connected` frame does
+  not carry them, so `writeValueWithoutResponse()` cannot refuse a characteristic
+  that lacks the property — the one place the mock is **looser** than the real
+  API, where a call passes here and throws in Chrome. Agreed in principle with
+  platform as a mock defect under TRA-1187's guiding principle; not scheduled.
+  Closing it is a `connected`-frame field, a spec amendment, and one conformance
+  check. It cannot currently bite platform: one call site, `writeValue` only.
+- **The mock discards the bridge's refusal detail.** A `Device is busy` naming the
+  holding session is retried, exhausted, and surfaces to the caller as a generic
+  failure. Demonstrated live 2026-08-28 by a self-inflicted collision: the bridge
+  produced a precise, actionable refusal and the test reported `expected true,
+  received false`. Good attribution generated at one layer and destroyed before it
+  reaches the person who needs it.
 - **`testing.*` members with zero consumers.** The list is **`setAvailability`,
   `getReaderState`, and `testCommand`** — three members, and not the three the
   question was originally asked about. Two corrections, both verified against this
