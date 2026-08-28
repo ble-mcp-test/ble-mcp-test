@@ -237,7 +237,7 @@ than as a broken guarantee. `tests/conformance` now asserts it.
 
 ## Deliberate divergences
 
-The mock is **stricter** than the real API in four places. Each is a decision,
+The mock is **stricter** than the real API in five places. Each is a decision,
 recorded here so it stays one rather than becoming folklore, and each is asserted
 in arm A of the conformance suite with the real API's behaviour written beside it.
 
@@ -246,6 +246,7 @@ in arm A of the conformance suite with the real API's behaviour written beside i
 | `stopNotifications()` on a characteristic that never started **rejects**, naming the situation | Chrome resolves; the spec does not require a prior `startNotifications()` | a consumer wraps this call in an empty catch. That catch is dead while the method is a no-op; making it a real gate makes it reachable, and "already stopped" versus "transport gone" is a different debugging session for whoever unwraps it. |
 | `addEventListener` **throws** on an option it does not implement — `capture`, `passive`, anything else | the DOM accepts them silently, because it implements them | a dropped option produces correct-*looking* behaviour that is wrong only later and elsewhere. This mock's own `testCommand` passed `{ once: true }` for months to a method that took no options argument at all, and so relied on a guarantee it never got. A throw is a control that can go red. |
 | a standard GATT **name** (`'heart_rate'`) is **rejected** | Chrome resolves it to `0000180d-0000-1000-8000-00805f9b34fb` from the assigned-numbers registry | the devices this drives use vendor UUIDs, so the registry buys nothing, and a stale copy of it would be worse than none. The divergence is in the strict direction: nothing passes against the mock and then fails in Chrome. |
+| `testing.testCommand` **rejects** on an unsubscribed notify characteristic | n/a — mock-only surface | the wait can never be satisfied, so the alternative is writing to the device and then timing out. A command whose response is guaranteed to be dropped is a broken call, not a slow one, and reporting it as a timeout is this codebase's most expensive failure mode. Refusing rather than subscribing on the caller's behalf keeps subscription the caller's decision, and avoids leaving their characteristic subscribed without them asking. |
 | `testing.simulateNotification` **throws** on an unsubscribed characteristic | n/a — mock-only surface | a simulated notification is an *instruction*, not a device event. The transport path swallows a frame for an unsubscribed characteristic because a radio really does that. Swallowing an explicit request would make this API a check that cannot go red: it would deliver nothing, report nothing, and the test would pass having asserted on an empty list. |
 
 **Adding to this table is a decision, not a workaround.** A divergence that is not
@@ -307,6 +308,12 @@ Recorded rather than decided, because a decision needs an owner.
   three: it is not a capability, it is a convenience wrapper around
   `writeValue` + `addEventListener(… , { once: true })` that a consumer can write
   in five lines and tailor to its own protocol.
+
+  **Confirmed 2026-08-28**: `trakrf/platform` calls `testCommand` from nowhere —
+  not in `src/`, not in its tests. The only callers anywhere are this repo's own
+  unit tests and one e2e helper. Its keep-or-delete decision is therefore
+  unconstrained by any consumer, and it is no longer urgent: the method was
+  *broken* until the subscription gate above was added, and is now correct.
 - **Should the client advertise itself, and where?** "Am I talking to the double or
   a real radio" is a legitimate thing for a consumer to need, and `window` is the
   wrong home for it in a runtime that may not have one. A new design question, not

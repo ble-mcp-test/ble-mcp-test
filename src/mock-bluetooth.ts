@@ -745,6 +745,29 @@ export class MockBluetooth {
       if (!options.device || !options.writeCharacteristic || !options.notifyCharacteristic) {
         throw new Error('Missing required options: device, writeCharacteristic, and notifyCharacteristic are required');
       }
+
+      // A command whose response can never be delivered is not a slow command,
+      // it is a broken call -- so refuse it here rather than write, wait out the
+      // full timeout, and report `{ success: false, timeout: true }`.
+      //
+      // TRA-1153 item 2 made delivery conditional on startNotifications(), and
+      // this method has never subscribed. The result was the failure class this
+      // codebase pays for most: a waiter whose condition cannot be satisfied by
+      // what is actually sent, which presents as a slow or flaky reader. It cost
+      // a hardware-debugging session before anyone looked here.
+      //
+      // Refusing rather than silently subscribing is deliberate, and matches
+      // simulateNotification directly below: subscription is the caller's
+      // decision and its absence is a defect worth surfacing, not a default
+      // worth supplying. Silently subscribing would also leave the caller's
+      // characteristic subscribed afterwards without them asking.
+      if (!options.notifyCharacteristic.isSubscribed) {
+        throw new Error(
+          `Characteristic ${options.notifyCharacteristic.uuid} is not subscribed: ` +
+            'testCommand() requires startNotifications() on the notify characteristic ' +
+            'first, or the response is dropped and this call can only ever time out.'
+        );
+      }
       
       // Promise-based timeout handling
       return new Promise<TestResult>((resolve) => {

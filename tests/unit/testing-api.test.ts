@@ -63,7 +63,16 @@ describe('MockBluetooth Testing API', () => {
     // Stub characteristic for the testCommand tests, which are about
     // testCommand's own timeout/validation logic rather than about delivery.
     // The notification path is covered against a real instance further down.
+    //
+    // `isSubscribed` and `uuid` are NOT decoration. This stub modelled neither,
+    // and that is exactly why these tests stayed green for the whole period in
+    // which testCommand could not work against a real characteristic: the stub
+    // had no subscription state to gate on, so the gate TRA-1153 item 2 added
+    // was invisible here. A stub that omits the property under test cannot fail
+    // the way production does.
     mockCharacteristic = {
+      uuid: '0000beef-0000-1000-8000-00805f9b34fb',
+      isSubscribed: true,
       writeValue: vi.fn().mockResolvedValue(undefined),
       addEventListener: vi.fn(),
       removeEventListener: vi.fn()
@@ -558,5 +567,77 @@ describe('MockBluetooth Testing API', () => {
       expect(result.responseHex).toBe(responseHex);
       expect(mockBluetooth.testing.utils.equals(result.response!, responseBytes)).toBe(true);
     });
+  });
+});
+/**
+ * `testCommand` and the subscription gate (TRA-1153).
+ *
+ * TRA-1153 item 2 made notification delivery conditional on
+ * `startNotifications()`. `testCommand` registers a listener and writes, and it
+ * has never subscribed -- so against a real characteristic it waited for a frame
+ * the mock would never deliver, then resolved `{ success: false, timeout: true }`
+ * after the full timeout.
+ *
+ * That is this repo's most expensive failure class: a waiter whose condition
+ * cannot be satisfied by what is actually sent, presenting as slowness rather
+ * than as the missing call it is. It cost a hardware-debugging session on
+ * 2026-08-27, and it was invisible to this suite because the stub characteristic
+ * above does not model subscription at all.
+ *
+ * The fix matches `simulateNotification`, two methods away in the same object,
+ * for the same reason: REFUSE, naming the situation. Swallowing it would leave a
+ * check that cannot go red.
+ */
+describe('testCommand and the subscription gate', () => {
+  const NOTIFY = '0000beef-0000-1000-8000-00805f9b34fb';
+
+  function characteristic(subscribed: boolean) {
+    return {
+      uuid: NOTIFY,
+      isSubscribed: subscribed,
+      writeValue: vi.fn().mockResolvedValue(undefined),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn()
+    };
+  }
+
+  function bluetooth() {
+    return new MockBluetooth('ws://localhost:25153', {
+      sessionId: 'gate-test',
+      service: '0000f00d-0000-1000-8000-00805f9b34fb',
+      timeout: 5000,
+      onMultipleDevices: 'error'
+    });
+  }
+
+  const options = (char: ReturnType<typeof characteristic>) => ({
+    device: { gatt: { connected: true } },
+    writeCharacteristic: char,
+    notifyCharacteristic: char,
+    command: new Uint8Array([0x01]),
+    timeout: 100
+  }) as any;
+
+  it('refuses an unsubscribed characteristic, naming the missing call', async () => {
+    const char = characteristic(false);
+    await expect(bluetooth().testing.testCommand(options(char))).rejects.toThrow(/not subscribed/i);
+  });
+
+  it('does NOT write before refusing', async () => {
+    // The half that matters on real hardware. Today it writes, sends bytes to a
+    // live device, and only then times out -- so the device saw a command whose
+    // response was always going to be dropped on the floor.
+    const char = characteristic(false);
+    await bluetooth().testing.testCommand(options(char)).catch(() => undefined);
+    expect(char.writeValue).not.toHaveBeenCalled();
+  });
+
+  it('still proceeds when the characteristic IS subscribed', async () => {
+    // The control. Without it, "refuses" is satisfiable by a method that
+    // refuses everything.
+    const char = characteristic(true);
+    const result = await bluetooth().testing.testCommand(options(char));
+    expect(char.writeValue).toHaveBeenCalledTimes(1);
+    expect(result.timeout).toBe(true); // nothing fed it a frame; that is fine here
   });
 });
