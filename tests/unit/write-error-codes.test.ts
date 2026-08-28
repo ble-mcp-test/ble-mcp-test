@@ -129,3 +129,22 @@ describe('mayHaveReachedDevice is the retry discriminator, and it is exhaustive'
     expect(unsafe).toEqual([WRITE_ERROR_CODES.ACK_TIMEOUT]);
   });
 });
+
+describe('the link state agrees with the error, and the constructor refuses to lie', () => {
+  it('LINK_LOST arrives with gatt.connected ALREADY false', async () => {
+    // 0.10.0 delivered it with connected still true, so a consumer rule of
+    // "not duplicative AND the link is up" retried every LINK_LOST.
+    const { characteristic, server } = await characteristicOn({ withholdAcks: true });
+    const pending = characteristic.writeValue(new Uint8Array([0x01]));
+    bridge!.drop();
+    const error = await writeErrorFrom(pending);
+    expect(error.code).toBe(WRITE_ERROR_CODES.LINK_LOST);
+    expect(server.connected).toBe(false);
+  });
+
+  it('an unknown code throws instead of yielding mayHaveReachedDevice: undefined', () => {
+    // The swapped-argument call platform hit while probing the surface.
+    expect(() => new WriteError('some message' as never, 'ACK_TIMEOUT'))
+      .toThrow(/unknown code/);
+  });
+});
