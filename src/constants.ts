@@ -130,6 +130,19 @@ export class WriteError extends Error {
 
   constructor(code: WriteErrorCode, message: string) {
     super(message);
+    // Throw rather than carry `undefined`. Two ways to get here: a new code
+    // added without a MAY_HAVE_REACHED_DEVICE entry, and `new WriteError(msg,
+    // code)` with the arguments swapped -- which platform hit while probing the
+    // surface and which silently produced `mayHaveReachedDevice: undefined`.
+    // An error object that lies about the one property a retry turns on is
+    // worse than a constructor that refuses to build it.
+    if (!(code in MAY_HAVE_REACHED_DEVICE)) {
+      throw new TypeError(
+        `WriteError: unknown code ${JSON.stringify(code)}. Every code must declare ` +
+        'whether the write may have reached the device. Check the argument order: ' +
+        'the code comes first, the message second.'
+      );
+    }
     this.code = code;
     this.mayHaveReachedDevice = MAY_HAVE_REACHED_DEVICE[code];
   }

@@ -125,6 +125,31 @@ export class WebSocketTransport {
       this.ws!.onclose = (event: CloseEvent) => {
         this.ws = null;
 
+        // The `disconnected` message is what flips `gatt.connected` to false
+        // (mock-bluetooth.ts, the `disconnected` branch). It is dispatched here,
+        // ahead of failing the pending writes, so that SOURCE order matches the
+        // order a reader would infer.
+        //
+        // ⚠ It is ahead for READABILITY, not for correctness, and the difference
+        // matters to anyone tempted to move it back. `pending.reject()` does not
+        // run the consumer's `catch` -- it schedules a microtask. The rest of
+        // this handler is synchronous and runs to completion first, so the flag
+        // is already false by the time any awaiting consumer observes the
+        // rejection, in EITHER order. 0.10.0 shipped the other order and was
+        // observationally identical.
+        //
+        // What IS load-bearing is that the flip stays SYNCHRONOUS with this
+        // handler. Defer it by a macrotask and a consumer catching LINK_LOST
+        // sees `connected === true` -- the mock contradicting itself across two
+        // of its own members. That is what the LINK_LOST test pins, and it goes
+        // red on exactly that change.
+        if (this.messageHandler) {
+          this.messageHandler({
+            type: 'disconnected',
+            error: event.code !== 1000 ? `Connection closed with code ${event.code}: ${event.reason}` : undefined
+          });
+        }
+
         // Writes still awaiting an ack can never get one now. Failing them here
         // is what makes LINK_LOST reachable at all: without it they run out the
         // full ack cap and surface as ACK_TIMEOUT, whose whole meaning is "the
@@ -158,13 +183,10 @@ export class WebSocketTransport {
           return;
         }
         
-        // Handle other close events (after successful connection)
-        if (this.messageHandler) {
-          this.messageHandler({ 
-            type: 'disconnected',
-            error: event.code !== 1000 ? `Connection closed with code ${event.code}: ${event.reason}` : undefined
-          });
-        }
+        // `disconnected` is dispatched at the TOP of this handler now, before
+        // the writes are failed. It used to be emitted here, after the 4xxx
+        // branch -- which also meant a 4xxx close returned early and never sent
+        // it at all.
       };
     });
   }

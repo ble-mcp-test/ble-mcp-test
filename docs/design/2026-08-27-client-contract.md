@@ -295,6 +295,35 @@ side and this package must not claim it.
 The message text is human prose and is **free to be reworded**. That freedom is
 the point of the code.
 
+**Discriminate by `name`, never `instanceof`.** `err.name === 'WriteError'` is the
+check. `instanceof` is **not safe against this package**: the same consumer can
+receive errors from two module instances — the `.` entry point and the injected
+`./browser` bundle — and class identity is scoped to whichever one defined the
+class. A structurally correct `WriteError` from the other copy fails `instanceof`
+while being, in every way that matters, the same error.
+
+**`LINK_LOST` arrives AFTER `gatt.connected` is already false.** A consumer may
+read the link state at the moment it catches the error and get an answer
+consistent with the error it is holding.
+
+The mechanism is worth stating, because the obvious reading of it is wrong. It
+does **not** rest on the order of the two statements in the close handler:
+`reject()` schedules a microtask, the handler's remaining synchronous work —
+including the flag flip — runs to completion first, and the consumer's `catch`
+therefore runs after it **in either source order**. What the guarantee actually
+rests on is that **the flip is synchronous with the close handler**. Defer it by
+a macrotask and the guarantee breaks.
+
+> **Recorded because both this package and its consumer got it wrong the same
+> way.** Each of us read execution order off a source listing and concluded the
+> statement order was load-bearing — one arguing it was a live defect, the other
+> that it was an accident waiting to happen. It was neither: the two orders are
+> observationally identical, proven by running the test against both. **Source
+> order and observation order are different questions across an async boundary,
+> and reading one for the other has no tell** — the code looks exactly like what
+> you expect it to do. The lesson that survives: pin the property by execution,
+> and do not let a plausible mechanism stand in for one you measured.
+
 > **What this replaced, recorded because the shape recurs.** Until 0.10.0 these
 > were bare `Error`s, so the only available discriminator was the message text —
 > and platform's transport matched `'Device busy'` / `'GATT operation already in
