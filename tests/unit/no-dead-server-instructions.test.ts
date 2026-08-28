@@ -101,12 +101,50 @@ function isHistory(path: string): boolean {
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
 
 /**
- * Tracked, text-ish files. `-z` because git C-style-quotes any path containing
- * a space or a non-ASCII byte, and a quoted path would not open.
+ * Extensions that cannot carry an instruction to a human: binaries, images,
+ * fonts, and lock files whose contents nobody reads or follows.
+ *
+ * ## Why this is a DENY list and not an ALLOW list
+ *
+ * It was an allow list — `.ts|.js|.md|.sh|.html|.json|.py|.yaml|.yml` — and that
+ * silently excluded every EXTENSIONLESS tracked file: `justfile`,
+ * `bridge/justfile`, `.envrc`, `CODEOWNERS`, and **`.env.local.example`**, which
+ * is the file TRA-1186 is actually about. So the guard could report "no live
+ * references" having never opened the ticket's own subject.
+ *
+ * That is the fourth time this exact move landed in this ticket's lineage, each
+ * repair reintroducing it one level inside the last:
+ *
+ *     TRA-1179  fixed the code       -> scoped the guard to .env.local.example
+ *     #600      fixed two docs       -> scoped the guard to those two docs
+ *     #74       fixed the file list  -> scoped the SCAN to known extensions
+ *     this      fixed the scan       -> describes only what is EXCLUDED
+ *
+ * **An allow list can always be partially applied; an exclusion cannot.** A new
+ * file type joins the scan by default and has to be argued OUT, which is the
+ * only direction that fails safe. Same family as identifying a process by the
+ * port it listens on rather than by a name in its argv.
+ *
+ * The platform session hit the identical bug in their mirror of this guard, in
+ * the same hours, while warning me about mine.
+ */
+const UNREADABLE = /\.(png|jpe?g|gif|ico|svg|woff2?|ttf|eot|pdf|zip|tgz|gz|whl|so|bin|wasm|webm|mp4|lock)$/i;
+
+/** Lock files by name, since some carry a readable extension. */
+const LOCKFILES = new Set(['pnpm-lock.yaml', 'package-lock.json', 'uv.lock', 'bridge/uv.lock']);
+
+/**
+ * Every tracked file the guard can meaningfully read.
+ *
+ * `-z` because git C-style-quotes any path containing a space or a non-ASCII
+ * byte, and a quoted path would not open.
  */
 function trackedFiles(): string[] {
   const out = execFileSync('git', ['ls-files', '-z'], { cwd: projectRoot, encoding: 'utf-8' });
-  return out.split('\0').filter(Boolean).filter(p => /\.(ts|js|mjs|cjs|md|sh|html|json|py|yaml|yml)$/.test(p));
+  return out
+    .split('\0')
+    .filter(Boolean)
+    .filter(p => !UNREADABLE.test(p) && !LOCKFILES.has(p));
 }
 
 describe('the repo does not instruct anyone to use the deleted server', () => {
