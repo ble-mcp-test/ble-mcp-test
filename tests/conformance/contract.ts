@@ -631,6 +631,32 @@ const DIVERGENCES: ConformanceCheck[] = [
 
 const TESTING_API: ConformanceCheck[] = [
   {
+    id: 'testing/test-command-refuses-an-unsubscribed-characteristic',
+    clause: 'testCommand() rejects when the notify characteristic never subscribed, rather than writing and timing out',
+    category: 'mock-only',
+    needs: ['testingApi'],
+    async run(session, provider) {
+      // Regression guard for a live defect (TRA-1153): testCommand registered a
+      // listener and wrote WITHOUT subscribing, so item 2's delivery gate meant
+      // the response was dropped and the call could only ever time out. It cost
+      // a hardware-debugging session, because a timeout reads as a slow reader.
+      //
+      // The session's notify characteristic is unsubscribed here -- every check
+      // gets a fresh session, and this one deliberately does not subscribe.
+      await assertRejects(
+        () => provider.bluetooth(session).testing.testCommand({
+          device: session.device,
+          writeCharacteristic: session.writeCharacteristic,
+          notifyCharacteristic: session.notifyCharacteristic,
+          command: new Uint8Array([0xa7]),
+          timeout: 100
+        }),
+        /not subscribed/i,
+        'testCommand() on a characteristic that never called startNotifications()'
+      );
+    }
+  },
+  {
     id: 'testing/simulate-dispatches-before-resolving',
     clause: 'the event has dispatched by the time simulateNotification() resolves',
     category: 'mock-only',
