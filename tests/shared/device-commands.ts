@@ -7,6 +7,30 @@
  * 
  * ⚠️  CRITICAL: Only modify these values when the physical device behavior changes.
  *     All E2E, integration, and unit tests depend on these constants.
+ *
+ * ## Provenance, and the duplication that cannot be merged away
+ *
+ * These are frozen bytes of two CS108 events that `trakrf/platform` defines
+ * STRUCTURALLY, in `frontend/src/worker/cs108/event.ts`:
+ *
+ *   0xA000  GET_BATTERY_VOLTAGE (responseLength 2)  ->  BATTERY_COMMAND_BYTES
+ *   0xA001  GET_TRIGGER_STATE                       ->  TEST_COMMAND_BYTES
+ *
+ * Platform is authoritative for CS108 protocol semantics; it builds these frames
+ * with one `PacketHandler` and its tests wrap that rather than restating bytes.
+ * This package cannot import any of it -- platform depends on ble-mcp-test, not
+ * the reverse -- and it should not copy it either: a CS108 protocol parser inside
+ * a device-agnostic tool contradicts what the tool is.
+ *
+ * So the overlap is STRUCTURAL, not an accident to clean up. What this package
+ * needs is the minimum device knowledge that proves a round trip: bytes out,
+ * bytes back, correct framing and byte range. That is these two commands and
+ * nothing more. If they ever disagree with platform's event table, platform wins
+ * -- and the event codes above are what makes that check possible at all.
+ *
+ * Verified against the live reader 2026-08-27 via the ESPHome proxy:
+ *   TEST_COMMAND    -> a7 b3 03 d9 82 9e 74 37 a0 01 00   (len 11, matches below)
+ *   BATTERY_COMMAND -> a7 b3 04 d9 82 9e 95 d3 a0 00 0f 81 (len 12, 0x0f81 = 3969 mV)
  */
 
 // Standard test command that queries device trigger status

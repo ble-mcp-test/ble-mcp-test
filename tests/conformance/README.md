@@ -21,8 +21,26 @@ directory, and that naming is the only thing keeping them apart.
 **Fidelity is a comparison against the real API.** A suite that can only drive the
 mock establishes that the mock agrees with itself — a control that cannot go red,
 which is the failure this repo keeps paying for. Only a run that puts real
-`navigator.bluetooth` under the *same* assertions can establish that the mock
-agrees with the thing it doubles.
+`navigator.bluetooth` under the *same* assertions can settle whether the mock
+agrees with the thing it doubles, and that run is **deferred to the operator, to
+be run interactively** — `requestDevice` requires a user gesture, so no CI box
+can produce it. See requirement 4.
+
+**That deferral is not the whole fidelity story, and this file used to imply it
+was.** Two separate claims got collapsed:
+
+- **Is the mock Web-Bluetooth-*shaped*?** Arm A, against the spec. Automated,
+  every run, no hardware.
+- **Does exercising that shape produce Web-Bluetooth-*like results from real
+  hardware*?** The suites above this directory answer that, automated, against
+  the bridge and a live device: `tests/integration/` drives the mock's Web
+  Bluetooth surface directly from Node, and `tests/e2e/` drives the same surface
+  through the browser bundle under Playwright. Both reach the real reader by way
+  of the mock and the bridge.
+
+Only the third question — *does the mock agree with Chromium's own
+implementation* — needs the interactive arm. It is the narrowest of the three,
+and the only one a human has to sit down for.
 
 This is also why the suite lives here rather than in `platform`. Platform's
 Playwright only ever injects the mock and drives the app; it never touches real
@@ -73,9 +91,9 @@ has been recorded. Arm A's green does not cover it — blocking exactly that
 inference is what the banner is for.
 
 Being unrun is not the same as being unfinished. Requirement 4 below is why: this
-arm is interactive by construction, so "has anyone sat down at the box with the
-adapter and clicked through the chooser" is the only thing standing between here
-and a result.
+arm is interactive by construction and therefore **deferred to the operator**, so
+"has anyone sat down at the box with the adapter and clicked through the chooser"
+is the only thing standing between here and a result.
 
 It needs, and none of these is optional:
 
