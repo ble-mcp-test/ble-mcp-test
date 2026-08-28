@@ -27,14 +27,12 @@ await build({
   format: 'iife',
   outfile: join(projectRoot, 'dist/web-ble-mock.bundle.js'),
   platform: 'browser',
-  define: {
-    'process.env.BLE_MCP_MOCK_RETRY_DELAY': '"1200"',
-    'process.env.BLE_MCP_MOCK_MAX_RETRIES': '"20"',
-    'process.env.BLE_MCP_MOCK_CLEANUP_DELAY': '"1100"',
-    'process.env.BLE_MCP_MOCK_BACKOFF': '"1.3"',
-    'process.env.BLE_MCP_MOCK_LOG_RETRIES': '"true"',
-    '__PACKAGE_VERSION__': JSON.stringify(version)
-  }
+  // No `define`. It used to substitute __PACKAGE_VERSION__ -- now the generated
+  // src/version.ts -- and five BLE_MCP_MOCK_* environment reads, which the mock
+  // now resolves at runtime through `globalThis.process?.env`. Both were the same
+  // defect: a value with a second source that agrees with the first only for as
+  // long as somebody keeps checking. The cleanup-delay define said 1100 while the
+  // source default said 250, so every browser test paid 4.4x the measured figure.
 });
 
 // Read the generated bundle

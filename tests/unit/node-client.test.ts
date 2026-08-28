@@ -4,8 +4,8 @@ import { NodeBleClient } from '../../src/node/NodeBleClient';
 describe('NodeBleClient', () => {
   describe('constructor validation', () => {
     it('should require sessionId in constructor', () => {
+      // @ts-expect-error - Missing sessionId for test
       expect(() => new NodeBleClient({
-        // @ts-expect-error - Missing sessionId for test
         bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900', 
@@ -14,32 +14,32 @@ describe('NodeBleClient', () => {
     });
 
     it('should require service parameter', () => {
+      // @ts-expect-error - Missing service for test
       expect(() => new NodeBleClient({
         sessionId: 'test',
         bridgeUrl: 'ws://localhost:25153',
-        // @ts-expect-error - Missing service for test
         write: '9900',
         notify: '9901'
       })).toThrow('service, write, and notify parameters are required');
     });
 
     it('should require write parameter', () => {
+      // @ts-expect-error - Missing write for test
       expect(() => new NodeBleClient({
         sessionId: 'test',
         bridgeUrl: 'ws://localhost:25153',
         service: '9800',
-        // @ts-expect-error - Missing write for test
         notify: '9901'
       })).toThrow('service, write, and notify parameters are required');
     });
 
     it('should require notify parameter', () => {
+      // @ts-expect-error - Missing notify for test
       expect(() => new NodeBleClient({
         sessionId: 'test',
         bridgeUrl: 'ws://localhost:25153',
         service: '9800',
         write: '9900'
-        // @ts-expect-error - Missing notify for test
       })).toThrow('service, write, and notify parameters are required');
     });
 

@@ -34,8 +34,7 @@ test.describe('Mock Bundle Validation', () => {
           hasWebBleMock: typeof window.WebBleMock !== 'undefined',
           hasInjectFunction: typeof window.WebBleMock?.injectWebBluetoothMock === 'function',
           hasMockClass: typeof window.WebBleMock?.MockBluetooth === 'function',
-          version: window.WebBleMock?.version,
-          bundleVersion: window.WebBleMock?.getBundleVersion?.()
+          version: window.WebBleMock?.version
         };
       });
       
@@ -44,10 +43,12 @@ test.describe('Mock Bundle Validation', () => {
       expect(bundleInfo.hasMockClass).toBe(true);
       expect(bundleInfo.version).toBe(currentVersion);
       
-      // bundleVersion might not exist in older versions
-      if (bundleInfo.bundleVersion !== undefined) {
-        expect(bundleInfo.bundleVersion).toBe(currentVersion);
-      }
+      // One assertion, unconditional. There used to be a second, on
+      // getBundleVersion(), guarded by `if (bundleVersion !== undefined)` -- which
+      // made it a check that could not go red: the function returned 'unknown'
+      // whenever it could not find a window, and the guard skipped it whenever it
+      // was absent. Deleted with the function. `version` is now the generated
+      // constant, so there is one number and one place to assert it.
     });
 
     test('should handle versioned bundle loading', async ({ page }) => {

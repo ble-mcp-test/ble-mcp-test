@@ -20,7 +20,14 @@ import { MockBluetooth } from '../../src/mock-bluetooth.js';
  *    lying for the rest of its life.
  */
 
-const CONFIG = { service: '9800', write: '9900', notify: '9901' };
+const CONFIG = {
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  sessionId: 'availability-override-test',
+  timeout: 5000,
+  onMultipleDevices: 'error' as const
+};
 
 function mock() {
   return new MockBluetooth('ws://localhost:25153', CONFIG);

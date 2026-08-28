@@ -21,14 +21,44 @@ function requireWsUrl(): string {
   return url;
 }
 
+/** Chrome's canonical UUID form. Restated here so a bad env value fails at
+ *  config time with a message, not later as a TypeError from inside the mock. */
+const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function requireUuid(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set. This repo is device-agnostic: there is no default GATT ` +
+        'UUID to fall back to, and the CS108 is the reference device, not a requirement. ' +
+        'See the @owner e2e-harness block in .env.local.example.'
+    );
+  }
+  if (!CANONICAL_UUID.test(value)) {
+    throw new Error(
+      `${name}='${value}' is not a canonical UUID. Real Web Bluetooth accepts only a ` +
+        "full lowercase 128-bit UUID (e.g. '00009800-0000-1000-8000-00805f9b34fb') or a " +
+        'numeric alias, and rejects short forms and uppercase hex with a TypeError. ' +
+        'The mock matches it -- see docs/design/2026-08-27-client-contract.md.'
+    );
+  }
+  return value;
+}
+
 export const SHARED_TEST_CONFIG = {
   // Fixed session ID for all tests - ensures session reuse works across test runs
   sessionId: `ble-mcp-e2e-${os.hostname()}`,
   
-  // BLE device configuration from environment
-  service: process.env.BLE_MCP_SERVICE_UUID || '9800',
-  write: process.env.BLE_MCP_WRITE_UUID || '9900',
-  notify: process.env.BLE_MCP_NOTIFY_UUID || '9901',
+  // BLE device configuration from environment.
+  //
+  // No literal fallback, for the same reason `wsUrl` has none -- and here the
+  // fallback was worse than a guess. '9800' is the CS108's service: a run with
+  // no env set would silently point at ONE vendor's reader while this repo is
+  // device-agnostic by design, and against real Chromium that spelling is not a
+  // UUID at all (it throws TypeError; see docs/design/2026-08-27-client-contract.md).
+  service: requireUuid('BLE_MCP_SERVICE_UUID'),
+  write: requireUuid('BLE_MCP_WRITE_UUID'),
+  notify: requireUuid('BLE_MCP_NOTIFY_UUID'),
   
   // WebSocket server URL
   // No literal fallback: renumbering the guess does not stop it being a guess.

@@ -5,7 +5,7 @@ import type {
   NodeBleClientOptions, 
   BridgeResponse
 } from './types.js';
-import { getPackageMetadata } from '../package-metadata.js';
+import { VERSION } from '../version.js';
 
 export class NodeBleClient extends EventEmitter {
   private ws: WebSocket | null = null;
@@ -161,9 +161,10 @@ export class NodeBleClient extends EventEmitter {
     // Map sessionId to session parameter (critical for bridge compatibility)
     url.searchParams.set('session', this.options.sessionId);
     
-    // Add version marker
-    const { version } = getPackageMetadata();
-    url.searchParams.set('_mv', version);
+    // Add version marker -- the same generated constant the mock's transport
+    // stamps, so the two packagings cannot report different versions of the
+    // same install.
+    url.searchParams.set('_mv', VERSION);
 
     if (this.options.debug) {
       console.log(`[NodeBleClient] Connecting to: ${url.toString()}`);

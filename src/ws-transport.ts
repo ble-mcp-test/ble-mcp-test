@@ -1,4 +1,5 @@
 import { CLOSE_CODE_MESSAGES } from './constants.js';
+import { VERSION } from './version.js';
 
 export interface WSMessage {
   // Wire types are exactly what the Python bridge emits: see SERVER_MESSAGE_TYPES
@@ -48,18 +49,17 @@ export class WebSocketTransport {
       this.sessionId = options.session;
     }
     
-    // Sneaky version marker - only set by the mock, never documented
-    // This lets us detect when someone bypasses the mock
-    // For browser builds, __PACKAGE_VERSION__ is replaced at build time
-    let version: string;
-    if (typeof __PACKAGE_VERSION__ !== 'undefined') {
-      version = __PACKAGE_VERSION__;
-    } else {
-      // Dynamic import for Node.js environment only
-      const { getPackageMetadata } = await import('./package-metadata.js');
-      version = getPackageMetadata().version;
-    }
-    url.searchParams.set('_mv', version);
+    // Version marker. Undocumented on the wire on purpose: it is how the bridge
+    // tells a client that went through this transport from one that did not.
+    //
+    // ONE source, statically imported. This used to branch on
+    // `typeof __PACKAGE_VERSION__` -- an esbuild define present only in the
+    // browser bundle -- and fall back to `await import('./package-metadata.js')`,
+    // which does a synchronous readFileSync of package.json. So the value of
+    // `_mv` depended on how the package had been built, and every entry point
+    // that was imported rather than bundled reached the filesystem from inside
+    // connect(). That is what made a plain ESM entry point unusable in a browser.
+    url.searchParams.set('_mv', VERSION);
     
     this.ws = new WebSocket(url.toString());
     

@@ -1,127 +1,145 @@
 import { test, expect } from '@playwright/test';
 import { setupMockPage, getBleConfig, injectMockInPage } from './test-config';
 
-test.describe('UUID Format Compatibility', () => {
-  test('should handle short UUID format (9800)', async ({ page }) => {
-    await setupMockPage(page, '<html><body>Short UUID Test</body></html>');
-    
-    // Override config to use short UUID format
-    const shortUuidConfig = {
-      ...getBleConfig(),
-      service: '9800',      // Short format
-      write: '9900',        // Short format
-      notify: '9901'        // Short format
-    };
-    
-    // Test command execution with short UUIDs
-    const result = await page.evaluate(async ({ config }) => {
-      try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [config.service] }]
-        });
-        
-        await device.gatt.connect();
-        const service = await device.gatt.getPrimaryService(config.service);
-        const writeChar = await service.getCharacteristic(config.write);
-        const notifyChar = await service.getCharacteristic(config.notify);
-        
-        // Verify we got the characteristics with short UUIDs
-        return {
-          success: true,
-          serviceUuid: service.uuid,
-          writeUuid: writeChar.uuid,
-          notifyUuid: notifyChar.uuid
-        };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    }, { config: shortUuidConfig });
-    
-    expect(result.success).toBe(true);
-    console.log('[TEST] Short UUID test passed:', result);
+/**
+ * UUID handling, through the BROWSER BUNDLE.
+ *
+ * ## Why this file still exists after the conformance suite
+ *
+ * Arm A drives the mock via the `.` ESM entry point. This drives the `./browser`
+ * IIFE bundle that Playwright injects and that platform's vite plugin serves --
+ * a different packaging of the same implementation, and the one consumers
+ * actually load. A defect introduced by the bundler (a stripped module, a
+ * mangled regex) is invisible to arm A and visible here.
+ *
+ * ## What it used to assert, and why that was backwards
+ *
+ * It asserted that the SHORT form ('9800') worked, in three tests. That was true
+ * of the mock and false of real Chromium, which rejects it with
+ * `TypeError: Invalid Service name: '9800'`. So the file pinned a divergence in
+ * place as though it were a requirement: it would pass against the mock forever
+ * while the same code threw on the first write of every real Chrome session.
+ *
+ * That is the inversion this ticket exists to remove -- the mock defining
+ * reality for the thing it doubles. Rewritten to assert what Chromium does,
+ * probed rather than assumed (Chromium 139).
+ */
+
+/** Chrome's canonical form: 128-bit, lowercase. */
+const CANONICAL = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+test.describe('UUID handling in the browser bundle', () => {
+  test.describe('forms real Chromium rejects', () => {
+    // These never reach the bridge: argument validation precedes any connect,
+    // which is exactly why they are cheap and worth having.
+
+    test('rejects the short form that this repo used to configure everywhere', async ({ page }) => {
+      await setupMockPage(page, '<html><body>Short UUID</body></html>');
+
+      const result = await page.evaluate(async () => {
+        try {
+          await navigator.bluetooth.requestDevice({ filters: [{ services: ['9800'] }] });
+          return { threw: false, message: '' };
+        } catch (error: any) {
+          return { threw: true, message: String(error?.message ?? error) };
+        }
+      });
+
+      expect(result.threw, "requestDevice(['9800']) must reject, as Chromium does").toBe(true);
+      expect(result.message).toMatch(/Invalid Service name/i);
+    });
+
+    test('rejects an uppercase 128-bit UUID rather than downcasing it', async ({ page }) => {
+      await setupMockPage(page, '<html><body>Uppercase UUID</body></html>');
+
+      const result = await page.evaluate(async () => {
+        try {
+          await navigator.bluetooth.requestDevice({
+            filters: [{ services: ['00009800-0000-1000-8000-00805F9B34FB'] }]
+          });
+          return { threw: false, message: '' };
+        } catch (error: any) {
+          return { threw: true, message: String(error?.message ?? error) };
+        }
+      });
+
+      expect(result.threw, 'uppercase hex must reject').toBe(true);
+      expect(result.message).toMatch(/Invalid Service name/i);
+    });
   });
 
-  test('should handle long UUID format (00009800-0000-1000-8000-00805f9b34fb)', async ({ page }) => {
-    await setupMockPage(page, '<html><body>Long UUID Test</body></html>');
-    
-    // Override config to use long UUID format  
-    const longUuidConfig = {
-      ...getBleConfig(),
-      service: '00009800-0000-1000-8000-00805f9b34fb',   // Long format
-      write: '00009900-0000-1000-8000-00805f9b34fb',     // Long format
-      notify: '00009901-0000-1000-8000-00805f9b34fb'     // Long format
-    };
-    
-    // Re-inject mock with long UUID config
-    await injectMockInPage(page, longUuidConfig);
-    
-    // Test command execution with long UUIDs
-    const result = await page.evaluate(async ({ config }) => {
-      try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [config.service] }]
-        });
-        
-        await device.gatt.connect();
-        const service = await device.gatt.getPrimaryService(config.service);
-        const writeChar = await service.getCharacteristic(config.write);
-        const notifyChar = await service.getCharacteristic(config.notify);
-        
-        // Verify we got the characteristics with long UUIDs
-        return {
-          success: true,
-          serviceUuid: service.uuid,
-          writeUuid: writeChar.uuid,
-          notifyUuid: notifyChar.uuid
-        };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    }, { config: longUuidConfig });
-    
-    expect(result.success).toBe(true);
-    console.log('[TEST] Long UUID test passed:', result);
-  });
+  test.describe('forms real Chromium accepts', () => {
+    test('resolves the full lowercase form, and reports canonical uuids', async ({ page }) => {
+      await setupMockPage(page, '<html><body>Canonical UUID</body></html>');
+      const config = getBleConfig();
+      await injectMockInPage(page, config);
 
-  test('should handle mixed UUID formats (long service, short characteristics)', async ({ page }) => {
-    await setupMockPage(page, '<html><body>Mixed UUID Test</body></html>');
-    
-    // Override config to use mixed UUID formats
-    const mixedUuidConfig = {
-      ...getBleConfig(),
-      service: '00009800-0000-1000-8000-00805f9b34fb',   // Long format
-      write: '9900',                                      // Short format
-      notify: '9901'                                      // Short format
-    };
-    
-    // Re-inject mock with mixed UUID config
-    await injectMockInPage(page, mixedUuidConfig);
-    
-    // Test command execution with mixed UUIDs
-    const result = await page.evaluate(async ({ config }) => {
-      try {
-        const device = await navigator.bluetooth.requestDevice({
-          filters: [{ services: [config.service] }]
-        });
-        
-        await device.gatt.connect();
-        const service = await device.gatt.getPrimaryService(config.service);
-        const writeChar = await service.getCharacteristic(config.write);
-        const notifyChar = await service.getCharacteristic(config.notify);
-        
-        // Verify we got the characteristics with mixed UUIDs
-        return {
-          success: true,
-          serviceUuid: service.uuid,
-          writeUuid: writeChar.uuid,
-          notifyUuid: notifyChar.uuid
-        };
-      } catch (error) {
-        return { success: false, error: error.message };
-      }
-    }, { config: mixedUuidConfig });
-    
-    expect(result.success).toBe(true);
-    console.log('[TEST] Mixed UUID test passed:', result);
+      const result = await page.evaluate(async ({ cfg }) => {
+        try {
+          const device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [cfg.service] }]
+          });
+          const server = await device.gatt!.connect();
+          try {
+            const service = await server.getPrimaryService(cfg.service);
+            const writeChar = await service.getCharacteristic(cfg.write);
+            const notifyChar = await service.getCharacteristic(cfg.notify);
+            return {
+              success: true,
+              error: '',
+              serviceUuid: service.uuid,
+              writeUuid: writeChar.uuid,
+              notifyUuid: notifyChar.uuid
+            };
+          } finally {
+            // One writer slot on the bridge: release it, or the next spec's
+            // connect fails with "Device is busy" naming this session.
+            server.disconnect();
+          }
+        } catch (error: any) {
+          return { success: false, error: String(error?.message ?? error) };
+        }
+      }, { cfg: config });
+
+      expect(result.error).toBe('');
+      expect(result.success).toBe(true);
+      expect(result.serviceUuid).toMatch(CANONICAL);
+      expect(result.writeUuid).toMatch(CANONICAL);
+      expect(result.notifyUuid).toMatch(CANONICAL);
+    });
+
+    test('treats a numeric alias and its expansion as one characteristic', async ({ page }) => {
+      await setupMockPage(page, '<html><body>Alias UUID</body></html>');
+      const config = getBleConfig();
+      await injectMockInPage(page, config);
+
+      const result = await page.evaluate(async ({ cfg }) => {
+        try {
+          const device = await navigator.bluetooth.requestDevice({
+            filters: [{ services: [cfg.service] }]
+          });
+          const server = await device.gatt!.connect();
+          try {
+            const service = await server.getPrimaryService(cfg.service);
+            const canonical: string = cfg.notify;
+            if (!canonical.endsWith('-0000-1000-8000-00805f9b34fb')) {
+              return { skipped: true, same: false, uuid: '' };
+            }
+            const alias = parseInt(canonical.slice(0, 8), 16);
+            const viaAlias = await service.getCharacteristic(alias as any);
+            const viaString = await service.getCharacteristic(canonical);
+            return { skipped: false, same: viaAlias === viaString, uuid: viaAlias.uuid };
+          } finally {
+            server.disconnect();
+          }
+        } catch (error: any) {
+          return { skipped: false, same: false, uuid: '', error: String(error?.message ?? error) };
+        }
+      }, { cfg: config });
+
+      test.skip(result.skipped === true, 'configured device has no 16/32-bit UUID alias');
+      expect(result.same, 'alias and expanded string must return the same instance').toBe(true);
+      expect(result.uuid).toMatch(CANONICAL);
+    });
   });
 });

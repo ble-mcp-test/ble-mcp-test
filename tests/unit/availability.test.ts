@@ -17,7 +17,14 @@ import { MockBluetooth } from '../../src/mock-bluetooth.js';
  * `navigator.bluetooth.testing.getReaderState()`.
  */
 
-const CONFIG = { service: '9800', write: '9900', notify: '9901' };
+const CONFIG = {
+  service: '9800',
+  write: '9900',
+  notify: '9901',
+  sessionId: 'availability-test',
+  timeout: 5000,
+  onMultipleDevices: 'error' as const
+};
 
 function mock(serverUrl = 'ws://localhost:25153') {
   return new MockBluetooth(serverUrl, CONFIG);

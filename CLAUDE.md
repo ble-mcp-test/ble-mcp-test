@@ -20,7 +20,11 @@ This repo publishes **two clients** and no server: the browser mock (`ble-mcp-te
 
 The bridge holds **one writer slot** — not a pool, and not keyed on session. A second connection is refused `Device is busy` even carrying the same session id. Release completes when the server processes the socket close, so **await disconnect** or the next connect races it.
 
-The WS contract is specified in `docs/design/2026-08-23-ws-protocol-spec.md` — **treat that document as the acceptance criterion**, not any message count. It is silent on reconnect semantics; `docs/API.md` covers those.
+**Two contracts, both binding.** The wire is `docs/design/2026-08-23-ws-protocol-spec.md` — **treat that document as the acceptance criterion**, not any message count. It is silent on reconnect semantics; `docs/API.md` covers those. The client surface is `docs/design/2026-08-27-client-contract.md`, and `tests/conformance/` is what holds an implementation to it.
+
+**Fidelity to the real Web Bluetooth API outranks the mock.** Where they differ, the mock is wrong — unless it is in the client contract's deliberate-divergences table, with a reason. A consumer's green e2e run is never evidence of fidelity.
+
+**Two entry points, one implementation.** `.` for anything that can `import`, `./browser` (IIFE) for `addInitScript` and `transformIndexHtml`, which cannot. The axis is import-vs-inject, not browser-vs-node. No contract member may have a different value depending on how the package was built.
 
 ## Package Manager
 

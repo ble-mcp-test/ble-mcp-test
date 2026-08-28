@@ -8,7 +8,17 @@ export default defineConfig({
     // '**/.claude/worktrees/**' is load-bearing: that directory is gitignored,
     // but globs do not consult gitignore, so without it a run collects every
     // sibling worktree's tests as this tree's own. See tests/unit/vitest-isolation.test.ts.
-    exclude: ['**/e2e/**', '**/node_modules/**', '**/dist/**', '**/.claude/worktrees/**'],
+    // '**/*.spec.ts' is the file-naming convention that keeps the two runners
+    // apart: *.test.ts is vitest, *.spec.ts is Playwright. tests/conformance/
+    // holds one of each -- arm A and arm B of the same contract -- so the split
+    // has to be by filename, not by directory.
+    exclude: [
+      '**/e2e/**',
+      '**/*.spec.ts',
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/.claude/worktrees/**'
+    ],
     // Force sequential execution for BLE singleton connection
     pool: 'forks',
     poolOptions: {
