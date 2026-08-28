@@ -38,10 +38,23 @@ export const TEST_COMMAND_BYTES = new Uint8Array([
   0xA7, 0xB3, 0x02, 0xD9, 0x82, 0x37, 0x00, 0x00, 0xA0, 0x01
 ]);
 
-// Expected response validation for the test command
+// Expected response validation for the test command.
+//
+// Byte 10 is the TRIGGER STATE, and 0x00 (released) and 0x01 (pressed) are BOTH
+// valid device states. This constant used to require 0x00, which made a run with
+// someone's finger on the trigger report "Invalid response format" while the
+// device behaved perfectly -- a software failure wearing a hardware costume, and
+// the failure class this repo pays for most.
+//
+// platform's frontend/tests/config/cs108.config.ts has had it right since it
+// arrived: "Deterministic response: 0x00 (released) or 0x01 (pressed)". Platform
+// is authoritative for CS108 semantics; this is the correction, not a new rule.
 export const TEST_RESPONSE_VALIDATION = {
   expectedLength: 11,
-  expectedBytes: { 8: 0xA0, 9: 0x01, 10: 0x00 }
+  /** The command echo. Exact -- these identify the response as GET_TRIGGER_STATE. */
+  expectedBytes: { 8: 0xA0, 9: 0x01 },
+  /** The payload. A state, not a constant: every listed value is a valid reading. */
+  triggerState: { index: 10, valid: [0x00, 0x01] }
 } as const;
 
 // Alternative battery command for different test scenarios
@@ -76,12 +89,16 @@ export function isValidDeviceResponse(data: Uint8Array): boolean {
 export function isValidTestResponse(data: Uint8Array): boolean {
   if (!isValidDeviceResponse(data)) return false;
   if (data.length !== TEST_RESPONSE_VALIDATION.expectedLength) return false;
-  
+
   for (const [index, value] of Object.entries(TEST_RESPONSE_VALIDATION.expectedBytes)) {
     if (data[Number(index)] !== value) return false;
   }
-  
-  return true;
+
+  // The trigger state is a reading, so validity is membership in the set of
+  // states the device can report -- not equality with the one it happened to be
+  // in when these constants were written.
+  const { index, valid } = TEST_RESPONSE_VALIDATION.triggerState;
+  return (valid as readonly number[]).includes(data[index]);
 }
 
 /**
