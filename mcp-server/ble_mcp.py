@@ -56,7 +56,7 @@ import json
 import os
 import sys
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, get_type_hints
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -349,6 +349,28 @@ async def status() -> Status:
 TOOLS = (read_stream, search_packets, get_logs, get_connection_state, status)
 
 
+def _takes_disabled_hint(tool) -> bool:
+    """Does an empty result from this tool mean anything ambiguous?
+
+    Only for the tools whose result is a slice of the ring, and that is decided by
+    asking their return model whether it carries `buffer_enabled` -- not by a list
+    of names kept alongside. A hand-list drifts: a new buffer-backed tool gets added
+    without its warning, and nothing says so.
+
+    It used to go on every tool. `status` reports `log_buffer_enabled` outright and
+    `get_connection_state`'s packet counters are lifetime totals that keep counting
+    while the ring is off, so neither has an ambiguous empty to warn about -- and a
+    warning that fires where it does not apply trains the reader to skip the line,
+    which is how the one real instance goes past unremarked.
+    """
+    # get_type_hints rather than __annotations__: `from __future__ import
+    # annotations` makes every annotation in this file a string, and a string has
+    # no model_fields. Reading the raw dict would raise here rather than answer
+    # wrongly, which is the only reason it is not also a silent bug.
+    return "buffer_enabled" in get_type_hints(tool)["return"].model_fields
+
+
+
 def build_server() -> MCPServer:
     """Register the five tools on a fresh server.
 
@@ -359,10 +381,10 @@ def build_server() -> MCPServer:
     """
     server = MCPServer(name="ble-mcp-test", version=VERSION)
     for tool in TOOLS:
-        server.tool(
-            name=tool.__name__,
-            description=f"{tool.__doc__.strip()}\n\n{_DISABLED_HINT}",
-        )(tool)
+        doc = tool.__doc__.strip()
+        if _takes_disabled_hint(tool):
+            doc = f"{doc}\n\n{_DISABLED_HINT}"
+        server.tool(name=tool.__name__, description=doc)(tool)
     return server
 
 
