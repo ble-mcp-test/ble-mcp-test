@@ -4,4 +4,4 @@
 # hatchling reads this file too -- pyproject.toml declares `dynamic = ["version"]`
 # and points [tool.hatch.version] here -- so the package metadata and
 # `ble_bridge.__version__` cannot disagree.
-VERSION = "0.13.0"
+VERSION = "0.14.0"

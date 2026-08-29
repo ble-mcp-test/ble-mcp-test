@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0]
+
+### Added
+
+- **The connected mock's version is readable over MCP, not just loggable.**
+  `get_connection_state` gains `mock_version`, `mock_version_expected` and
+  `mock_version_match`; `status` gains `mock_version_mismatches`. Additive only —
+  no existing field changed, and nothing on the wire moved.
+
+  TRA-1200's 150-rep hardware measurement ran browser mock 0.12.0 against bridge
+  0.13.0. The bridge noticed on every one of the 150 connections and warned every
+  time; **nothing consumed the warning**, so the run completed and was analysed
+  before anyone knew. It survived a clean tree, a lockfile pinning 0.13.0 and a
+  `node_modules` symlink pointing at 0.13.0 — every repo-level check was right,
+  and every one of them was answering a question about the tree rather than about
+  the running process. The bridge was the only party that could see the truth and
+  the only one with no way to say so.
+
+  `mock_version_match` is **three-valued, and that is the point**. `false` means
+  checked and different; `null` means the question could not be asked — nothing
+  connected, no version announced, or ours unresolvable. A consumer that cannot
+  tell those apart is back where this started. The predicate lives once, in
+  `mock_version.compare()`, because the counter increments exactly where it
+  returns `false`: two hand-written copies would be free to drift, and the drift
+  would surface as a counter disagreeing with the snapshot beside it, with
+  nothing to say which was lying.
+
+  **Poll the counter, not the snapshot.** Between test repetitions the command
+  path reads `held: false`, so with ~27s reps against a 300s poll most samples
+  land where the snapshot is legitimately null — it is unmissable only if you
+  happen to sample mid-run. `mock_version_mismatches` is monotonic for the life
+  of the process, incremented once per mismatching connection and reset by
+  nothing short of a restart. Same idiom as `systemctl show -p NRestarts` for the
+  daemon itself.
+
+  **It reports; it does not refuse.** The bridge can see *that* the versions
+  differ, but whether the difference matters is semantic — on the evidence of
+  those 150 reps, 0.12 against 0.13 was fully functional. Refusing would make
+  every routine bump on either side an outage for a tool whose primary job is
+  availability, and would bake one consumer's strictness into a shared tool. The
+  one case that would justify refusing keys on a *protocol* version, not on the
+  npm package version, and is not this.
+
+  The existing warning log line is retained: it is the human-readable half and
+  costs nothing. `ble_mcp.py --check` appends the count only when it is non-zero,
+  because a clause that fires every time is one nobody reads — which is how the
+  original warning went unremarked.
+
 ## [0.13.0]
 
 ### Changed
