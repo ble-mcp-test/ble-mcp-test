@@ -109,6 +109,14 @@ class Claim:
 
     session: str
     path: CommandPath
+    #: The `_mv` this connection arrived with, or None if it sent none. Carried
+    #: on the claim rather than looked up later because it is a property of the
+    #: connection that took the slot, and by the time anyone asks, the
+    #: connection's parameters are gone. TRA-1211: this is what
+    #: get_connection_state reports, and it is the WRITER's version -- an
+    #: observer's stale mock must not be attributed to the writer driving the
+    #: device.
+    mock_version: str | None = None
     evicted: Claim | None = None
     #: Set on the DISPLACED claim, naming who displaced it, so its own handler can
     #: tell the client why its stream ended rather than just dropping the socket.
@@ -230,7 +238,7 @@ class CommandPath:
     def holder(self) -> Claim | None:
         return self._held
 
-    def claim(self, session: str, *, force: bool) -> Claim:
+    def claim(self, session: str, *, force: bool, mock_version: str | None = None) -> Claim:
         """Take the command path, or raise saying who has it.
 
         Synchronous on purpose: the slot is occupied from this instant, before the
@@ -239,7 +247,7 @@ class CommandPath:
         """
         current = self._held
         if current is None:
-            self._held = Claim(session=session, path=self)
+            self._held = Claim(session=session, path=self, mock_version=mock_version)
             return self._held
 
         if not force:
@@ -253,7 +261,7 @@ class CommandPath:
             raise CommandPathNotReady
 
         current.evicted_by = session
-        self._held = Claim(session=session, path=self, evicted=current)
+        self._held = Claim(session=session, path=self, mock_version=mock_version, evicted=current)
         return self._held
 
     def observe(self, session: str = "") -> Subscription:

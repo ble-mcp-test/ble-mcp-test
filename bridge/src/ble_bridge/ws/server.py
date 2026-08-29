@@ -32,7 +32,7 @@ from websockets.datastructures import Headers
 from ble_bridge import __version__, write_mode
 from ble_bridge.config import Config
 from ble_bridge.log_buffer import RX, TX, LogBuffer
-from ble_bridge.mock_version import expected_mock_version
+from ble_bridge.mock_version import MockVersionWatch
 from ble_bridge.transport import BleTransport, TransportError, TransportFactory
 from ble_bridge.ws import protocol as p
 from ble_bridge.ws import status as status_endpoint
@@ -45,7 +45,6 @@ from ble_bridge.ws.ownership import (
     Subscription,
 )
 from ble_bridge.ws.params import (
-    MOCK_VERSION_PARAM,
     ConnectionParams,
     InvalidParameterError,
     MissingParametersError,
@@ -79,6 +78,11 @@ class BridgeServer:
         self._server: Server | None = None
         self._port: int | None = None
         self._path = CommandPath()
+        # One watch per process, owned here and READ by ControlServer. Built
+        # here rather than at each end because a second instance would count
+        # perfectly and report zero, which is indistinguishable from a healthy
+        # fleet -- the exact shape of the TRA-1200 failure this answers.
+        self._mock_versions = MockVersionWatch()
         # `__main__` passes the buffer that `logging_setup.configure` already
         # attached its handler to, so log lines and relayed packets land in ONE
         # ordered record. Two rings cannot answer "what was on the wire when the
@@ -101,6 +105,12 @@ class BridgeServer:
     @property
     def command_path(self) -> CommandPath:
         return self._path
+
+    @property
+    def mock_versions(self) -> MockVersionWatch:
+        """What TRA-1211's `mock_version*` fields are read from. See
+        ble_bridge.mock_version for why the bridge reports rather than rejects."""
+        return self._mock_versions
 
     async def start(self) -> int:
         """Bind and begin serving. Returns the port actually bound.
@@ -181,7 +191,10 @@ class BridgeServer:
             await _refuse(ws, str(exc), exc.code)
             return
 
-        _log_mock_version(params)
+        # Every connection, writer or observer, before the role branch: the
+        # warning always covered both, and a counter that disagreed with the
+        # warnings beside it would be read as a bug in one of them.
+        self._mock_versions.observe(params.mock_version)
 
         if params.role is Role.OBSERVER:
             await self._observe(ws, params)
@@ -192,7 +205,9 @@ class BridgeServer:
 
     async def _write(self, ws: ServerConnection, params: ConnectionParams) -> None:
         try:
-            claim = self._path.claim(params.session, force=params.force)
+            claim = self._path.claim(
+                params.session, force=params.force, mock_version=params.mock_version
+            )
         except OwnershipError as exc:
             logger.warning("refused a writer for session %s: %s", params.session, exc)
             await _refuse(ws, str(exc), exc.code)
@@ -608,35 +623,3 @@ async def _refuse(ws: ServerConnection, message: str, code: str) -> None:
         return
     await ws.close()
 
-
-def _log_mock_version(params: ConnectionParams) -> None:
-    """Telemetry only.
-
-    The spec is explicit that both outcomes here are server-side logging: no
-    message is sent to the client, nothing is rejected, no behaviour changes.
-    `_mv` is version *observation*, not negotiation, and porting it as
-    negotiation would invent a mechanism that has never existed. If real
-    negotiation is wanted it should be designed rather than inherited.
-    """
-    if params.mock_version is None:
-        logger.warning(
-            "WebSocket connection with no %s: this client is bypassing the Web Bluetooth "
-            "mock and connecting directly. It should be using injectWebBluetoothMock(). "
-            "See README.md.",
-            MOCK_VERSION_PARAM,
-        )
-        return
-
-    expected = expected_mock_version()
-    if expected is None:
-        logger.debug(
-            "cannot compare %s=%s: the npm package version could not be resolved",
-            MOCK_VERSION_PARAM,
-            params.mock_version,
-        )
-    elif params.mock_version != expected:
-        logger.warning(
-            "mock version mismatch: expected %s, got %s",
-            expected,
-            params.mock_version,
-        )

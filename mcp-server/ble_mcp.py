@@ -276,6 +276,24 @@ class ConnectionState(BridgeReply):
     observer_count: int = Field(description="Read-only connections attached to the owner.")
     packets_transmitted: int = Field(description="Lifetime total for the bridge process.")
     packets_received: int = Field(description="Lifetime total for the bridge process.")
+    mock_version: str | None = Field(
+        description="The npm version of the browser mock that OWNS the command path, "
+        "as it announced itself on connect. Null when nothing holds the path, or when "
+        "the client connected without the mock injected. Observers are not reported "
+        "here -- a stray tab running an old build must not be attributed to the "
+        "writer actually driving the device."
+    )
+    mock_version_expected: str | None = Field(
+        description="The npm version this bridge ships with. Null if it could not be "
+        "resolved from package.json."
+    )
+    mock_version_match: bool | None = Field(
+        description="Three-valued, and the distinction is the whole point. False means "
+        "CHECKED AND DIFFERENT. Null means could not check -- nothing connected, no "
+        "version announced, or ours unresolvable. Never read null as agreement: a "
+        "150-rep hardware run was analysed before anyone noticed the mock was a minor "
+        "version behind, because the only signal was a log line nobody consumed."
+    )
 
 
 class Status(BridgeReply):
@@ -302,6 +320,13 @@ class Status(BridgeReply):
         description="Monotonic seconds since process start. Not superseded by "
         "instance_id: CLOCK_MONOTONIC does not advance across host suspend, so "
         "elapsed-time arithmetic over this catches a gap that instance_id cannot."
+    )
+    mock_version_mismatches: int = Field(
+        description="Connections seen since start whose mock version differed from "
+        "this bridge's. Monotonic, reset only by a restart. This is the field to poll: "
+        "get_connection_state's snapshot reads null in the gap between test "
+        "repetitions, so it is only unmissable if the poll lands mid-run. Baseline "
+        "this at the start of a soak and abort if it moves."
     )
     ws_host: str
     ws_port: int
@@ -366,6 +391,12 @@ async def get_connection_state() -> ConnectionState:
 
     The packet counters are lifetime totals for the bridge process and keep
     counting even when the log buffer is switched off.
+
+    `mock_version_match` is three-valued: false means the owner's browser mock is
+    a different version from this bridge's, null means the question could not be
+    asked. Read null as "unknown", never as agreement. A difference is reported,
+    not refused -- whether it matters is the consumer's call, and `status` carries
+    the counter to poll if you cannot guarantee sampling mid-connection.
     """
     return ConnectionState(**await ask("get_connection_state"))
 
@@ -377,6 +408,11 @@ async def status() -> Status:
     think you are reading: the WebSocket bind, the log level actually in force, the
     ring size, and whether an ESPHome proxy is configured or the stub transport is
     in play.
+
+    `mock_version_mismatches` is the field to poll during a long run: monotonic
+    for the life of the process, so comparing two samples catches a stale browser
+    mock that connected and disconnected between them. `get_connection_state`
+    cannot -- its snapshot is null whenever nothing is connected.
     """
     return Status(**await ask("status"))
 
@@ -449,10 +485,18 @@ async def _check_once() -> str:
     conn = await get_connection_state()
     device = f"{conn.device_name} (session {conn.session})" if conn.held else "no device held"
     ring = f"{st.log_buffer_size} entries" if st.log_buffer_enabled else "DISABLED"
+    # Appended only when the count has moved. A clause on every healthy line is
+    # one nobody reads, which is exactly how the original warning went
+    # unremarked through 150 hardware reps.
+    stale = (
+        f", {st.mock_version_mismatches} mock version mismatches since start"
+        if st.mock_version_mismatches
+        else ""
+    )
     return (
         f"bridge up on {st.socket_path}: ws {st.ws_host}:{st.ws_port}, "
         f"up {st.uptime_seconds:.0f}s, buffer {ring}, {device}, "
-        f"{conn.packets_transmitted} TX / {conn.packets_received} RX"
+        f"{conn.packets_transmitted} TX / {conn.packets_received} RX{stale}"
     )
 
 

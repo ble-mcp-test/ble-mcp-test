@@ -59,6 +59,7 @@ from typing import Any, Final
 from ble_bridge import __version__, identity, write_mode
 from ble_bridge.config import LOG_BUFFER_SIZE_ENV, SOCKET_PATH_ENV, Config
 from ble_bridge.log_buffer import LogBuffer, LogEntry
+from ble_bridge.mock_version import MockVersionWatch
 from ble_bridge.ws.ownership import CommandPath
 
 logger = logging.getLogger(__name__)
@@ -102,11 +103,18 @@ class ControlServer:
         *,
         log_buffer: LogBuffer,
         command_path: CommandPath,
+        mock_versions: MockVersionWatch,
         started_at: float,
     ) -> None:
         self._config = config
         self._buffer = log_buffer
         self._path = command_path
+        # Required, not defaulted. A ControlServer that quietly built its own
+        # watch would report `mock_version_mismatches: 0` for the life of the
+        # process while the relay counted elsewhere -- a wrong answer wearing a
+        # right one's clothes, which is the failure class this whole surface
+        # exists to close.
+        self._mock_versions = mock_versions
         self._started_at = started_at
         self._server: asyncio.Server | None = None
         self._handlers = {
@@ -304,6 +312,9 @@ class ControlServer:
             # LogBuffer.push_packet for why they are counted even when it is off.
             "packets_transmitted": self._buffer.packets_tx,
             "packets_received": self._buffer.packets_rx,
+            # TRA-1211. Scoped to the holder, and three-valued: `null` is
+            # "could not check", never "checked and they agree".
+            **self._mock_versions.report(holder.mock_version if holder is not None else None),
         }
 
     def _status(self) -> dict[str, Any]:
@@ -319,6 +330,10 @@ class ControlServer:
             "code_fingerprint": identity.CODE_FINGERPRINT,
             "code_source_root": identity.SOURCE_ROOT,
             "uptime_seconds": round(time.monotonic() - self._started_at, 3),
+            # Monotonic for the life of the process, so a watchdog can compare
+            # two polls rather than hoping one lands mid-connection. See
+            # MockVersionWatch.mismatches.
+            "mock_version_mismatches": self._mock_versions.mismatches,
             "ws_host": self._config.ws_host,
             "ws_port": self._config.ws_port,
             "ws_loopback": self._config.is_loopback,

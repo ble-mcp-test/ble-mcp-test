@@ -97,6 +97,7 @@ async def _run(config: Config, log_buffer: LogBuffer) -> None:
         config,
         log_buffer=log_buffer,
         command_path=server.command_path,
+        mock_versions=server.mock_versions,
         started_at=time.monotonic(),
     )
     await control.start()

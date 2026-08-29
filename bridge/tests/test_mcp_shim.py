@@ -29,6 +29,7 @@ import pytest
 from ble_bridge.config import Config, default_socket_path
 from ble_bridge.control import ControlServer
 from ble_bridge.log_buffer import INFO, RX, TX, LogBuffer
+from ble_bridge.mock_version import MockVersionWatch
 from ble_bridge.transport import DeviceInfo
 from ble_bridge.ws.ownership import CommandPath
 
@@ -76,6 +77,7 @@ async def wired(shim, tmp_path, monkeypatch):
         Config(socket_path=sock),
         log_buffer=buf,
         command_path=path,
+        mock_versions=MockVersionWatch(),
         started_at=time.monotonic(),
     )
     await srv.start()
@@ -144,6 +146,7 @@ async def test_a_disabled_buffer_is_announced_not_empty(shim, tmp_path, monkeypa
         Config(socket_path=sock),
         log_buffer=LogBuffer(0),
         command_path=CommandPath(),
+        mock_versions=MockVersionWatch(),
         started_at=time.monotonic(),
     )
     await srv.start()
@@ -190,6 +193,43 @@ async def test_get_connection_state_reports_the_owner(wired):
         assert out.observer_count == 0
     finally:
         claim.release()
+
+
+async def test_the_mock_version_fields_are_declared_not_merely_passed_through(shim):
+    """The value tests below would pass without this, and that is the point.
+
+    BridgeReply lets an undeclared field through, so asserting on the VALUE
+    proves the bridge sent it and nothing about whether this shim knows it
+    exists. What an MCP caller reads is the output schema, and an undeclared
+    field is absent from it -- the same silence the journal line already had.
+    """
+    tools = {t.name: t for t in await shim.build_server().list_tools()}
+    state = tools["get_connection_state"].output_schema["properties"]
+    assert {"mock_version", "mock_version_expected", "mock_version_match"} <= set(state)
+    assert "mock_version_mismatches" in tools["status"].output_schema["properties"]
+
+
+async def test_get_connection_state_carries_the_mock_version_over_mcp(wired):
+    shim, _, path = wired
+    claim = path.claim("s1", force=False, mock_version="0.12.0")
+    try:
+        out = await shim.get_connection_state()
+        assert out.mock_version == "0.12.0"
+        assert out.mock_version_match is False
+    finally:
+        claim.release()
+
+
+async def test_an_idle_bridge_reports_an_unknown_mock_version_over_mcp(wired):
+    shim, _, _ = wired
+    out = await shim.get_connection_state()
+    assert out.mock_version is None
+    assert out.mock_version_match is None
+
+
+async def test_status_carries_the_mismatch_counter_over_mcp(wired):
+    shim, _, _ = wired
+    assert (await shim.status()).mock_version_mismatches == 0
 
 
 async def test_status_names_the_socket_and_no_http(wired):
@@ -309,6 +349,33 @@ async def test_check_reports_a_live_bridge_and_exits_zero(wired, tmp_path):
     stdout, _ = await asyncio.wait_for(proc.communicate(), 120)
     assert proc.returncode == 0
     assert "wired.sock" in stdout.decode()
+    assert "mock version" not in stdout.decode()
+
+
+async def test_check_says_so_when_a_stale_mock_has_connected(shim, tmp_path, monkeypatch):
+    """The one human-facing summary in this repo has to carry the count.
+
+    Silent on a healthy bridge -- a line that fires every time is one nobody
+    reads, which is how the original warning went unremarked -- and loud the
+    moment the counter has moved.
+    """
+    sock = str(tmp_path / "stale.sock")
+    monkeypatch.setenv("BLE_MCP_SOCKET_PATH", sock)
+    watch = MockVersionWatch()
+    watch.observe("0.0.1-nope")
+    watch.observe("0.0.1-nope")
+    srv = ControlServer(
+        Config(socket_path=sock),
+        log_buffer=LogBuffer(100),
+        command_path=CommandPath(),
+        mock_versions=watch,
+        started_at=time.monotonic(),
+    )
+    await srv.start()
+    try:
+        assert "2 mock version mismatches" in await shim._check_once()
+    finally:
+        await srv.stop()
 
 
 async def test_status_exposes_process_identity_over_mcp(wired):
@@ -384,6 +451,7 @@ async def wired_to_a_newer_bridge(shim, tmp_path, monkeypatch):
         Config(socket_path=sock),
         log_buffer=buf,
         command_path=path,
+        mock_versions=MockVersionWatch(),
         started_at=time.monotonic(),
     )
     answer_status = srv._handlers["status"]

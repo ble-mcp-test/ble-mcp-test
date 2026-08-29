@@ -25,6 +25,7 @@ import pytest
 from ble_bridge.config import Config, from_env
 from ble_bridge.control import MAX_LINE_BYTES, ControlServer
 from ble_bridge.log_buffer import ERROR, INFO, RX, TX, LogBuffer
+from ble_bridge.mock_version import MockVersionWatch, expected_mock_version
 from ble_bridge.transport import DeviceInfo
 from ble_bridge.ws.ownership import CommandPath
 
@@ -56,11 +57,12 @@ def _a_free_port() -> int:
 CONTROL_TEST_PORT = 25153
 
 
-def _make(path, buffer=None, command_path=None):
+def _make(path, buffer=None, command_path=None, mock_versions=None):
     return ControlServer(
         Config(ws_port=CONTROL_TEST_PORT, socket_path=str(path)),
         log_buffer=buffer if buffer is not None else LogBuffer(100),
         command_path=command_path if command_path is not None else CommandPath(),
+        mock_versions=mock_versions if mock_versions is not None else MockVersionWatch(),
         started_at=time.monotonic(),
     )
 
@@ -73,6 +75,19 @@ async def server(tmp_path):
     await srv.start()
     try:
         yield srv, buf, path
+    finally:
+        await srv.stop()
+
+
+@pytest.fixture
+async def versioned(tmp_path):
+    """A control server whose mock-version watch the test can drive directly."""
+    watch = MockVersionWatch()
+    path = CommandPath()
+    srv = _make(tmp_path / "v.sock", command_path=path, mock_versions=watch)
+    await srv.start()
+    try:
+        yield srv, path, watch
     finally:
         await srv.stop()
 
@@ -223,6 +238,66 @@ async def test_get_connection_state_reports_the_owner_and_its_observers(server):
         claim.release()
 
 
+async def test_get_connection_state_reports_the_holders_mock_version(versioned):
+    srv, path, _ = versioned
+    claim = path.claim("s1", force=False, mock_version="0.12.0")
+    try:
+        result = (await _ask(srv, "get_connection_state"))["result"]
+        assert result["mock_version"] == "0.12.0"
+        assert result["mock_version_expected"] == expected_mock_version()
+        assert result["mock_version_match"] is False
+    finally:
+        claim.release()
+
+
+async def test_get_connection_state_reports_a_healthy_holder_as_matching(versioned):
+    srv, path, _ = versioned
+    claim = path.claim("s1", force=False, mock_version=expected_mock_version())
+    try:
+        result = (await _ask(srv, "get_connection_state"))["result"]
+        assert result["mock_version_match"] is True
+    finally:
+        claim.release()
+
+
+async def test_get_connection_state_says_unknown_rather_than_mismatch_when_idle(versioned):
+    """An empty command path has no version to check, and `null` says so.
+
+    `false` here would be a lie a consumer cannot detect: it would read as
+    "checked, and they differ" on a bridge nobody is even connected to.
+    """
+    srv, _, _ = versioned
+    result = (await _ask(srv, "get_connection_state"))["result"]
+    assert result["mock_version"] is None
+    assert result["mock_version_match"] is None
+
+
+async def test_get_connection_state_says_unknown_when_the_client_sent_no_version(versioned):
+    srv, path, _ = versioned
+    claim = path.claim("s1", force=False)
+    try:
+        result = (await _ask(srv, "get_connection_state"))["result"]
+        assert result["mock_version"] is None
+        assert result["mock_version_match"] is None
+    finally:
+        claim.release()
+
+
+async def test_status_carries_the_lifetime_mismatch_counter(versioned):
+    """The field a soak watchdog keys on, because it cannot be missed between polls.
+
+    `get_connection_state` reads `held: false` in the gap between test
+    repetitions, so a snapshot only catches a mismatch if the poll lands
+    mid-rep. A monotonic counter is comparable across two polls whatever they
+    landed on.
+    """
+    srv, _, watch = versioned
+    assert (await _ask(srv, "status"))["result"]["mock_version_mismatches"] == 0
+    watch.observe("0.0.1-nope")
+    watch.observe("0.0.1-nope")
+    assert (await _ask(srv, "status"))["result"]["mock_version_mismatches"] == 2
+
+
 async def test_status_reports_the_resolved_configuration(server):
     srv, _, _ = server
     result = (await _ask(srv, "status"))["result"]
@@ -259,6 +334,7 @@ async def test_status_names_the_esphome_target_when_one_is_configured(tmp_path):
         config,
         log_buffer=LogBuffer(10),
         command_path=CommandPath(),
+        mock_versions=MockVersionWatch(),
         started_at=time.monotonic(),
     )
     await srv.start()
