@@ -200,19 +200,53 @@ export function checkoutOf(pid) {
 }
 
 /**
- * Committer timestamp of the last commit touching `bridge/` in `checkout`, or
- * null when there is none.
+ * Committer timestamp of the last commit touching the code the daemon RUNS, in
+ * `checkout`, or null when there is none.
  *
  * `git -C <checkout>` is load-bearing and is the trap TRA-1202 hit while
  * verifying this by hand: a pathspec is relative to the working directory, so
  * `git log -- bridge/` run from inside `bridge/` means `bridge/bridge/` and
  * returns empty -- which reads as "no commits" rather than as "wrong query",
  * and an empty answer here would look like a daemon that cannot be stale.
+ *
+ * ## Why `bridge/tests/` is excluded
+ *
+ * This leg and the mtime leg were scoped independently, and the gap between them
+ * went unnoticed until something landed in it. On 2026-08-29 a commit touching
+ * only `bridge/tests/test_mcp_shim.py` produced a STALE for a daemon whose
+ * `bridge/src` was demonstrably OLDER than it -- the mtime leg said current, this
+ * leg said stale, and this leg was wrong. The daemon does not run the tests.
+ *
+ * It failed safe, which is why it survived. But `bridge/tests/` changes on most
+ * bridge work, so it was a recurring false alarm rather than a rare one, and a
+ * guard that cries wolf on ordinary commits is a guard someone eventually
+ * loosens. The hazard was never the false STALE; it was the future edit that
+ * widens something to stop the noise and takes the real check with it.
+ *
+ * ## Why an EXCLUSION rather than a list of what to include
+ *
+ * These read as equivalent and are not:
+ *
+ *     -- bridge/src/ bridge/pyproject.toml bridge/uv.lock   // WRONG
+ *     -- bridge/ ':(exclude)bridge/tests/'                  // RIGHT
+ *
+ * The inclusion form **fails open**: a file added under `bridge/` later defaults
+ * to "does not affect the daemon", and the guard silently stops covering it. The
+ * exclusion form **fails safe**: anything new defaults to counting, costing at
+ * most one `just bridge-restart` until someone decides otherwise. Given this
+ * file's standing trade -- a false STALE costs a restart, a false CURRENT is the
+ * whole failure and is silent -- only the second form is defensible.
+ * `bridge-staleness.test.ts` asserts that default rather than trusting it.
+ *
+ * Note also that `bridge/src` alone would be too narrow even as an inclusion:
+ * `pyproject.toml` carries the dependencies and the dynamic version, and
+ * `uv.lock` carries the resolved dependency set. Both change what the daemon runs
+ * without touching `bridge/src`.
  */
 export function lastBridgeCommitAt(checkout) {
   const out = execFileSync(
     'git',
-    ['-C', checkout, 'log', '-1', '--format=%ct', '--', 'bridge/'],
+    ['-C', checkout, 'log', '-1', '--format=%ct', '--', 'bridge/', ':(exclude)bridge/tests/'],
     EXEC
   ).trim();
   return out ? Number(out) : null;
