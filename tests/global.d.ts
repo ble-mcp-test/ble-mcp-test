@@ -28,7 +28,42 @@ interface Window {
 }
 
 declare module '*/port-cleanup.js' {
+  export const PROTECTED_MARKERS: readonly string[];
   export function listenerPidsOnPort(port: number): number[];
   export function isProtectedProcess(pid: number): boolean;
   export function killPort(port: number, log?: (message: string) => void): boolean;
+}
+
+declare module '*/bridge-staleness.js' {
+  export const REPO_ROOT: string;
+  export const DEFAULT_WS_PORT: number;
+  export function resolveBridgePort(opts?: {
+    env?: Record<string, string | undefined>;
+    repoRoot?: string;
+  }): number;
+  export function processStartedAt(pid: number): number;
+  export function checkoutOf(pid: number): string | null;
+  export function lastBridgeCommitAt(checkout: string): number | null;
+  export function newestSourceMtime(checkout: string): number | null;
+  export function assertBridgeCurrent(opts?: {
+    port?: number;
+    log?: (message: string) => void;
+  }): {
+    checked: boolean;
+    port: number;
+    reason?: string;
+    pid?: number;
+    checkout?: string;
+    started?: number;
+    committed?: number;
+    sourceAt?: number | null;
+  };
+}
+
+declare module '*/bridge-service.js' {
+  export const REPO_ROOT: string;
+  export const UNIT: string;
+  export const TEMPLATE: string;
+  export function installedUnitPath(home?: string): string;
+  export function renderUnit(template: string, repoRoot: string): string;
 }

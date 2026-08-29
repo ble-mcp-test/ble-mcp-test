@@ -13,6 +13,9 @@ pnpm add -D ble-mcp-test
 # Run the bridge (reaches the device over TCP via an ESPHome proxy)
 cd bridge && uv run python -m ble_bridge
 
+# ...or supervise it, which is what a machine with a reader attached should do:
+just bridge-install     # a systemd --user unit; see docs/bridge-service.md
+
 # Use in your tests
 import { injectWebBluetoothMock } from 'ble-mcp-test/browser';
 injectWebBluetoothMock({
@@ -453,6 +456,7 @@ This is especially useful when:
 ## Documentation
 
 - [Best Practices](docs/best-practices.md) - **Start here!** Proper configuration and patterns
+- [Running the Bridge as a Service](docs/bridge-service.md) - the systemd `--user` unit, and the staleness guard that stops a long-lived daemon answering a run with old code
 - [API Reference](docs/API.md) - Detailed API docs and protocol info
 - [Examples](docs/examples.md) - More usage patterns and test scenarios
 - [Architecture Details](docs/architecture.md) - Deep dive into internals

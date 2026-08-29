@@ -7,8 +7,14 @@ import { execSync } from 'child_process';
  * `ble_bridge` is the Python bridge, which runs as
  * `.../bridge/.venv/bin/python3 -m ble_bridge`. It is the only thing this repo
  * can now find holding 25153, and killing it mid-run is the TRA-1170 bug.
+ *
+ * Exported because `deploy/ble-bridge.service` has to keep matching it. The venv
+ * also ships a `ble-bridge` console script whose argv reads `.../bin/ble-bridge`
+ * -- a HYPHEN -- and pointing ExecStart at that would make the daemon stop
+ * matching this list, so pretest would kill the supervised bridge to free the
+ * port. tests/unit/bridge-service-unit.test.ts asserts the two agree.
  */
-const PROTECTED_MARKERS = ['ble_bridge'];
+export const PROTECTED_MARKERS = ['ble_bridge'];
 
 const EXEC = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
 

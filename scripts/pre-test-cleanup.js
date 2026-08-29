@@ -12,6 +12,7 @@ import { readdirSync, readFileSync, realpathSync } from 'fs';
 import net from 'net';
 import path from 'path';
 import { killPort } from './port-cleanup.js';
+import { assertBridgeCurrent } from './bridge-staleness.js';
 
 const DEFAULT_TEST_PORTS = [25153, 25154, 25155, 25156];
 const COOLDOWN_MS = 5000;
@@ -139,6 +140,19 @@ async function cleanup() {
   }
   
   
+  // 3. Refuse to run against a bridge that is older than the code it serves.
+  //
+  // After the sweep, not before: anything on the bridge port that is NOT the
+  // bridge has been killed by now, so a listener still standing here is the one
+  // that will answer this run.
+  //
+  // The bridge is a long-lived systemd --user service (deploy/ble-bridge.service),
+  // and nothing restarts it when bridge/ changes. An always-on service is a stale
+  // server, and supervision makes that more likely rather than less: nobody
+  // thinks to restart something that never crashes.
+  console.log('\nChecking the bridge is not older than the code it serves...');
+  assertBridgeCurrent();
+
   // 4. Apply cooldown period if we killed anything
   if (killedAny) {
     console.log(`\n⏳ Applying ${COOLDOWN_MS}ms cooldown for hardware recovery...`);
@@ -172,5 +186,14 @@ async function cleanup() {
   console.log('\n✅ Pre-test cleanup complete!');
 }
 
-// Run cleanup
-cleanup().catch(console.error);
+// Run cleanup.
+//
+// The non-zero exit is load-bearing, not tidiness. This was
+// `cleanup().catch(console.error)`, which printed the failure and exited 0 --
+// so every check inside cleanup() was one that could report a problem and could
+// not stop the run it was gating. The staleness guard above is worthless
+// without this line.
+cleanup().catch((e) => {
+  console.error(`\n${e instanceof Error ? e.message : e}\n`);
+  process.exit(1);
+});

@@ -1,0 +1,104 @@
+# The bridge daemon, supervised.
+#
+# TEMPLATE, not an installable unit: `@REPO_ROOT@` is substituted with the
+# absolute path of this checkout by `scripts/bridge-service.js render`, which is
+# what `just bridge-install` runs. Nothing here is specific to the machine it was
+# written on, so a second checkout -- a peer container, another box -- installs
+# the same file and gets its own bridge. See docs/bridge-service.md.
+#
+# Install:  just bridge-install     Restart after a merge:  just bridge-restart
+
+[Unit]
+Description=ble-mcp-test bridge (WebSocket relay to a BLE device via an ESPHome proxy)
+Documentation=https://github.com/ble-mcp-test/ble-mcp-test
+Documentation=file://@REPO_ROOT@/docs/bridge-service.md
+
+# There is deliberately no network ordering, and it is not an oversight.
+#
+# `network-online.target` does not exist in a user manager -- `systemctl --user
+# show network-online.target` reports LoadState=not-found on this box -- so a
+# `Wants=`/`After=` pair naming it would be inert while reading as a real
+# dependency. And it is not needed: `transport_factory` in bridge/src/ble_bridge/
+# esphome.py connects to the proxy per WebSocket session, never at startup
+# ("Builds one transport per WebSocket connection. Never connects here."). The
+# only sockets this daemon opens at start are loopback and a unix socket.
+
+# A start failure here is always a configuration failure -- nothing at startup
+# touches the network -- so it is permanent, and looping on it forever would just
+# hide it. Five attempts five seconds apart is 25s, inside the 60s window, so a
+# missing .env.local reaches `failed` rather than `auto-restart` and says so.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# The repo root, not bridge/, is where .env.local lives, and `_load_env_file()`
+# searches UPWARD from the working directory to find it. This also makes
+# /proc/<pid>/cwd name the checkout, which is what scripts/bridge-staleness.js
+# reads to decide whether this daemon predates its own code.
+WorkingDirectory=@REPO_ROOT@/bridge
+
+# NO leading dash, and this is the whole point of the line.
+#
+# `EnvironmentFile=-` means "start anyway if the file is missing", which brings
+# up a daemon with no ESPHOME_PROXY_HOST and no BLE_MCP_DEVICE_MAC. That is
+# TRA-1184 exactly: a bridge that reports healthy, relays nothing, and passes a
+# browser suite green because trigger injection is mock-side. A missing env file
+# must be a hard start failure. Do not copy the dash from platform's
+# deploy/edge/mqtt-rpc/mqtt-rpcd.service -- take its shape, not that character.
+EnvironmentFile=@REPO_ROOT@/.env.local
+
+# Nothing sets BLE_MCP_LOG_LEVEL here, deliberately.
+#
+# Measured on systemd 255, both declaration orders: `EnvironmentFile=` ALWAYS
+# overrides `Environment=` for the same key. So an `Environment=BLE_MCP_LOG_LEVEL
+# =info` line would be silently beaten by .env.local and the unit would state a
+# level the process was not running at -- and at debug the log grew ~270MB in
+# eight hours. config.py already defaults to INFO, so the line would also do
+# nothing on a box that omits the key: no case in which it has an effect.
+# .env.local is the single source of truth, and `just bridge-check` asserts what
+# the daemon actually resolved.
+
+# `python3 -m ble_bridge`, NOT `uv run` and NOT the `ble-bridge` console script.
+#
+# Two separate reasons, both mechanical:
+#   - `uv run` is a wrapper process. MainPID would be the wrapper rather than the
+#     daemon, and boot would depend on uv deciding whether to sync.
+#   - the console script's argv reads `.../bin/ble-bridge` -- a HYPHEN. The
+#     protected-process marker in scripts/port-cleanup.js is `ble_bridge`, an
+#     UNDERSCORE, matched against `ps -o args=`. Under the console script the
+#     daemon stops matching and `pnpm run pretest` kills it to free the port.
+#     tests/unit/bridge-service-unit.test.ts pins the two together.
+ExecStart=@REPO_ROOT@/bridge/.venv/bin/python3 -m ble_bridge
+
+# Safe, and the reason is not obvious: idle expiry ends the CONNECTION, never the
+# process. On idle the relay logs, sends the client an IDLE_TIMEOUT refusal frame
+# and returns from the handler (ws/server.py); the server keeps listening. So a
+# quiet bench releases a session and the daemon carries on -- Restart=always
+# cannot loop on it. Idle release is a lease on the command path, not a process
+# lifecycle.
+Restart=always
+RestartSec=5
+
+# The daemon handles SIGTERM, unlinks its control socket and closes the relay in
+# a `finally`. Bounded well under this; the shorter timeout is so that
+# `just bridge-restart` is a thing you are willing to type.
+TimeoutStopSec=30
+
+# Both records of a restart want to name the same thing.
+SyslogIdentifier=ble-bridge
+
+[Install]
+# default.target, NOT multi-user.target: this is a `systemctl --user` unit and a
+# user manager has no multi-user.target.
+#
+# The user scope is load-bearing, not a preference. The MCP control socket is
+# created under $XDG_RUNTIME_DIR -- /run/user/1000/ble-bridge.sock, mode 0600 --
+# and /run/user/1000 does not exist for a system unit. A system-level service
+# would come up looking perfectly healthy while the entire MCP surface
+# (get_logs, search_packets, get_connection_state) silently went missing, which
+# presents as "the MCP tools are broken" rather than as "the unit is wrong".
+# `loginctl show-user` reports Linger=yes, so a user unit starts at boot and
+# survives logout with no extra setup.
+WantedBy=default.target
