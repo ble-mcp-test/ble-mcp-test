@@ -132,6 +132,14 @@ is silent. `bridge/src` is the right directory because the venv installs the
 package **editable** — `_editable_impl_ble_bridge.pth` points straight at it, so
 those files are literally what the interpreter imports.
 
+⚠ **The mtime leg will occasionally fire with no merge behind it** — a
+`git checkout`, a `git clean`, a fresh clone all rewrite files under
+`bridge/src`. That is the noise, it costs a restart you did not need, and it is
+the correct direction to be wrong in. **Do not quiet it by dropping the mtime
+leg**: that reopens the 09:50 hole above, where the commit date alone reports a
+pre-merge daemon as current. If the noise ever becomes worth addressing, narrow
+it by comparing content rather than by deleting the signal.
+
 Three of the steps are deliberate corrections to the obvious version:
 
 - **Discovery is by port, not by `systemctl show -p MainPID`.** `MainPID`

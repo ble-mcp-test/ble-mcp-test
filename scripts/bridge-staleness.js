@@ -48,6 +48,11 @@
  * Taking the union is the sensitive direction on purpose. A false STALE costs
  * one `just bridge-restart`; a false CURRENT is the whole failure, and silent.
  *
+ * The mtime leg WILL fire occasionally with no merge behind it -- a `git
+ * checkout`, a `git clean` and a fresh clone all rewrite files under
+ * `bridge/src`. That noise is the price. Do not pay for quiet by deleting the
+ * mtime leg: the commit date alone cannot see a merge, which is the case above.
+ *
  * ## Where it is deliberately blunt
  *
  * Every path that cannot answer the question raises. "I could not check" is the
