@@ -78,6 +78,7 @@ Two bug classes recur in this codebase. Design against both.
 
 - Run the command before claiming completion; report actual output — **no false optimism**
 - A masking or renaming pass is verified by **execution**, not by grep
+- Ask of every negative assertion: **what edit to the code under test would turn this red?** No answer means it asserts a coincidence — `docs/design/2026-08-29-tests-that-assert-a-coincidence.md`
 - If tests fail, say so with the output. If a step was skipped, say that.
 
 ## Style

@@ -19,11 +19,21 @@ def test_expected_version_comes_from_the_npm_package():
     assert expected_mock_version() == declared
 
 
-def test_expected_version_is_not_the_python_package_version():
-    """The guard on the bug this module exists to prevent.
+def test_expected_version_agrees_with_the_python_package_version():
+    """This assertion was inverted by TRA-1204, and the inversion is the point.
 
-    Comparing _mv against ble_bridge.__version__ would report every
-    correctly-behaving mock as mismatched, and a warning that fires on every
-    healthy connection trains the reader to ignore the line.
+    It used to assert the two differ. That was never really a claim about the
+    mock resolver -- it worked only because the Python package sat frozen at
+    0.1.0 while the npm package moved, so "these two numbers differ" stood in for
+    "these two constants come from different code paths". A test whose power comes
+    from two values happening to differ stops testing anything the moment they
+    agree, and it fails rather than degrading quietly, which is the one mercy.
+
+    Since both are generated from package.json they must now AGREE, and that
+    equality is load-bearing: a bump that forgets `pnpm run version:sync` leaves
+    `__version__` behind while the mock moves on, and the bridge would then warn
+    about a version mismatch on every healthy connection -- exactly the harm
+    mock_version.py exists to prevent. So the guard survives, pointing the other
+    way.
     """
-    assert expected_mock_version() != __version__
+    assert expected_mock_version() == __version__

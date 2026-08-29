@@ -56,7 +56,7 @@ import json
 import os
 import sys
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, get_type_hints
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
@@ -244,8 +244,30 @@ class ConnectionState(BaseModel):
 
 
 class Status(BaseModel):
-    version: str
-    uptime_seconds: float
+    version: str = Field(
+        description="The released version of the mock and bridge. NOT a code-currency "
+        "signal: a release number moves on release and code moves on merge, so two "
+        "daemons at the same version can be serving different code."
+    )
+    instance_id: str = Field(
+        description="This bridge process, for as long as it lives. Different after "
+        "any restart, so comparing it is an equality check rather than arithmetic."
+    )
+    code_fingerprint: str = Field(
+        description="Hash of the .py files the process loaded at start. Compare "
+        "against a fresh fingerprint of code_source_root to tell whether the daemon "
+        "predates the code."
+    )
+    code_source_root: str = Field(
+        description="The directory that was fingerprinted. Fingerprint THIS tree, "
+        "not your own -- judging a daemon against the current tree reports a current "
+        "daemon as stale whenever a worktree has commits touching bridge/."
+    )
+    uptime_seconds: float = Field(
+        description="Monotonic seconds since process start. Not superseded by "
+        "instance_id: CLOCK_MONOTONIC does not advance across host suspend, so "
+        "elapsed-time arithmetic over this catches a gap that instance_id cannot."
+    )
     ws_host: str
     ws_port: int
     ws_loopback: bool
@@ -327,6 +349,28 @@ async def status() -> Status:
 TOOLS = (read_stream, search_packets, get_logs, get_connection_state, status)
 
 
+def _takes_disabled_hint(tool) -> bool:
+    """Does an empty result from this tool mean anything ambiguous?
+
+    Only for the tools whose result is a slice of the ring, and that is decided by
+    asking their return model whether it carries `buffer_enabled` -- not by a list
+    of names kept alongside. A hand-list drifts: a new buffer-backed tool gets added
+    without its warning, and nothing says so.
+
+    It used to go on every tool. `status` reports `log_buffer_enabled` outright and
+    `get_connection_state`'s packet counters are lifetime totals that keep counting
+    while the ring is off, so neither has an ambiguous empty to warn about -- and a
+    warning that fires where it does not apply trains the reader to skip the line,
+    which is how the one real instance goes past unremarked.
+    """
+    # get_type_hints rather than __annotations__: `from __future__ import
+    # annotations` makes every annotation in this file a string, and a string has
+    # no model_fields. Reading the raw dict would raise here rather than answer
+    # wrongly, which is the only reason it is not also a silent bug.
+    return "buffer_enabled" in get_type_hints(tool)["return"].model_fields
+
+
+
 def build_server() -> MCPServer:
     """Register the five tools on a fresh server.
 
@@ -337,10 +381,10 @@ def build_server() -> MCPServer:
     """
     server = MCPServer(name="ble-mcp-test", version=VERSION)
     for tool in TOOLS:
-        server.tool(
-            name=tool.__name__,
-            description=f"{tool.__doc__.strip()}\n\n{_DISABLED_HINT}",
-        )(tool)
+        doc = tool.__doc__.strip()
+        if _takes_disabled_hint(tool):
+            doc = f"{doc}\n\n{_DISABLED_HINT}"
+        server.tool(name=tool.__name__, description=doc)(tool)
     return server
 
 

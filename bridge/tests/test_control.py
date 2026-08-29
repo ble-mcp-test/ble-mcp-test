@@ -441,3 +441,43 @@ async def test_the_daemon_serves_the_relay_and_the_socket_together(tmp_path, mon
         with contextlib.suppress(asyncio.CancelledError):
             await task
     assert not os.path.exists(config.socket_path)
+
+
+async def test_status_carries_process_identity_and_code_currency(server):
+    """The two questions consumers were answering through /proc and systemd.
+
+    TRA-1204: both were being derived by reaching past this contract into the
+    daemon's internals. Co-location made that possible; a second bridge on a
+    container is where it stops working.
+    """
+    from ble_bridge import identity
+
+    srv, _, _ = server
+    result = (await _ask(srv, "status"))["result"]
+    assert result["instance_id"] == identity.INSTANCE_ID
+    assert result["code_fingerprint"] == identity.CODE_FINGERPRINT
+    assert result["code_source_root"] == identity.SOURCE_ROOT
+
+
+async def test_status_still_carries_what_platform_reads(server):
+    """TRA-1204 is add-only on the wire. Platform's soak watchdog (TRA-1203) reads
+    these by name, so a rename here is a cross-repo break that this repo's suite
+    would otherwise pass straight through."""
+    srv, _, _ = server
+    result = (await _ask(srv, "status"))["result"]
+    for field in ("uptime_seconds", "esphome_configured", "esphome_proxy", "device_mac"):
+        assert field in result, field
+
+
+async def test_instance_id_and_uptime_are_both_present_and_neither_replaces_the_other(server):
+    """Shipped as a pair, deliberately. instance_id answers "is this a different
+    process"; the elapsed-time arithmetic over uptime_seconds answers "has this
+    process been running for the whole interval I measured". A host suspend moves
+    only the second, so a consumer that drops either loses a real signal.
+
+    Asserted together in one test so that deleting one field fails a test whose
+    name says why both are here."""
+    srv, _, _ = server
+    result = (await _ask(srv, "status"))["result"]
+    assert isinstance(result["instance_id"], str) and result["instance_id"]
+    assert isinstance(result["uptime_seconds"], float)

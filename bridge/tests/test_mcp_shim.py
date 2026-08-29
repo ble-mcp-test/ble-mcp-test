@@ -309,3 +309,54 @@ async def test_check_reports_a_live_bridge_and_exits_zero(wired, tmp_path):
     stdout, _ = await asyncio.wait_for(proc.communicate(), 120)
     assert proc.returncode == 0
     assert "wired.sock" in stdout.decode()
+
+
+async def test_status_exposes_process_identity_over_mcp(wired):
+    """A field the outputSchema does not name never reaches the caller -- pydantic
+    drops extras by default -- so asserting these in control.py alone would pass
+    while the MCP surface stayed silent about them."""
+    shim, _, _ = wired
+    out = await shim.status()
+    assert len(out.instance_id) == 32
+    assert len(out.code_fingerprint) == 16
+    assert out.code_source_root.endswith("ble_bridge")
+
+
+async def test_the_disabled_ring_hint_goes_only_to_tools_that_can_return_an_empty_ring(shim):
+    """TRA-1204 asked whether "nothing recorded" and "recording disabled" should be
+    distinguished in the return rather than the docstring. They already are, for the
+    tools where the question arises: read_stream, get_logs and search_packets all
+    carry `buffer_enabled` and a `notice` on every read.
+
+    The defect was the other way round. The hint was appended to EVERY tool, so
+    `status` and `get_connection_state` -- neither of which returns a list that can
+    be empty-because-disabled -- warned about an ambiguity they do not have.
+    `get_connection_state`'s packet counters are lifetime totals that keep counting
+    while the ring is off, and `status` reports `log_buffer_enabled` outright.
+
+    A warning that fires where it does not apply is the harm mock_version.py already
+    documents: it trains the reader to skip the line, and the one real instance goes
+    unremarked. So the hint follows the field it talks about.
+    """
+    tools = {t.name: t for t in await shim.build_server().list_tools()}
+    for name in ("read_stream", "get_logs", "search_packets"):
+        assert shim._DISABLED_HINT in tools[name].description, f"{name} lost the hint"
+    for name in ("status", "get_connection_state"):
+        assert shim._DISABLED_HINT not in tools[name].description, f"{name} should not warn"
+
+
+async def test_the_hint_is_attached_by_the_field_rather_than_by_a_hand_list(shim):
+    """Derived from the return model, so a new buffer-backed tool cannot be added
+    without its warning, and a hand-maintained name list cannot drift out of step
+    with what the tools actually return."""
+    import typing
+
+    for tool in shim.TOOLS:
+        model = typing.get_type_hints(tool)["return"]
+        expected = "buffer_enabled" in model.model_fields
+        assert shim._takes_disabled_hint(tool) is expected, tool.__name__
+    # And the rule actually discriminates -- it is true of some tools and false of
+    # others. A predicate that answered the same way for every tool would satisfy
+    # the loop above while attaching the hint everywhere or nowhere.
+    answers = {shim._takes_disabled_hint(t) for t in shim.TOOLS}
+    assert answers == {True, False}
