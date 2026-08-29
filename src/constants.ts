@@ -198,3 +198,66 @@ export class WriteError extends Error {
     this.mayHaveReachedDevice = MAY_HAVE_REACHED_DEVICE[code];
   }
 }
+
+/**
+ * How long `gatt.connect()` waits before giving up on a socket that has said
+ * nothing at all.
+ *
+ * ## This is a BACKSTOP, not a policy, and it should never fire
+ *
+ * The bridge always answers: it bounds its own acquisition (occupancy check,
+ * then the advertisement wait, then the BLE connect) and refuses with a typed
+ * error when that budget runs out. So a caller waiting on a healthy bridge is
+ * answered well inside this number, and the only thing it catches is a socket
+ * that will never produce a frame OR a close -- a half-open TCP connection
+ * where the bridge process is gone without a FIN. That is a genuine hang, not a
+ * slow reader.
+ *
+ * Real `gatt.connect()` takes no timeout argument and can stay pending
+ * indefinitely. This is as close to that as is possible while still bounding a
+ * dead socket, which is why it sits far above the bridge's budget rather than
+ * anywhere near the observed connect distribution.
+ *
+ * ## Why the old value was wrong, and why it survived
+ *
+ * It was `10000`, written 2025-07-20 in this repo's second commit against a
+ * LOCAL NOBLE RADIO, where a connect either worked in about a second or did
+ * not. The ESPHome transport arrived 2026-08-23 -- thirteen months later --
+ * bringing a 30s advertisement wait that is structural rather than defensive.
+ * Nobody ever decided 10 < 30; the constant simply outlived the architecture
+ * that justified it, and nothing compared the two numbers because the
+ * comparison lived between two repositories and belonged to neither.
+ *
+ * The cost, measured 2026-08-29 across 654 connects: the 10s bound sat INSIDE
+ * the observed distribution rather than outside it (max 9038ms, 19% over 5s),
+ * so it was not clipping an anomaly -- it was the expected consequence of a
+ * deadline placed in the middle of a population. It also truncated the
+ * bridge's most informative failure, "in use or absent", before it could ever
+ * be delivered.
+ *
+ * ## Derived, not chosen
+ *
+ * `connect-timeout-nesting.test.ts` fails if this stops exceeding the bridge's
+ * own budget, read out of `esphome.py`. Keep it that way: two independently
+ * written numbers in two languages is precisely how 10-vs-30 happened.
+ *
+ * Derivation against the bridge's budget as it stands today:
+ *
+ *     ALLOCATION_REPORT_TIMEOUT_S     2s   occupancy check
+ *     ADVERTISEMENT_TIMEOUT_S        30s   then -- sequential, not overlapping
+ *     CONNECT_TIMEOUT_S              20s
+ *                                   ----
+ *     bridge worst case              52s   before it refuses with a typed error
+ *     x1.2 margin                  62.4s   minimum for this to back the bridge
+ *                                          up rather than race it
+ *
+ * 75s clears that. It stays correct if `ADVERTISEMENT_TIMEOUT_S` is later cut
+ * to 15s (worst case 37s, margin 2x) -- a backstop only has to be far enough
+ * above the budget that it never fires, so a shrinking budget can never
+ * invalidate it. The first draft of this constant was 60_000, and the test
+ * above rejected it: at a 52s budget that is 1.15x, close enough that the
+ * bridge's refusal and the client's giving-up would arrive together and the
+ * caller would get a bare `TIMEOUT` instead of the diagnosis the bridge
+ * composed. Which is the failure this whole change exists to remove.
+ */
+export const CONNECT_BACKSTOP_MS = 75_000;

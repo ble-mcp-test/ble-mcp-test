@@ -31,7 +31,6 @@ async function connectTo(options: Parameters<typeof startStubBridge>[0]) {
     write: '0000c0de-0000-1000-8000-00805f9b34fb',
     notify: '0000beef-0000-1000-8000-00805f9b34fb',
     sessionId: 'connect-failure-codes',
-    timeout: 5000,
     onMultipleDevices: 'error'
   });
   const device: any = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });

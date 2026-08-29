@@ -8,4 +8,4 @@
 // how the package was built, and it dragged `fs` onto the connect path of every
 // non-bundled entry point -- which is what stopped the ESM entry working in a
 // browser bundler.
-export const VERSION = '0.12.0';
+export const VERSION = '0.13.0';

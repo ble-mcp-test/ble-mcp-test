@@ -22,7 +22,6 @@ async function realDevice() {
   const bluetooth = new MockBluetooth('ws://localhost:25153', {
     sessionId: 'test',
     service: '0000f00d-0000-1000-8000-00805f9b34fb',
-    timeout: 5000,
     onMultipleDevices: 'error'
   });
   const device = await bluetooth.requestDevice();
@@ -84,7 +83,6 @@ describe('MockBluetooth Testing API', () => {
     mockBluetooth = new MockBluetooth('ws://localhost:25153', {
       sessionId: 'test',
       service: '1234',
-      timeout: 5000,
       onMultipleDevices: 'error'
     });
   });
@@ -605,7 +603,6 @@ describe('testCommand and the subscription gate', () => {
     return new MockBluetooth('ws://localhost:25153', {
       sessionId: 'gate-test',
       service: '0000f00d-0000-1000-8000-00805f9b34fb',
-      timeout: 5000,
       onMultipleDevices: 'error'
     });
   }

@@ -20,7 +20,6 @@ function mockAgainst(url: string) {
     write: '0000c0de-0000-1000-8000-00805f9b34fb',
     notify: '0000beef-0000-1000-8000-00805f9b34fb',
     sessionId: 'stub-bridge-test',
-    timeout: 5000,
     onMultipleDevices: 'error'
   });
 }

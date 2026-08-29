@@ -59,7 +59,34 @@ logger = logging.getLogger(__name__)
 #: also the single most informative failure in the whole path: a peripheral held
 #: in someone else's connection does not advertise, so a timeout here says
 #: "in use or absent" where a connect timeout would say only "something failed".
-ADVERTISEMENT_TIMEOUT_S = 30.0
+#:
+#: 30.0 until 2026-08-29 (TRA-1189). It was reasoned rather than inherited, and
+#: it still priced the wrong population -- which is the more interesting way for
+#: a constant to be wrong.
+#:
+#: It was sized as a WAIT. But the case it exists for never waits: TRA-1174
+#: measured a held CS108 being refused only after the full 30s had elapsed,
+#: having never advertised once. A held peripheral does not advertise at all --
+#: not slowly, not intermittently. So in the busy case this timeout is not a
+#: waiting period, it is a delay in front of a verdict that was already
+#: determined at t=0. Waiting 30s returns the same "in use or absent" that 15s
+#: returns, fifteen seconds later, and buys nothing.
+#:
+#: The only population it actually serves is slow-but-FREE, and that one is
+#: measured: 654 connects on 2026-08-29 gave a max advertisement wait of
+#: 9038ms, p90 5779ms, p99 8037ms. 15s covers every observed sample with 66%
+#: headroom.
+#:
+#: The cost of the old value fell on unattended soaks. At 6 connects/rep against
+#: a busy reader, a 52s worst-case acquisition burned ~312s of connect time per
+#: ~135s rep -- 5.2x -- to reach a conclusion available at t=0, and stretched
+#: the 5-consecutive-failure abort criterion from ~5 minutes to ~26.
+#:
+#: NOT measured: a holder on a foreign radio rather than a second ESPHome
+#: client. Advertising suppression is a property of the link rather than of who
+#: holds it, so this is expected to generalise -- but expecting is not
+#: measuring, and nobody has run it.
+ADVERTISEMENT_TIMEOUT_S = 15.0
 
 #: How long to wait for the BLE link itself once the proxy has heard the device.
 CONNECT_TIMEOUT_S = 20.0

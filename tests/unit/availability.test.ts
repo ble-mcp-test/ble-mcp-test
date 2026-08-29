@@ -22,7 +22,6 @@ const CONFIG = {
   write: '9900',
   notify: '9901',
   sessionId: 'availability-test',
-  timeout: 5000,
   onMultipleDevices: 'error' as const
 };
 
