@@ -2,9 +2,17 @@
 
 `_mv` carries the version of the **npm** package the browser mock ships in --
 `ws-transport.ts:50-61` sets it from the package version, and `bridge-server.ts`
-compares it against `getPackageMetadata().version`. That is a different number
-from this Python package's own version, so comparing against `ble_bridge
-.__version__` would report every correctly-behaving mock as mismatched.
+compares it against `getPackageMetadata().version`. So the number to compare
+against is the one in package.json, and this module reads it from there.
+
+**The reason is the source, not the value.** This used to say the npm version is
+"a different number" from `ble_bridge.__version__`, which was true while the
+Python package sat frozen at 0.1.0 and is false since TRA-1204 generated both
+from package.json. A justification that rests on what a value currently reads
+expires when the value changes, and it expires in the worst way: the next reader
+checks the stated reason, finds it no longer holds, and discards a conclusion
+that is still correct. What survives is that `_mv` is a claim about the npm
+package, so it is answered from the npm package's own metadata.
 
 A warning that fires on every healthy connection is worse than no warning: it
 trains the reader to ignore the line, and the one real mismatch then goes by

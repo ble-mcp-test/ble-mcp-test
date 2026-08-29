@@ -1,6 +1,6 @@
 [project]
 name = "ble-bridge"
-version = "0.1.0"
+dynamic = ["version"]
 description = "WebSocket relay for browser E2E tests against real BLE hardware"
 requires-python = ">=3.12"
 dependencies = [
@@ -19,6 +19,12 @@ ble-bridge = "ble_bridge.__main__:main"
 # it. Pinned to match the shim's PEP 723 block exactly -- two pins that can drift
 # would let the suite pass against a version the shim never runs on.
 dev = ["pytest>=8.0", "pytest-asyncio>=0.24", "ruff>=0.6", "mcp==2.1.0"]
+
+# The version lives in one place, generated from package.json by
+# scripts/generate-version.js. A literal here would be a second source, and the two
+# would disagree the first time only one of them was bumped.
+[tool.hatch.version]
+path = "src/ble_bridge/_version.py"
 
 [build-system]
 requires = ["hatchling"]

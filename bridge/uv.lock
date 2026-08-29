@@ -159,7 +159,6 @@ wheels = [
 
 [[package]]
 name = "ble-bridge"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "bleak-esphome" },
