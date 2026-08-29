@@ -318,3 +318,91 @@ describe('pre-test-cleanup.js wiring', () => {
     expect(output).toContain('current');
   });
 });
+
+/**
+ * One commit touching exactly `relPath`, dated `epoch`.
+ *
+ * Separate from makeCheckout because the case under test is a SECOND commit that
+ * lands somewhere the daemon does not read -- which is only meaningful against a
+ * checkout that already has a real one.
+ */
+function commitTouching(dir: string, relPath: string, epoch: number): number {
+  const full = path.join(dir, relPath);
+  mkdirSync(path.dirname(full), { recursive: true });
+  writeFileSync(full, `# touched at ${epoch}\n`);
+  const run = (...args: string[]) =>
+    execFileSync('git', ['-C', dir, ...args], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: `${epoch} +0000`,
+        GIT_COMMITTER_DATE: `${epoch} +0000`,
+      },
+    });
+  run('add', relPath);
+  run('commit', '-q', '-m', `touch ${relPath}`);
+  return epoch;
+}
+
+/**
+ * The commit leg answers "when did the code this daemon RUNS last change".
+ *
+ * On 2026-08-29 it answered a broader question -- "when did anything under
+ * `bridge/` last change" -- and a commit touching only `bridge/tests/` produced a
+ * STALE for a daemon whose `bridge/src` was demonstrably older than it. The mtime
+ * leg, scoped to `bridge/src`, got that case right; the two legs disagreed because
+ * they were scoped to different subjects.
+ *
+ * Both directions are pinned here. The "still sees" cases are not padding: the
+ * obvious narrowing -- scoping to `bridge/src` -- passes the first test and fails
+ * those, and it fails in the silent direction the whole guard exists to prevent.
+ */
+describe('the commit leg asks about the code the daemon runs', () => {
+  const seeded = 1_700_000_000;
+  const later = seeded + HOUR;
+
+  it('ignores a commit that touches only bridge/tests/', () => {
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/tests/test_relay.py', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(seeded);
+  });
+
+  it('ignores a tests-only commit even when it is the newest thing in the repo', () => {
+    // Ordering guard: the exclusion has to survive being the most recent commit,
+    // which is the only arrangement that produced the incident.
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/src/ble_bridge/notify.py', seeded + 60);
+    commitTouching(checkout, 'bridge/tests/test_relay.py', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(seeded + 60);
+  });
+
+  it('still sees a commit to bridge/pyproject.toml', () => {
+    // Dependencies and the dynamic version both live here. Scoping the leg to
+    // bridge/src would miss this -- a false CURRENT, which is silent.
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/pyproject.toml', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(later);
+  });
+
+  it('still sees a commit to bridge/uv.lock', () => {
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/uv.lock', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(later);
+  });
+
+  it('still sees a commit to bridge/src/', () => {
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/src/ble_bridge/notify.py', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(later);
+  });
+
+  it('counts a file added under bridge/ that nobody has classified', () => {
+    // The fail-safe default, asserted rather than assumed. An inclusion list would
+    // return `seeded` here and the guard would silently stop covering whatever the
+    // new thing is. This test is why the pathspec is an exclusion.
+    const checkout = makeCheckout(seeded);
+    commitTouching(checkout, 'bridge/some-new-thing.toml', later);
+    expect(lastBridgeCommitAt(checkout)).toBe(later);
+  });
+});
