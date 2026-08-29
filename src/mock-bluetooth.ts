@@ -577,7 +577,12 @@ class MockBluetoothRemoteGATTServer {
           this.device.sessionId = sessionId;
         }
         this.connected = true;
-        
+
+        // Per connection, not per device: `onMessage` rebinds `ws.onmessage`,
+        // and this socket is currently on the handshake-only handler installed
+        // by `transport.connect()`. See `setupTransportHandler`.
+        this.device.setupTransportHandler();
+
         if (attempt > 1 && config.logRetries) {
           console.log(`[Mock] Connected successfully after ${attempt} attempts`);
         }
@@ -619,19 +624,29 @@ class MockBluetoothRemoteGATTServer {
   }
 
   async disconnect(): Promise<void> {
+    // `disconnect()` step 2 (spec index.bs:3221): if `connected` is already
+    // false, abort. So a double disconnect fires the event once, not twice.
     if (!this.connected) {
       return; // Already disconnected
     }
 
-    // Synchronous with respect to `connected`, matching a real GATT server: the
-    // flag flips before any await, so a consumer checking it in a teardown path
-    // never sees a server that has already gone reporting itself present.
+    // Step 3: clean up the disconnected device. That algorithm flips
+    // `connected` and fires `gattserverdisconnected` at the DEVICE -- see its
+    // note. Running it here, before the transport teardown below, is what the
+    // spec describes: the explicit path runs the cleanup steps inline within
+    // `disconnect()`, where the transport-drop path reaches the same algorithm
+    // from a queued task.
+    //
+    // It is also what keeps the flag flip synchronous, matching a real GATT
+    // server: `connected` goes false before any await, so a consumer checking
+    // it in a teardown path never sees a server that has already gone
+    // reporting itself present.
     //
     // The transport close is still awaited below -- the command path is released
     // when the SERVER processes the socket close, so callers must still await
     // this method before reconnecting or they race their own release.
-    this.connected = false;
-    
+    this.device.cleanUpDisconnectedDevice();
+
     // Closing the WebSocket is what releases the bridge's command path -- there
     // is no pool behind it. Callers must AWAIT this: the release lands when the
     // server processes the close, so a fire-and-forget disconnect lets the next
@@ -641,9 +656,7 @@ class MockBluetoothRemoteGATTServer {
     } catch (error) {
       console.warn('[Mock] WebSocket disconnect error:', error);
     }
-    
-    this.connected = false;
-    
+
     // Optional post-disconnect delay for tests that need it
     const config = resolveMockConfig();
     if (config.postDisconnectDelay > 0) {
@@ -684,7 +697,6 @@ class MockBluetoothDevice {
     onMultipleDevices: 'error' | 'first';
   };
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
-  private isTransportSetup = false;
   public sessionId?: string;
 
   constructor(
@@ -710,13 +722,49 @@ class MockBluetoothDevice {
   // Register a characteristic for notifications
   registerCharacteristic(uuid: string, characteristic: MockBluetoothRemoteGATTCharacteristic): void {
     this.characteristics.set(uuid, characteristic);
-    this.setupTransportHandler();
   }
 
-  private setupTransportHandler(): void {
-    if (this.isTransportSetup) return;
-    this.isTransportSetup = true;
-    
+  /**
+   * The spec's "clean up the disconnected device" (index.bs:4417), which BOTH
+   * disconnect paths run.
+   *
+   * `disconnect()` reaches it at its step 3; a transport-level drop reaches it
+   * from §6.6.3 "Responding to Disconnection". Its step 1 sets
+   * `gatt.connected` to false and its last step (`:4449`) fires
+   * `gattserverdisconnected` at the device -- *not* at the
+   * `BluetoothRemoteGATTServer`, which the spec says in as many words. There is
+   * no quiet path for a page-initiated disconnect.
+   *
+   * **The guard is what makes it fire exactly once.** An explicit disconnect
+   * runs these steps inline, and the socket close it triggers then synthesises a
+   * `disconnected` message that finds the flag already down. Dispatching
+   * unconditionally on that message would double-fire; dropping the message
+   * branch would lose the drop limb entirely.
+   */
+  cleanUpDisconnectedDevice(): void {
+    if (!this.gatt.connected) return;
+    this.gatt.connected = false;
+    this.dispatchEvent('gattserverdisconnected');
+  }
+
+  /**
+   * Bind the post-handshake message handler to the CURRENT socket. Called by
+   * `MockBluetoothRemoteGATTServer.connect()` once the handshake has resolved.
+   *
+   * Two reasons it is here and not lazily behind the first `getCharacteristic`,
+   * which is where it used to live:
+   *
+   * 1. `gattserverdisconnected` is produced by this handler. A consumer that
+   *    connected and registered a disconnect listener but never fetched a
+   *    characteristic got NO disconnect event, on either limb -- the mock
+   *    silent where the real API speaks, gated on an unrelated call.
+   * 2. `WebSocketTransport.onMessage` rebinds `ws.onmessage`, and `connect()`
+   *    installs a handshake-only `onmessage` on each NEW socket. Wiring once per
+   *    device meant a reconnect left the fresh socket on the handshake handler,
+   *    which ignores `data` -- so notifications stopped arriving after any
+   *    reconnect, silently and for the lifetime of the page.
+   */
+  setupTransportHandler(): void {
     this.transport.onMessage((msg) => {
       if (msg.type === 'data' && msg.data) {
         const data = new Uint8Array(msg.data);
@@ -732,12 +780,10 @@ class MockBluetoothDevice {
         // would still be green because the type has a consumer somewhere.
         console.warn(`[Mock] Server warning: ${msg.warning}`);
       } else if (msg.type === 'disconnected') {
-        // Ensure GATT server knows it's disconnected
-        if (this.gatt.connected) {
-          this.gatt.connected = false;
-        }
-        // Trigger disconnection events
-        this.dispatchEvent('gattserverdisconnected');
+        // §6.6.3 "Responding to Disconnection" -- the transport-drop limb of the
+        // same cleanup algorithm the explicit path runs. Its guard is why a
+        // close we initiated ourselves does not fire the event a second time.
+        this.cleanUpDisconnectedDevice();
       }
     });
   }

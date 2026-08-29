@@ -28,6 +28,14 @@ async function realDevice() {
   // getPrimaryService guards on this flag. Connecting for real would need a live
   // bridge, and the notification path never touches the transport.
   device.gatt.connected = true;
+  // The other half of what a real connect() does, and the half this fake used to
+  // get for free. Binding the device's message handler moved from the first
+  // getCharacteristic() into connect() in TRA-1210 -- it has to happen once per
+  // SOCKET, not once per device, or a reconnect leaves the fresh socket on the
+  // handshake handler and delivers nothing. A hand-set `connected` flag now has
+  // to do both, which is the standing cost of reaching into the object under
+  // test rather than opening a stub bridge: see tests/conformance/mock-provider.ts.
+  device.setupTransportHandler();
   return device;
 }
 

@@ -539,16 +539,75 @@ const LISTENERS: ConformanceCheck[] = [
     category: 'fidelity',
     needs: ['dropLink'],
     async run(session, provider) {
-      // On the device, not the server -- correct per Web Bluetooth, and worth
-      // pinning because the obvious guess is the server. It is raised by a
-      // TRANSPORT-level drop and never by an explicit gatt.disconnect(), so
-      // driving it through disconnect() would produce a test that passes because
-      // NOTHING fires: green for the wrong reason, unable to go red.
+      // On the device, not the server -- correct per Web Bluetooth, which says so
+      // in as many words ("This event is not fired at the
+      // BluetoothRemoteGATTServer", spec index.bs:4449), and worth pinning
+      // because the obvious guess is the server.
+      //
+      // This is the TRANSPORT-drop limb. The explicit-disconnect limb is a
+      // separate check below: the two reach the same cleanup algorithm, and this
+      // one was long annotated as the only way to raise the event at all.
       let calls = 0;
       session.device.addEventListener('gattserverdisconnected', () => { calls += 1; });
       await provider.drop(session);
       await settle();
       assertEqual(calls, 1, 'gattserverdisconnected handler calls after a link drop');
+    }
+  },
+  {
+    id: 'listeners/device-disconnect-event-on-explicit-disconnect',
+    clause: 'gattserverdisconnected fires on an explicit gatt.disconnect() too',
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      // TRA-1210. The contract asserted the opposite -- "never on an explicit
+      // gatt.disconnect()" -- as a statement about Chrome, with no citation and
+      // no check. The normative algorithm says otherwise: disconnect()
+      // (index.bs:3221) runs "clean up the disconnected device"
+      // (index.bs:4417), whose last step fires the event. Both limbs converge
+      // there; there is no quiet path for a page-initiated disconnect.
+      //
+      // No `needs`: an explicit disconnect is available in every arm by
+      // definition, which is what makes this the cheapest fidelity check here
+      // and makes its absence worth a comment.
+      //
+      // ⚠ No `settle()`, deliberately, and it is asserting the spec's TIMING as
+      // well as the event: the cleanup steps run inline within `disconnect()`,
+      // so a consumer that awaits the call has already been told by the time it
+      // returns.
+      //
+      // ⚠ This check is NOT the discriminating one for the mock. Arm A runs at
+      // the default `postDisconnectDelay` of 250ms, and the mock's pre-TRA-1210
+      // behaviour -- fire whenever the socket close happens to round-trip --
+      // satisfies it under that sleep. `tests/unit/explicit-disconnect-event.ts`
+      // pins the delay to 0 and is what actually goes red. What this one is for
+      // is arm B: it is the clause stated against real Chrome, which is where
+      // the original claim was wrong and had never been checked at all.
+      let calls = 0;
+      session.device.addEventListener('gattserverdisconnected', () => { calls += 1; });
+      await session.server.disconnect();
+      assertEqual(calls, 1, 'gattserverdisconnected handler calls after an explicit disconnect');
+    }
+  },
+  {
+    id: 'listeners/device-disconnect-event-not-on-second-disconnect',
+    clause: 'a second gatt.disconnect() on a disconnected server fires nothing',
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      // disconnect() step 2: abort if `connected` is already false. So the event
+      // is once per connection, not once per call -- the clause that stops the
+      // fix above from turning into a double-fire.
+      //
+      // Already true of the mock before TRA-1210, so this is a regression guard
+      // rather than a demonstration: it goes red if the guard inside
+      // `cleanUpDisconnectedDevice` is dropped, not if it were never added.
+      await session.server.disconnect();
+      let calls = 0;
+      session.device.addEventListener('gattserverdisconnected', () => { calls += 1; });
+      await session.server.disconnect();
+      await settle();
+      assertEqual(calls, 0, 'gattserverdisconnected handler calls after a redundant disconnect');
     }
   },
   {
