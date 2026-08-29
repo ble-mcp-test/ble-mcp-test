@@ -28,7 +28,9 @@ interface Window {
 }
 
 declare module '*/port-cleanup.js' {
-  export const PROTECTED_MARKERS: readonly string[];
+  export const BRIDGE_MODULE: string;
+  export const BRIDGE_SCRIPT: string;
+  export function argvIsProtected(argv: string[]): boolean;
   export function listenerPidsOnPort(port: number): number[];
   export function isProtectedProcess(pid: number): boolean;
   export function killPort(port: number, log?: (message: string) => void): boolean;

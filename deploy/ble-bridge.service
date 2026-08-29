@@ -60,16 +60,17 @@ EnvironmentFile=@REPO_ROOT@/.env.local
 # .env.local is the single source of truth, and `just bridge-check` asserts what
 # the daemon actually resolved.
 
-# `python3 -m ble_bridge`, NOT `uv run` and NOT the `ble-bridge` console script.
+# `python3 -m ble_bridge`, NOT `uv run`.
 #
-# Two separate reasons, both mechanical:
-#   - `uv run` is a wrapper process. MainPID would be the wrapper rather than the
-#     daemon, and boot would depend on uv deciding whether to sync.
-#   - the console script's argv reads `.../bin/ble-bridge` -- a HYPHEN. The
-#     protected-process marker in scripts/port-cleanup.js is `ble_bridge`, an
-#     UNDERSCORE, matched against `ps -o args=`. Under the console script the
-#     daemon stops matching and `pnpm run pretest` kills it to free the port.
-#     tests/unit/bridge-service-unit.test.ts pins the two together.
+# `uv run` is a wrapper process: MainPID would be the wrapper rather than the
+# daemon, and boot would depend on uv deciding whether to sync.
+#
+# The venv also ships a `ble-bridge` console script, whose argv reads
+# `.../bin/ble-bridge` -- a HYPHEN, where the module form has an UNDERSCORE.
+# Either is safe to run now; `argvIsProtected` in scripts/port-cleanup.js knows
+# both spellings, and tests/unit/bridge-service-unit.test.ts checks this line
+# against that predicate rather than against a copy of its rules. The module form
+# stays because it is the one that makes MainPID unambiguous.
 ExecStart=@REPO_ROOT@/bridge/.venv/bin/python3 -m ble_bridge
 
 # Safe, and the reason is not obvious: idle expiry ends the CONNECTION, never the

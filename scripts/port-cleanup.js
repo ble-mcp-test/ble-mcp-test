@@ -1,20 +1,57 @@
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
+import path from 'path';
 
 /**
- * Command-line markers of long-running processes that must never be killed to
- * free a port.
+ * The bridge's two argv spellings. Both must be protected, and **nobody chose
+ * the second one** -- Python packaging generated it.
  *
- * `ble_bridge` is the Python bridge, which runs as
- * `.../bridge/.venv/bin/python3 -m ble_bridge`. It is the only thing this repo
- * can now find holding 25153, and killing it mid-run is the TRA-1170 bug.
+ * `bridge/pyproject.toml` declares
+ * `[project.scripts] ble-bridge = "ble_bridge.__main__:main"`. Distribution
+ * names hyphenate by convention; module names must underscore. So one program
+ * has two names, and which one appears in its argv depends only on how it was
+ * launched:
  *
- * Exported because `deploy/ble-bridge.service` has to keep matching it. The venv
- * also ships a `ble-bridge` console script whose argv reads `.../bin/ble-bridge`
- * -- a HYPHEN -- and pointing ExecStart at that would make the daemon stop
- * matching this list, so pretest would kill the supervised bridge to free the
- * port. tests/unit/bridge-service-unit.test.ts asserts the two agree.
+ *     .../bin/python3 -m ble_bridge          <- the systemd unit, UNDERSCORE
+ *     .../bin/python3 .../bin/ble-bridge     <- the console script, HYPHEN
+ *
+ * A shebang entry point execs as `<interpreter> <script path>`, so the second
+ * form carries no `ble_bridge` token at all. Protecting one spelling protects
+ * half the ways the daemon can start, and the miss is silent in the worst
+ * direction: the guard looks installed and the bridge still gets killed to free
+ * the port -- the TRA-1170 bug, reintroduced through the launch path.
+ *
+ * The general test this came from is worth more than the instance: **does
+ * something downstream of me generate a name I did not write?**
  */
-export const PROTECTED_MARKERS = ['ble_bridge'];
+export const BRIDGE_MODULE = 'ble_bridge';
+export const BRIDGE_SCRIPT = 'ble-bridge';
+
+/**
+ * Whether `argv` belongs to a process that must never be killed to free a port.
+ *
+ * Matches TOKENS, never a substring of the whole command line. A command line
+ * contains the absolute path of the script being run, so a substring test
+ * inherits whatever anyone named a directory -- and this repo names worktrees
+ * after ticket slugs, where `fix+tra-1210-ble-bridge-restart` is an entirely
+ * ordinary branch name. That is the same defect that once made a worktree named
+ * `test+tra-1167` look like a test runner and got it killed mid-`eslint --fix`,
+ * in a different project belonging to someone else.
+ *
+ * So: an exact token for the module form, and a BASENAME match for the console
+ * script, which is a file rather than a directory component. This is also
+ * tighter than the substring check it replaces, which protected any process
+ * with `ble_bridge` anywhere in its command line.
+ *
+ * Exported so `deploy/ble-bridge.service`'s ExecStart can be checked against the
+ * real predicate rather than against a copy of it --
+ * tests/unit/bridge-service-unit.test.ts.
+ */
+export function argvIsProtected(argv) {
+  return argv.some(
+    (token) => token === BRIDGE_MODULE || path.basename(token) === BRIDGE_SCRIPT
+  );
+}
 
 const EXEC = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
 
@@ -56,12 +93,26 @@ export function listenerPidsOnPort(port) {
  * THROWS when the process cannot be inspected. Callers must treat that as
  * "unknown", never as "not protected" -- that conflation is the bug in
  * TRA-1170.
+ *
+ * Reads `/proc/<pid>/cmdline` rather than `ps -o args=` because the guard now
+ * matches tokens, and only /proc gives real ones: it is NUL-separated, so an
+ * executable path containing a space stays one argument instead of splitting
+ * into two that match nothing. Both sources fail the same way on a process that
+ * is gone -- ENOENT here, a non-zero exit there -- so the throw-on-unknown
+ * contract above is unchanged. An empty read (a zombie, a kernel thread) is
+ * "cannot inspect", not "not protected".
  */
 export function isProtectedProcess(pid) {
   if (!Number.isInteger(pid) || pid <= 0) throw new Error(`not a pid: ${JSON.stringify(pid)}`);
-  const cmdline = execSync(`ps -p ${pid} -o args=`, EXEC).trim();
-  if (!cmdline) throw new Error(`ps returned nothing for pid ${pid}`);
-  return PROTECTED_MARKERS.some((marker) => cmdline.includes(marker));
+  let raw;
+  try {
+    raw = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+  } catch (e) {
+    throw new Error(`cannot read the command line of pid ${pid}: ${e.message}`);
+  }
+  const argv = raw.split('\0').filter(Boolean);
+  if (!argv.length) throw new Error(`/proc/${pid}/cmdline is empty`);
+  return argvIsProtected(argv);
 }
 
 /**
