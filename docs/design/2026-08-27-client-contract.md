@@ -201,7 +201,39 @@ same values are fed to `requestDevice`.
 | `characteristic.stopNotifications()` | stops delivery. |
 | `characteristic.writeValue(value)` | see [Writes](#writes) — it resolves on the bridge's acknowledgement of that write, and rejects when the write failed. |
 | `characteristic.addEventListener('characteristicvaluechanged', h, opts)` | see listener semantics below. |
-| `device.addEventListener('gattserverdisconnected', h)` | fires on the **device**, not the server, and only on a **transport-level drop** — never on an explicit `gatt.disconnect()`. |
+| `device.addEventListener('gattserverdisconnected', h)` | fires on the **device**, not the server — on a **transport-level drop** *and* on an explicit `gatt.disconnect()` that had something to disconnect. Once per connection, not once per call. |
+
+**Both disconnect paths fire it, and the second half of that used to say the
+opposite.** Until TRA-1210 this row read *"only on a transport-level drop — never
+on an explicit `gatt.disconnect()`"*, asserted about Chrome with no citation and
+no check. The normative algorithm says otherwise, and the two limbs converge:
+
+- `disconnect()` ([spec `index.bs:3221`][spec]) aborts at step 2 if `connected` is
+  already `false`, and otherwise runs *"clean up the disconnected device"* at
+  step 3.
+- A transport-level drop reaches **the same algorithm** from §6.6.3 *"Responding
+  to Disconnection"*.
+- That algorithm ([`index.bs:4417`][spec]) sets `gatt.connected` to `false` at
+  step 1 and fires `gattserverdisconnected` at the device at step 9, with the
+  note *"This event is not fired at the `BluetoothRemoteGATTServer`"* — which is
+  where the first half of the row comes from.
+
+There is no quiet path for a page-initiated disconnect. Step 2 is why a **double
+disconnect fires once**: the event is per connection, not per call.
+
+**On timing.** The explicit path runs the cleanup steps *inline within*
+`disconnect()`, so a consumer that awaits the call has already been told by the
+time it returns; the drop path arrives on a queued task. The mock matches both.
+
+[spec]: https://github.com/WebBluetoothCG/web-bluetooth `index.bs`, read at
+`2e451c1` (2026-06-03), `Status: CG-DRAFT`. The single-page HTML truncates before
+§6.2 for every fetch tool tried, which is why four attempts failed to settle this;
+the Bikeshed source in the repo is whole.
+
+> ⚠ **This is an [asserted](#two-grades-of-claim) clause, not a verified one.** It
+> is read off the specification, not off Chrome. The mock's half is pinned by
+> `tests/unit/explicit-disconnect-event.test.ts` and by two conformance checks;
+> what would confirm Chrome itself is arm B, which has never run.
 
 | `characteristic.dispatchEvent(event)` | the **public** notification-injection point, matching the real API's `EventTarget`. `testing.simulateNotification` goes through it rather than around it, so anything asserted about one holds for the other. |
 
@@ -213,6 +245,23 @@ check while failing anything that called a method it had not thought to fake —
 **It honours the byte range.** A payload that is a view into a larger buffer
 delivers only the bytes sent. `new DataView(data.buffer)` alone would hand the
 consumer the whole backing buffer.
+
+**Delivery survives a reconnect.** A consumer that disconnects, connects again
+and re-subscribes receives notifications on the second connection, and on every
+one after it.
+
+That reads as too obvious to state, and it was false until TRA-1210. The device's
+message handler was bound **once per device**, lazily, by the first
+`getCharacteristic()` — while binding it attaches to the socket that exists at
+the time, and each `connect()` brings a new one whose handler ignores `data`
+until it is rebound. So the second connection delivered nothing: `gatt.connected`
+true, subscription live, bridge sending frames into a handler that was listening
+to a closed socket.
+
+**The characteristic cache is what hid it.** A reconnecting consumer calls
+`getCharacteristic()` again and gets the *cached* instance, so the lazy wiring
+never re-ran — the one call that would have repaired it was the call whose result
+made it unnecessary to make. The binding is now per connection, in `connect()`.
 
 ### Writes
 
@@ -483,6 +532,33 @@ unset flag.
 **A skipped arm B is loud in the result line, not in the config.** A suite
 reporting green with arm B silently skipped is worse than a one-armed suite,
 because it looks two-armed — and the summary travels while the config does not.
+
+### Two grades of claim
+
+Every clause above is one of two things, and the document used to read uniformly
+across both:
+
+| grade | what stands behind it | what would falsify it |
+|---|---|---|
+| **verified** | a check in `tests/conformance/` or `tests/unit/` that goes red when the behaviour changes | running `just validate` |
+| **asserted** | the Web Bluetooth specification, or someone's reading of Chrome. **Arm B has never run**, so nothing here is verified *against Chrome* | reading the normative algorithm, or finally running arm B |
+
+**A verified clause says the mock does this. An asserted clause says the real API
+does this — and is exactly as good as its citation.**
+
+The distinction is not pedantry, and TRA-1210 is what it costs to skip it. An
+uncited assertion about Chrome sat in the `gattserverdisconnected` row for the
+life of this document, describing behaviour the spec does not have, in a table
+whose other rows were all backed by checks. Nothing marked it as the different
+kind of claim it was, so it read as settled — and by [rule 1](#the-guiding-principle)
+it was silently claiming the mock *matched* Chrome, while the mock had been
+written to match the sentence.
+
+So: **an asserted clause carries its citation or it carries the word.** A claim
+about the real API with neither is a guess in a document nobody will re-open.
+Where the two grades disagree, the asserted one wins on what *should* be true and
+loses on what *is* true today — and the gap between them is a mock defect to
+file, never a contract clause to write down.
 
 ---
 

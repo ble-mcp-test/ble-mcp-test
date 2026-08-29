@@ -136,7 +136,21 @@ def _mock_bluetooth_branches() -> set[str]:
         "client. If the mock has moved, point this check at its successor."
     )
     text = source.read_text()
-    start = text.index("private setupTransportHandler()")
+    # Anchored on the DECLARATION, at class-member indentation. Matching the bare
+    # name would find `this.device.setupTransportHandler()` in connect(), which
+    # appears earlier in the file -- the body slice would then start mid-method
+    # and this check would silently narrow to nothing. The visibility modifier is
+    # deliberately not part of the anchor: it was `private` until TRA-1210 moved
+    # the call out to connect(), and pinning it made a rename this check does not
+    # care about read as a missing handler.
+    declaration = re.search(r"^  setupTransportHandler\(\)", text, re.M)
+    assert declaration is not None, (
+        "cannot find the declaration of setupTransportHandler() in "
+        f"{source}. It is the mock's post-handshake message handler, and this "
+        "check reads its branches to prove every server message type has a "
+        "consumer. If it has been renamed, re-anchor this -- do not delete it."
+    )
+    start = declaration.start()
     body = text[start : text.index("\n  }", text.index("this.transport.onMessage", start))]
     return set(re.findall(r"""msg\.type === ['"]([a-z_]+)['"]""", body))
 
