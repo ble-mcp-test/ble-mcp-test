@@ -29,10 +29,16 @@ def test_instance_id_differs_across_processes():
     """The property the field exists for, and the only way to observe it is to
     actually start a second interpreter."""
     code = "from ble_bridge.identity import INSTANCE_ID; print(INSTANCE_ID)"
-    first = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    second = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
-    assert first.stdout.strip()
-    assert first.stdout.strip() != second.stdout.strip()
+
+    def mint() -> str:
+        run = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True
+        )
+        return run.stdout.strip()
+
+    first, second = mint(), mint()
+    assert first
+    assert first != second
 
 
 def test_fingerprint_is_stable_for_an_unchanged_tree(tmp_path: Path):
