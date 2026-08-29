@@ -244,8 +244,30 @@ class ConnectionState(BaseModel):
 
 
 class Status(BaseModel):
-    version: str
-    uptime_seconds: float
+    version: str = Field(
+        description="The released version of the mock and bridge. NOT a code-currency "
+        "signal: a release number moves on release and code moves on merge, so two "
+        "daemons at the same version can be serving different code."
+    )
+    instance_id: str = Field(
+        description="This bridge process, for as long as it lives. Different after "
+        "any restart, so comparing it is an equality check rather than arithmetic."
+    )
+    code_fingerprint: str = Field(
+        description="Hash of the .py files the process loaded at start. Compare "
+        "against a fresh fingerprint of code_source_root to tell whether the daemon "
+        "predates the code."
+    )
+    code_source_root: str = Field(
+        description="The directory that was fingerprinted. Fingerprint THIS tree, "
+        "not your own -- judging a daemon against the current tree reports a current "
+        "daemon as stale whenever a worktree has commits touching bridge/."
+    )
+    uptime_seconds: float = Field(
+        description="Monotonic seconds since process start. Not superseded by "
+        "instance_id: CLOCK_MONOTONIC does not advance across host suspend, so "
+        "elapsed-time arithmetic over this catches a gap that instance_id cannot."
+    )
     ws_host: str
     ws_port: int
     ws_loopback: bool

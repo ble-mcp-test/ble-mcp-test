@@ -309,3 +309,14 @@ async def test_check_reports_a_live_bridge_and_exits_zero(wired, tmp_path):
     stdout, _ = await asyncio.wait_for(proc.communicate(), 120)
     assert proc.returncode == 0
     assert "wired.sock" in stdout.decode()
+
+
+async def test_status_exposes_process_identity_over_mcp(wired):
+    """A field the outputSchema does not name never reaches the caller -- pydantic
+    drops extras by default -- so asserting these in control.py alone would pass
+    while the MCP surface stayed silent about them."""
+    shim, _, _ = wired
+    out = await shim.status()
+    assert len(out.instance_id) == 32
+    assert len(out.code_fingerprint) == 16
+    assert out.code_source_root.endswith("ble_bridge")

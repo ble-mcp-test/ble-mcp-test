@@ -35,11 +35,31 @@ control. Two records, one unauthorable by the subject.
 
 ## `CODE_FINGERPRINT` -- is this process running current code
 
-Computed at import, from the files on disk at that moment, so it names the code
-this process LOADED rather than the code in the tree now. That is the whole point:
-a consumer compares it against a fresh fingerprint of the same tree, and a
-difference means the daemon predates the code and would have answered the run
-without saying so.
+**The timing is the load-bearing part, more than the choice of files.** It is
+computed ONCE, at import, and never recomputed -- so it names the code this process
+came up on rather than whatever is on disk when someone asks. Every other field in
+`status` is read per call, so per-call is the reader's default assumption, and
+under that assumption this field would be useless for its only purpose: a
+post-start edit would fold silently into the answer and the daemon would always
+look current.
+
+A consumer compares it against a fresh fingerprint of the same tree; a difference
+means the daemon predates the code and would have answered the run without saying
+so.
+
+The whole package directory is hashed rather than the modules loaded so far.
+Python imports lazily, so at this module's import time `ws/`, the transport and the
+notify path are not in `sys.modules` yet -- a loaded-set hash would fingerprint the
+bootstrap rather than the daemon. Deferring the computation to fix that reintroduces
+the per-call problem above, and a file not yet imported is still code a later lazy
+import will execute. The directory hash is the superset, sampled at the one moment
+where "on disk" and "loaded" agree for everything already imported.
+
+One residual gap, stated rather than designed away: a file edited during startup,
+between an earlier module's import and this one's, is hashed in its new form while
+the process runs the old. It fails toward reporting a MISMATCH -- toward telling
+someone to restart -- never toward reporting clean for dirty, so the direction is
+the safe one.
 
 `status.version` cannot answer this, even now that it moves rather than sitting
 frozen at "0.1.0". A release number moves on release and code moves on merge, so

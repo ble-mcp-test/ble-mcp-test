@@ -56,7 +56,7 @@ import stat
 import time
 from typing import Any, Final
 
-from ble_bridge import __version__, write_mode
+from ble_bridge import __version__, identity, write_mode
 from ble_bridge.config import LOG_BUFFER_SIZE_ENV, SOCKET_PATH_ENV, Config
 from ble_bridge.log_buffer import LogBuffer, LogEntry
 from ble_bridge.ws.ownership import CommandPath
@@ -310,6 +310,14 @@ class ControlServer:
         esphome = self._config.esphome
         return {
             "version": __version__,
+            # Process identity and code currency, so a consumer stops deriving them
+            # from systemd or /proc. See ble_bridge/identity.py for why neither is
+            # a git sha, and for why instance_id does NOT replace the uptime
+            # arithmetic below: a host suspend leaves instance_id unchanged while
+            # wall clock runs on, so the two answer different questions.
+            "instance_id": identity.INSTANCE_ID,
+            "code_fingerprint": identity.CODE_FINGERPRINT,
+            "code_source_root": identity.SOURCE_ROOT,
             "uptime_seconds": round(time.monotonic() - self._started_at, 3),
             "ws_host": self._config.ws_host,
             "ws_port": self._config.ws_port,
