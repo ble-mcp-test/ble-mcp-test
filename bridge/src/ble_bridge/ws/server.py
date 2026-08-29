@@ -20,6 +20,7 @@ soak evidence.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -276,7 +277,47 @@ class BridgeServer:
 
         try:
             try:
-                device = await transport.connect()
+                # Watch the socket ACROSS the acquisition.
+                #
+                # A close is authoritative everywhere else in this module -- four
+                # `ConnectionClosed` handlers in the loops below -- and nothing
+                # watched it here, at the one await that can run for the better
+                # part of a minute. A client that gives up (its own bound firing,
+                # the browser going away) left the bridge acquiring a device for a
+                # caller that no longer existed, holding the writer slot until the
+                # acquisition finished on its own.
+                #
+                # Measured 2026-08-29, rep 95 of platform's soak: the client
+                # abandoned at 10003ms, the bridge completed the connection 12ms
+                # later and took the claim FOR NOBODY, and the next three attempts
+                # inside 370ms were all refused `Device is busy`. One slow connect
+                # became a whole-file cascade.
+                #
+                # CANCELLED, not merely abandoned, and the difference is the whole
+                # point: releasing the claim while the acquisition ran on in the
+                # background would be a second claim on the radio wearing a
+                # released label -- the same thing `_observe` exists to prevent.
+                # The cancellation is awaited so the transport has finished
+                # unwinding before the `finally` below calls `cleanup()` on it.
+                acquiring = asyncio.create_task(transport.connect())
+                hung_up = asyncio.create_task(ws.wait_closed())
+                done, _ = await asyncio.wait(
+                    {acquiring, hung_up}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if acquiring not in done:
+                    acquiring.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await acquiring
+                    logger.info(
+                        "session %s hung up during acquisition; cancelled it rather than "
+                        "hold the command path for a client that is gone",
+                        params.session,
+                    )
+                    return
+                hung_up.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await hung_up
+                device = acquiring.result()
             except TransportError as exc:
                 # Say why. `_refuse` states the rule -- "never close silently" --
                 # and letting this escape breaks it at the one moment it costs
