@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
+import { execFileSync } from 'child_process';
+import { readFileSync, statSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { VERSION } from '../../src/version.js';
 
@@ -32,5 +33,40 @@ describe('the generated version constant', () => {
     expect(typeof VERSION).toBe('string');
     expect(VERSION.length).toBeGreaterThan(0);
     expect(VERSION).not.toBe('unknown');
+  });
+});
+
+/**
+ * The generator writes one of its two targets INTO `bridge/src`, which is the
+ * directory `scripts/bridge-staleness.js` scans for its mtime leg. So an
+ * unconditional write is not a harmless one: `just validate` runs `build` before
+ * `test`, and the build's own rewrite of `_version.py` made `pretest` report a
+ * STALE BRIDGE for a daemon whose `code_fingerprint` matched the tree exactly.
+ * The gate failed itself, and the remedy it printed -- restart the bridge --
+ * bought exactly one run before the next build re-armed it.
+ *
+ * What turns this red: drop the `writeIfChanged` guard in
+ * scripts/generate-version.js back to a bare `writeFileSync`. Both mtimes then
+ * move on every invocation and both expectations below fail. That is the whole
+ * point of asserting on mtime rather than on content -- content is identical in
+ * both the fixed and the broken version, so a content check would pass against
+ * the bug.
+ */
+describe('version:sync is idempotent on disk', () => {
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const targets = ['src/version.ts', 'bridge/src/ble_bridge/_version.py'].map((p) =>
+    fileURLToPath(new URL(p, new URL('../../', import.meta.url)))
+  );
+  const run = () =>
+    execFileSync('node', ['scripts/generate-version.js'], { cwd: root, encoding: 'utf8' });
+  // Nanosecond precision: two writes inside the same millisecond would compare
+  // equal under mtimeMs and hide the regression this guards.
+  const mtimes = () => targets.map((t) => statSync(t, { bigint: true }).mtimeNs);
+
+  it('leaves both generated files untouched on a second run', () => {
+    run();
+    const before = mtimes();
+    run();
+    expect(mtimes()).toEqual(before);
   });
 });
