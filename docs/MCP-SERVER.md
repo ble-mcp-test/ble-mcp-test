@@ -84,7 +84,12 @@ wall clock passes that the run did not experience.
 That last paragraph mixes two grades of claim and the difference matters: the clock implementation
 and `adjustable=False` are readings taken from the running interpreter via
 `time.get_clock_info('monotonic')`; CLOCK_MONOTONIC's suspend behaviour is taken from its
-documentation, not measured here. A run that judges evidence continuity rather than process identity
+documentation, not measured here. Closing that needs no staged suspend:
+**`CLOCK_BOOTTIME - CLOCK_MONOTONIC` is the accumulated suspend time**, so the first host that has
+ever slept answers it directly. Both machines here read `0.000`, which is consistent with the claim
+and is not a test of it — a never-suspended host cannot distinguish *these clocks are the same
+thing* from *these clocks have had nothing to disagree about yet*. It does establish that the two
+share an epoch, which is what makes the difference a quantity rather than an offset plus one. A run that judges evidence continuity rather than process identity
 needs both fields. There is also a weaker asymmetry worth keeping: the daemon *chooses*
 `instance_id`, while it does not control the clock behind `uptime_seconds` — two records, one of
 which the subject cannot author.

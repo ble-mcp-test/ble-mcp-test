@@ -41,6 +41,7 @@ Python: `uv`, in `bridge/`.
 - **Never merge without explicit confirmation**
 - Branch naming: `<type>/tra-NNNN-slug` (e.g. `fix/tra-1157-ws-relay`); `feat:`/`fix:`/`docs:`/`chore:`/`refactor:`/`test:`
 - Conventional commits; prefer incremental commits over amending
+- **Fold discoveries into the open PR** — if it is not merged yet and the fix is small and in scope, push it as its own commit rather than banking it for a follow-up cycle
 
 ## Worktrees
 
