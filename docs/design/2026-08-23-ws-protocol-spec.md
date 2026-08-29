@@ -346,13 +346,22 @@ unverified bullet: two bridges reaching the same ESP32 proxy for the same MAC �
 take the link?
 
 **Refuse.** Six trials, roles interleaved, one discarded warm-up. The second bridge fails at
-`ADVERTISEMENT_TIMEOUT_S` (30s) every time, and **the holder is never disturbed** — it keeps the
+`ADVERTISEMENT_TIMEOUT_S` every time, and **the holder is never disturbed** — it keeps the
 device and is released only by its own idle timer.
+
+> ⚠ **The measurement was taken at `ADVERTISEMENT_TIMEOUT_S = 30.0`; it is 15.0 since
+> 2026-08-29 (TRA-1189).** The *finding* is unchanged and is why the value could be cut: the
+> second bridge waits out the whole timeout having heard **nothing**, so this timeout is not a
+> wait at all in the contended case — it is a delay in front of a verdict already determined at
+> t=0. Halving it returns the same diagnosis twice as fast. Read the durations below as "the
+> full advertisement timeout", not as thirty seconds.
 
 The refusal is a normal `error` frame carrying the transport's own diagnosis:
 
-> `device …:A7 was not heard advertising to proxy …:6053 within 30s. A peripheral already held in
+> `device …:A7 was not heard advertising to proxy …:6053 within 15s. A peripheral already held in
 > another connection does not advertise, so this most often means it is in use rather than absent.`
+>
+> *(quoted at 30s when measured; the sentence interpolates `ADVERTISEMENT_TIMEOUT_S`)*
 
 **Since 2026-08-26 the refusal is immediate, not inferred.** The bridge asks the proxy which
 addresses it already holds (`aioesphomeapi` pushes `allocated`) before falling back to the
