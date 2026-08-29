@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0]
+
+### Changed
+
+- **BREAKING (behaviour): the connect timeouts now nest, innermost first.** The
+  client bounded `gatt.connect()` at a hardcoded `10000`ms while the bridge is
+  budgeted to spend `2 + 15 + 20 = 37s` before it can answer — and before this
+  release the bridge's own advertisement wait alone was 30s, making the outer
+  bound a fifth of the inner one. `ws-transport.ts` states the rule for the ack
+  path — *the innermost has to fire first* — and the connect path violated it
+  silently.
+
+  Nobody ever decided 10 < 30. The `10000` was written 2025-07-20 in this repo's
+  second commit, "extracted from noble-cs108", against a **local Noble radio**.
+  `ADVERTISEMENT_TIMEOUT_S = 30.0` arrived 2026-08-23 with the ESPHome transport,
+  thirteen months later. The comparison was cheap the whole time and had no
+  owner, because it lived between two repositories and belonged to neither.
+
+  Measured across 654 connects: max advertisement wait 9038ms against a 10000ms
+  bound, 19% over 5s. **The deadline sat inside the distribution rather than
+  outside it**, so a crossing was the expected consequence rather than an
+  anomaly. One occurred, with a 12ms margin — the bridge completed the
+  connection 12ms after the client gave up, then claimed the command path for a
+  caller that no longer existed and refused the next three attempts.
+
+  `CONNECT_BACKSTOP_MS = 75_000` replaces it, derived from the bridge's budget
+  and held there by `connect-timeout-nesting.test.ts`, which parses `esphome.py`
+  so the two numbers cannot drift in two languages again.
+
+  **It is a backstop, not a policy, and should never fire.** The bridge always
+  answers inside its own budget, so it can only trigger on a half-open socket
+  where the bridge process is gone without a FIN. Real `gatt.connect()` takes no
+  timeout argument; this is as close to that as is possible while still bounding
+  a dead socket.
+
+- **`ADVERTISEMENT_TIMEOUT_S` 30s → 15s.** Reasoned rather than inherited, and
+  still pricing the wrong population. It was sized as a *wait*, but the case it
+  exists for never waits: TRA-1174 measured a held CS108 being refused only after
+  the full 30s, having never advertised once. A held peripheral does not
+  advertise at all, so in the busy case the timeout only delays a verdict already
+  determined at t=0. The population it actually serves is slow-but-free, whose
+  observed max is 9038ms — covered by 15s with 66% headroom.
+
+### Removed
+
+- **BREAKING (public API): `injectWebBluetoothMock({ timeout })` is gone.** It was
+  accepted, defaulted to 5000, stored, copied into the connect options, logged —
+  and read by nothing. `WebSocketTransport.connect()` never had a `timeout`
+  parameter.
+
+  Worse than an unimplemented option: every connect logged
+  `{..."timeout":5000...}` — the default, for a field callers had not set — at
+  the moment the value was discarded, fabricating the appearance of a caller
+  decision nobody had made.
+
+  Deleted rather than wired up. Real `gatt.connect()` takes no timeout argument,
+  so honouring it would diverge from the API this mock doubles, and the 5000
+  default would have made the unset case abandon *earlier* than the 10s it
+  actually waited. Guarded in `no-dead-server-instructions.test.ts`.
+
+### Fixed
+
+- **A client hanging up mid-acquisition no longer holds the command path.**
+  `_write` claims the path, then `_relay` awaited `transport.connect()` with
+  nothing watching the socket — at the one await that can run for the better part
+  of a minute, in a module where a close is authoritative in four other places.
+  A client that gave up left the bridge acquiring a device for a caller that no
+  longer existed. The acquisition is now cancelled (not merely abandoned:
+  releasing the claim while it ran on would be a second claim on the radio
+  wearing a released label).
+
+### Note
+
+`0.10.0`, `0.11.0` and `0.12.0` shipped without changelog entries. This entry
+does not attempt to reconstruct them.
+
 ## [0.9.0]
 
 ### Removed
