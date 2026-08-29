@@ -1,16 +1,18 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawn, execFileSync, type ChildProcess } from 'child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { killPort, isProtectedProcess } from '../../scripts/port-cleanup.js';
+import { argvIsProtected, killPort, isProtectedProcess } from '../../scripts/port-cleanup.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(HERE, '../fixtures/port-holder.mjs');
 const SCRIPT = path.resolve(HERE, '../../scripts/pre-test-cleanup.js');
 
 /**
- * Passed as a real argv token so it shows up in `ps -o args=`, which is what
- * the guard reads. A flag the fixture merely *interprets* would not appear
+ * Passed as a real argv token so it shows up in the process's argv, which is
+ * what the guard reads. A flag the fixture merely *interprets* would not appear
  * there and the listener would look unprotected.
  */
 const PROTECTED_MARKER = 'ble_bridge';
@@ -22,6 +24,7 @@ interface Fixture {
 }
 
 const spawned: ChildProcess[] = [];
+const tempDirs: string[] = [];
 
 /** Spawn a fixture and resolve once it prints `ready <pid> <port>`. */
 function startFixture(args: string[]): Promise<Fixture> {
@@ -65,6 +68,55 @@ afterEach(() => {
   for (const proc of spawned.splice(0)) {
     try { proc.kill('SIGKILL'); } catch { /* already gone */ }
   }
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+describe('argvIsProtected', () => {
+  // The bridge has TWO argv spellings and nobody chose the second one: Python
+  // packaging generated it. `[project.scripts] ble-bridge = "ble_bridge.__main__:main"`
+  // hyphenates the distribution name by convention while the module name must
+  // stay underscored, so the same program appears as `-m ble_bridge` when started
+  // as a module and as `.../bin/ble-bridge` when started as the console script.
+  // Protecting one spelling protects half the ways the daemon can be launched,
+  // and the miss is silent: the guard looks installed and the bridge still dies.
+
+  it('protects the module form, which is what the systemd unit uses', () => {
+    expect(argvIsProtected(['/x/bridge/.venv/bin/python3', '-m', 'ble_bridge'])).toBe(true);
+  });
+
+  it('protects the console script, which is how an INSTALLED package starts', () => {
+    // A shebang entry point execs as `<interpreter> <script path>`.
+    expect(argvIsProtected(['/x/bridge/.venv/bin/python3', '/x/bridge/.venv/bin/ble-bridge']))
+      .toBe(true);
+  });
+
+  it('protects a bare console-script invocation too', () => {
+    expect(argvIsProtected(['/x/bridge/.venv/bin/ble-bridge'])).toBe(true);
+  });
+
+  it('does NOT protect an unrelated process whose PATH merely contains the name', () => {
+    // The reason this is a token match and not a second substring. A command
+    // line contains the absolute path of the script being run, so a substring
+    // test inherits whatever anyone named a folder -- and this repo names
+    // worktrees after ticket slugs. `fix+tra-1210-ble-bridge-restart` is an
+    // entirely ordinary branch name here.
+    expect(argvIsProtected([
+      '/usr/bin/node',
+      '/home/mike/x/.claude/worktrees/fix+tra-1210-ble-bridge-restart/node_modules/.bin/vitest',
+    ])).toBe(false);
+  });
+
+  it('does NOT protect a path containing the module spelling either', () => {
+    // Tighter than the substring check it replaces, which would have protected
+    // this. A directory is not a process.
+    expect(argvIsProtected(['/usr/bin/node', '/tmp/ble_bridge/serve.js'])).toBe(false);
+  });
+
+  it('does not protect an empty argv', () => {
+    expect(argvIsProtected([])).toBe(false);
+  });
 });
 
 describe('killPort', () => {
@@ -80,6 +132,44 @@ describe('killPort', () => {
     expect(alive(listener)).toBe(true);
     expect(alive(client)).toBe(true);
     expect(killed).toBe(false);
+    expect(logs.join('\n')).toContain('Production process detected');
+  });
+
+  it('spares a listener started as the CONSOLE SCRIPT, not just as a module', async () => {
+    // The acceptance case for the two spellings, end to end through the real
+    // guard rather than through argvIsProtected alone: a listener whose argv
+    // has no `ble_bridge` token anywhere, only a file named `ble-bridge`.
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'ble-console-script-'));
+    tempDirs.push(dir);
+    const script = path.join(dir, 'ble-bridge');
+    // CommonJS deliberately: the file has no extension, and outside this
+    // package's `"type": "module"` node reads an extensionless file as CJS --
+    // which is also what a real console script is, a plain executable file.
+    writeFileSync(
+      script,
+      "const net = require('net');\n" +
+        'setTimeout(() => process.exit(0), 60000);\n' +
+        'const s = net.createServer(() => {});\n' +
+        "s.listen(0, () => console.log(`ready ${process.pid} ${s.address().port}`));\n"
+    );
+
+    const proc = spawn(process.execPath, [script], { stdio: ['ignore', 'pipe', 'pipe'] });
+    spawned.push(proc);
+    const port = await new Promise<number>((resolve, reject) => {
+      proc.stdout!.on('data', (d) => {
+        const m = /^ready (\d+) (\d+)$/m.exec(String(d));
+        if (m) resolve(Number(m[2]));
+      });
+      proc.on('exit', (code) => reject(new Error(`console-script fixture exited ${code}`)));
+      setTimeout(() => reject(new Error('console-script fixture never became ready')), 10_000);
+    });
+
+    const logs: string[] = [];
+    const killed = killPort(port, (m: string) => logs.push(m));
+
+    await new Promise((r) => setTimeout(r, 250));
+    expect(killed).toBe(false);
+    expect(proc.exitCode).toBeNull();
     expect(logs.join('\n')).toContain('Production process detected');
   });
 

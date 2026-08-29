@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { PROTECTED_MARKERS } from '../../scripts/port-cleanup.js';
+import { argvIsProtected } from '../../scripts/port-cleanup.js';
 import { REPO_ROOT, TEMPLATE, UNIT, installedUnitPath, renderUnit } from '../../scripts/bridge-service.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -55,14 +55,13 @@ describe('deploy/ble-bridge.service', () => {
     expect(config).not.toMatch(/^ExecStart=.*uv run/m);
   });
 
-  it('keeps the daemon matching the protected-process marker pretest uses', () => {
-    // The coupling that would otherwise be a comment. The venv also ships a
-    // `ble-bridge` console script; its argv reads `.../bin/ble-bridge`, with a
-    // HYPHEN, and would stop matching `ble_bridge`. pretest would then judge
-    // the supervised daemon unprotected and kill it to free the port -- the
-    // TRA-1170 failure, reintroduced through the launch path.
+  it('starts the daemon in a form pretest will refuse to kill', () => {
+    // The coupling that would otherwise be a comment, checked against the REAL
+    // predicate rather than against a copy of its rules -- so this cannot pass
+    // while the guard it stands in for has changed underneath it.
     const execStart = directives.find((l) => l.startsWith('ExecStart='))!;
-    expect(PROTECTED_MARKERS.some((m) => execStart.includes(m))).toBe(true);
+    const argv = execStart.slice('ExecStart='.length).split(' ');
+    expect(argvIsProtected(argv)).toBe(true);
   });
 
   it('runs from bridge/, which is what makes .env.local findable and the checkout knowable', () => {
