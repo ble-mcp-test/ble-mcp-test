@@ -1,4 +1,4 @@
-import { WriteError, WRITE_ERROR_CODES, CONNECT_ERROR_CODES, connectError } from './constants.js';
+import { WriteError, WRITE_ERROR_CODES, CONNECT_ERROR_CODES, connectError, CONNECT_BACKSTOP_MS } from './constants.js';
 import { VERSION } from './version.js';
 
 export interface WSMessage {
@@ -92,7 +92,7 @@ export class WebSocketTransport {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         reject(connectError('connect timed out', CONNECT_ERROR_CODES.TIMEOUT));
-      }, 10000);
+      }, CONNECT_BACKSTOP_MS);
       
       this.ws!.onopen = () => {
         // WebSocket opened, wait for connected message
