@@ -62,8 +62,14 @@ framing:**
 - **The hard part was connection lifecycle, and it still is.** ESPHome did not dissolve that
   problem — it moved it somewhere it is solved once, in this bridge, rather than being re-solved
   against every local BLE binding. The single writer slot, release completing only when the server
-  processes the socket close, `BLE_DISCONNECT_TIMEOUT_S`, and the measured reconnect cooldown are
-  all that same problem in the place it now lives.
+  processes the socket close, `BLE_DISCONNECT_TIMEOUT_S` (`bridge/src/ble_bridge/esphome.py`) and
+  `BLE_MCP_IDLE_TIMEOUT` (`config.py`, default 600s — a lease on the command path, not a process
+  lifecycle) are all that same problem in the place it now lives.
+
+  Every name in that list is greppable in this repo on purpose. An earlier draft ended it with
+  "the measured reconnect cooldown", which is real but lives in `trakrf/platform` — so a reader who
+  did the right thing and grepped for it would find nothing here and conclude the paragraph was
+  stale. A citation a reader cannot resolve is worse than one fewer example.
 
 ### Why no better host was ever going to rescue the local-radio path
 

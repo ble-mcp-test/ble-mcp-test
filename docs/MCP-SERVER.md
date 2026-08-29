@@ -136,6 +136,36 @@ merge, so two daemons at the same released version can be serving different code
 2026-08-28 incident, where a daemon had to be killed before publishing because it was serving
 pre-merge code. `code_fingerprint` is the field that sees it.
 
+### The shim is a separate process, and restarting the bridge does not restart it
+
+`just bridge-restart` cycles the **daemon**. The MCP server you are reading this through is a
+different process — a stdio shim the MCP client spawns when your session starts and keeps for the
+life of that session. Nothing the daemon does replaces it.
+
+So **after an upgrade that adds fields to `status`, reconnect the MCP client too.** A shim older
+than the daemon it reads describes an older contract, and the mismatch is not visible from either
+side: the daemon reports its own identity correctly, the shim answers correctly for the contract it
+knows, and only their combination is stale.
+
+The failure this produced once is worth naming, because the misleading part was not the absence but
+its **neighbour**. Unknown fields used to be dropped, so three new fields vanished while `version`
+— already known to that shim — passed through carrying a value that had just moved. A freshly
+updated field sitting beside three missing ones reads as *"the daemon is current and those fields do
+not exist"* rather than *"my view is stale"*. Fields are now passed through undeclared instead of
+dropped, which turns that into an undocumented presence; an undocumented field is self-evidently the
+reader's problem in a way a missing one is not. A shim predating that change still drops them.
+
+**When a field's absence looks suspicious, cross-check the raw control socket.** It has no schema,
+so it cannot drop anything, which makes it the ground truth the typed path is checked against:
+
+```bash
+printf '{"op":"status"}\n' | nc -U "${XDG_RUNTIME_DIR:-/run/user/$UID}/ble-bridge.sock"
+```
+
+If the field is there and the MCP tool does not show it, the shim is the stale part — reconnect.
+That check generalises past this one case: every layer that validates can drop, and the layer that
+cannot drop is what tells you whether it did.
+
 ### Post-mortem is out of scope, by design
 
 `get_logs` is a per-process ring, so a restart empties it: it cannot explain the restart it just
