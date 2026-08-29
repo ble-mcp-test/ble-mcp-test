@@ -53,9 +53,13 @@ describe('the generated version constant', () => {
  * the bug.
  */
 describe('version:sync is idempotent on disk', () => {
-  const root = fileURLToPath(new URL('../..', import.meta.url));
+  // One base, resolved once. The trailing slash is load-bearing -- `new URL('..', …)`
+  // without it resolves the NEXT segment against the parent, so a base built that way
+  // would silently produce /src/version.ts instead of <repo>/src/version.ts.
+  const rootUrl = new URL('../../', import.meta.url);
+  const root = fileURLToPath(rootUrl);
   const targets = ['src/version.ts', 'bridge/src/ble_bridge/_version.py'].map((p) =>
-    fileURLToPath(new URL(p, new URL('../../', import.meta.url)))
+    fileURLToPath(new URL(p, rootUrl))
   );
   const run = () =>
     execFileSync('node', ['scripts/generate-version.js'], { cwd: root, encoding: 'utf8' });
