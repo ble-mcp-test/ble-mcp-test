@@ -37,6 +37,55 @@ picture at all, and the language choice reverts to "what has the best ESPHome cl
 
 ---
 
+## How "we left btleplug behind" was actually reached
+
+The table above takes leaving btleplug as a **premise**. It was a **result**, and the way it was
+reached carries weight the premise framing throws away.
+
+**The ESPHome experiment was run to decide between two live options: replatform, or finish
+stabilizing the btleplug implementation.** It was not a last resort tried after the local-radio path
+had exhausted itself. btleplug was still a candidate on the day the experiment started, and the
+experiment existed to choose between them. ESPHome won on its results, and *that* is what retired
+btleplug.
+
+So the alternative on the table was never "keep suffering with Noble" — it was **finish the option
+that was already less flaky.** Any retelling in which the replatform was the only thing left to try
+understates the evidence behind this decision.
+
+**Two facts about the state btleplug was left in, both hidden by the "sucked less than Noble"
+framing:**
+
+- **It was less flaky than Noble, and its connection lifecycle was never finished.** It is a partial
+  success abandoned mid-work, not a second failure. *"Why not just use btleplug?"* therefore has a
+  real answer rather than a dismissal: it was better and incomplete, and the comparison was settled
+  before the remaining work was done.
+- **The hard part was connection lifecycle, and it still is.** ESPHome did not dissolve that
+  problem — it moved it somewhere it is solved once, in this bridge, rather than being re-solved
+  against every local BLE binding. The single writer slot, release completing only when the server
+  processes the socket close, `BLE_DISCONNECT_TIMEOUT_S`, and the measured reconnect cooldown are
+  all that same problem in the place it now lives.
+
+### Why no better host was ever going to rescue the local-radio path
+
+**Noble was flaky in every environment it ran in. The environment changed how bad it was, never
+whether it was bad.** Mike, stating it in one line: *"noble was always flaky. just less flaky with
+dedicated hardware."*
+
+| what was changed | result |
+|---|---|
+| an arbitrary USB adapter → one chosen for known stability (Asus BT500) | still flaky |
+| incus container and VM → a bare-metal dedicated host | **marginally** better, still flaky |
+| Noble → btleplug | less flaky; lifecycle never finished |
+| **the host BLE stack entirely → ESPHome proxy over TCP** | **fixed** |
+
+The first two rows are the load-bearing ones, because they are the rows people re-propose. **Host-side
+variables were tried and were never the ones that mattered** — which is why "give the container a USB
+dongle" and "run it on dedicated hardware instead" are both closed questions rather than untried
+ideas. Only the last row changed the outcome, and it is the only one that removes the host's BLE
+stack rather than swapping a part of it.
+
+---
+
 ## Evidence: the ESPHome client is the only load-bearing dependency
 
 Everything else in this server is commodity — a WebSocket relay, a ring buffer, some JSON. The one
