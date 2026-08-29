@@ -30,8 +30,8 @@ prevent.
 | `read_stream` | `cursor`, `limit` | packets and log lines interleaved, in the order the bridge saw them |
 | `search_packets` | `hex_pattern`, `limit` | packets whose hex contains the pattern |
 | `get_logs` | `cursor`, `limit` | the same record with packets filtered out |
-| `get_connection_state` | — | who owns the command path, its device, its observers, lifetime TX/RX counts |
-| `status` | — | resolved configuration, uptime, process identity, and code currency |
+| `get_connection_state` | — | who owns the command path, its device, its observers, lifetime TX/RX counts, the owner's mock version |
+| `status` | — | resolved configuration, uptime, process identity, code currency, lifetime mock-version mismatches |
 
 `limit` defaults to 200 and must be 1–1000. Out of range is an error, not a clamp.
 
@@ -170,6 +170,47 @@ printf '{"op":"status"}\n' | nc -U "${XDG_RUNTIME_DIR:-/run/user/$UID}/ble-bridg
 If the field is there and the MCP tool does not show it, the shim is the stale part — reconnect.
 That check generalises past this one case: every layer that validates can drop, and the layer that
 cannot drop is what tells you whether it did.
+
+### Which browser mock is connected
+
+The bridge is the only party that can see the version of the mock actually **running in the
+browser**. A repo-level check cannot: on TRA-1200 a clean tree, a lockfile pinning 0.13.0 and a
+`node_modules` symlink pointing at 0.13.0 were all correct while a long-lived vite dev server served
+0.12.0 out of a version-pinned pnpm store path it had cached. Every one of those checks was
+answering a question about the tree rather than about the running process. The bridge saw the truth
+and could only say so in a log line, which nothing consumed, so a 150-rep hardware measurement was
+analysed before anyone knew.
+
+Two fields, doing two different jobs:
+
+| field | on | what it answers |
+| --- | --- | --- |
+| `mock_version` | `get_connection_state` | the npm version the **command-path owner** announced on connect |
+| `mock_version_expected` | `get_connection_state` | the npm version this bridge ships with |
+| `mock_version_match` | `get_connection_state` | did they agree — three-valued |
+| `mock_version_mismatches` | `status` | connections seen since start whose version differed |
+
+**`mock_version_match: false` means "checked, and they differ". `null` means the question could not
+be asked** — nothing is connected, the client announced no version, or ours could not be resolved
+from `package.json`. Never read `null` as agreement; a consumer that cannot tell the two apart is
+back where TRA-1200 started. The owner is reported, not observers: a stray tab running an old build
+must not be attributed to the writer actually driving the device.
+
+**Poll the counter, not the snapshot.** `get_connection_state` reads `held: false` in the gap
+between test repetitions, so with ~27s reps against a 300s poll most samples land where the
+snapshot is legitimately null — it is unmissable only if you happen to sample mid-run.
+`mock_version_mismatches` is monotonic for the life of the process, incremented once per
+mismatching connection and reset by nothing short of a restart, so two samples are comparable
+whatever they landed on. Baseline it at the start of a soak and abort if it moves. The same idiom as
+`systemctl --user show -p NRestarts ble-bridge.service` for the daemon itself.
+
+**The bridge reports; it does not refuse.** It can see *that* the versions differ, but whether the
+difference matters is semantic — on the evidence of those 150 reps, 0.12 against 0.13 was fully
+functional. Rejecting would make every routine bump on either side an outage for a tool whose
+primary job is availability, and would bake one consumer's strictness into a shared tool. A
+measurement harness that wants exact match asserts it itself. The one case that would justify
+refusing is a genuine wire-protocol incompatibility, and that has to key on a protocol version
+rather than on the npm package version.
 
 ### Post-mortem is out of scope, by design
 
