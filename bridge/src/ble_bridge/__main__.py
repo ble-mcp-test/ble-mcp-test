@@ -1,15 +1,24 @@
 """uvx entrypoint.
 
-The bridge is a test fixture, not a supervised service: no systemd, no pm2, no
-supervision shipped. Whatever runs the tests starts and stops it -- Playwright's
-`webServer` hook is already the right shape for this.
+Also the entry point of a supervised service. `deploy/ble-bridge.service` runs
+this module under `systemctl --user` -- TRA-1202 -- because the bridge has at
+least three consumers and the longest-running one is an unattended overnight
+soak, so binding its lifecycle to whichever of them happens to be in the room
+means an eight-hour run depending on a dev server nobody is watching.
+
+That changes one thing about what this file owes its reader: a restart is now
+something that happens without anybody typing it, so it has to be legible
+afterwards. Hence `_log_start_banner` -- systemd's bookkeeping records restarts
+too, but the log is what someone reads when they do not think to ask systemd.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
+import sys
 import time
 
 from dotenv import find_dotenv, load_dotenv
@@ -109,6 +118,38 @@ async def _run(config: Config, log_buffer: LogBuffer) -> None:
         await server.stop()
 
 
+def _log_start_banner(env_path: str | None) -> None:
+    """Say, unmistakably, that this is a process starting.
+
+    Under supervision a restart happens without anyone typing it, so the daemon's
+    own log has to carry the boundary: `systemctl` knows, but the log is what
+    gets read by someone who did not think to ask it. One greppable line, on the
+    `ble_bridge` logger so it also lands in the ring buffer served over MCP.
+
+    Every field is one that discriminates between two daemons:
+
+    * **pid** -- pairs the log with `systemctl --user show -p MainPID`, and with
+      the listener on the port.
+    * **cwd** -- names WHICH CHECKOUT this process is serving. That is the thing
+      `scripts/bridge-staleness.js` reads out of `/proc/<pid>/cwd`, and the thing
+      a human needs when two checkouts exist and only one is current.
+    * **env** -- the file the configuration actually came from, or NONE. An
+      upstream failure otherwise arrives named after a downstream subsystem: no
+      device MAC reads as a dead reader, not as an unread file.
+
+    Deliberately not the package version. `__version__` has been "0.1.0" through
+    the entire replatform, so it distinguishes nothing and would invite exactly
+    the false confidence TRA-1202 exists to remove.
+    """
+    logger.info(
+        "=== ble-bridge STARTING === pid=%d python=%s cwd=%s env=%s",
+        os.getpid(),
+        f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        os.getcwd(),
+        env_path or "NONE",
+    )
+
+
 def _log_operability(config: Config, log_buffer: LogBuffer) -> None:
     """Say what the operability surface is set to, at startup, every time.
 
@@ -146,7 +187,7 @@ def _log_operability(config: Config, log_buffer: LogBuffer) -> None:
 def main() -> None:
     # The file is read before anything looks at the environment, or the values in
     # it are not there to be read.
-    _load_env_file()
+    env_path = _load_env_file()
 
     # Configuration is read BEFORE logging is set up, so the level the operator
     # asked for governs the very first line. The other order is how the level came
@@ -154,6 +195,7 @@ def main() -> None:
     config = from_env()
     write_mode.set_mode(config.write_response)
     log_buffer = configure_logging(config)
+    _log_start_banner(env_path)
     asyncio.run(_run(config, log_buffer))
 
 

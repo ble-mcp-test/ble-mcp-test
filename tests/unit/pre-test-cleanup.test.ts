@@ -137,6 +137,21 @@ describe('killPort', () => {
   });
 });
 
+/**
+ * Just the port sweep's output.
+ *
+ * The two later phases -- orphaned runners, and the TRA-1202 staleness guard --
+ * print port numbers of their own, for reasons unrelated to which ports were
+ * swept. Asserting over the whole transcript conflates them.
+ */
+function sweepSection(output: string): string {
+  const start = output.indexOf('Checking test ports...');
+  const end = output.indexOf('Checking for orphaned test processes');
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  return output.slice(start, end);
+}
+
 describe('pre-test-cleanup.js', () => {
   it('leaves a protected listener with a connected client alive (acceptance, TRA-1170)', async () => {
     const listener = await startFixture(['listen', PROTECTED_MARKER]);
@@ -156,7 +171,13 @@ describe('pre-test-cleanup.js', () => {
     // entirely -- satisfied by an emitter other than the one under test.
     expect(output).toContain(`Port ${listener.port}: Production process detected`);
     // The override must actually be in force: the default ports are not swept.
-    expect(output).not.toContain('Port 25153');
+    //
+    // Scoped to the sweep's own section rather than to the whole output. The
+    // staleness guard added by TRA-1202 runs afterwards, resolves the REAL
+    // bridge port -- a different question from which ports to sweep -- and names
+    // it, so an unscoped search for "Port 25153" now matches a line that says
+    // nothing about whether the override was honoured.
+    expect(sweepSection(output)).not.toContain('Port 25153');
     // The bug's only fingerprint. If the shell ever splits a command again,
     // this is where it shows up.
     expect(output).not.toContain('not found');

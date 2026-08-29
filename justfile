@@ -91,3 +91,51 @@ conformance-real:
 # TCP through the ESPHome proxy, so this runs in a container with no BlueZ.
 test-e2e:
     pnpm run test:e2e
+
+# --- The bridge daemon, supervised (see docs/bridge-service.md) ---
+
+# Install `ble-bridge.service` as a systemd --user unit and prove it came up.
+#
+# Renders deploy/ble-bridge.service with THIS checkout's path, so a second box
+# runs the same recipe and gets its own bridge. Never a system unit: the MCP
+# control socket lives under /run/user/<uid>, which does not exist for one.
+bridge-install:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # A worktree is deleted when its branch merges, and the unit would keep
+    # pointing at the hole -- silently, until the next boot. Install from the
+    # checkout that is going to stay.
+    if [ "$(git rev-parse --git-dir)" != "$(git rev-parse --git-common-dir)" ]; then
+        echo "Refusing: this is a linked worktree, and it will not outlive its branch."
+        echo "Install from the main checkout: $(dirname "$(git rev-parse --git-common-dir)")"
+        exit 1
+    fi
+    if [ ! -x bridge/.venv/bin/python3 ]; then
+        echo "bridge/.venv/bin/python3 does not exist -- ExecStart would point at nothing."
+        echo "Create it first:  cd bridge && uv sync"
+        exit 1
+    fi
+    unit="$(node scripts/bridge-service.js unit-path)"
+    mkdir -p "$(dirname "$unit")"
+    node scripts/bridge-service.js render > "$unit"
+    echo "wrote $unit"
+    systemctl --user daemon-reload
+    systemctl --user enable --now ble-bridge.service
+    just bridge-check
+
+# The one word to type after anything under bridge/ changes. The staleness guard
+# in `pnpm run pretest` fails a run rather than letting a stale daemon answer it,
+# and this is what it tells you to run.
+bridge-restart:
+    systemctl --user restart ble-bridge.service
+    just bridge-check
+
+# Assert the running daemon is what the unit claims: active, MainPID is the
+# interpreter rather than a `uv` wrapper, a REAL ESPHome transport and not the
+# stub, a log level that is not debug, /status answering, the MCP socket present,
+# and not older than the last commit touching bridge/.
+bridge-check:
+    node scripts/bridge-service.js check
+
+bridge-log:
+    journalctl --user -u ble-bridge.service -f
