@@ -425,7 +425,7 @@ than as a broken guarantee. `tests/conformance` now asserts it.
 
 ## Deliberate divergences
 
-The mock is **stricter** than the real API in five places. Each is a decision,
+The mock is **stricter** than the real API in five places, and bounded where the real API is unbounded in one more. Each is a decision,
 recorded here so it stays one rather than becoming folklore, and each is asserted
 in arm A of the conformance suite with the real API's behaviour written beside it.
 
@@ -436,6 +436,7 @@ in arm A of the conformance suite with the real API's behaviour written beside i
 | a standard GATT **name** (`'heart_rate'`) is **rejected** | Chrome resolves it to `0000180d-0000-1000-8000-00805f9b34fb` from the assigned-numbers registry | the devices this drives use vendor UUIDs, so the registry buys nothing, and a stale copy of it would be worse than none. The divergence is in the strict direction: nothing passes against the mock and then fails in Chrome. |
 | `testing.testCommand` **rejects** on an unsubscribed notify characteristic | n/a — mock-only surface | the wait can never be satisfied, so the alternative is writing to the device and then timing out. A command whose response is guaranteed to be dropped is a broken call, not a slow one, and reporting it as a timeout is this codebase's most expensive failure mode. Refusing rather than subscribing on the caller's behalf keeps subscription the caller's decision, and avoids leaving their characteristic subscribed without them asking. |
 | `testing.simulateNotification` **throws** on an unsubscribed characteristic | n/a — mock-only surface | a simulated notification is an *instruction*, not a device event. The transport path swallows a frame for an unsubscribed characteristic because a radio really does that. Swallowing an explicit request would make this API a check that cannot go red: it would deliver nothing, report nothing, and the test would pass having asserted on an empty list. |
+| `gatt.connect()` **rejects after 75s** on a socket that says nothing | the spec's connect algorithm has **no timeout step**, and there is no `timeout` argument and no `AbortSignal`. The promise stays pending — indefinitely on some platform stacks — and the caller's only recourse is `gatt.disconnect()` | a browser tab has a human who can close it; a headless suite has nothing, and a socket that will never speak leaves a rep hung forever rather than failed. So this is a **backstop, not a policy**: the bridge always answers inside its own budget (37s worst case, then a typed `error` frame), so 75s can only fire on a half-open TCP connection where the bridge process is gone without a FIN. It should never fire in normal operation, and `connect-timeout-nesting.test.ts` fails if it stops clearing the bridge's budget by 20%. **This row is the one that was missing.** The bound was 10s and undocumented from 2025-07-20 until 2026-08-29 — inherited from a local Noble radio, never compared to the 30s advertisement wait that arrived thirteen months later, and therefore sitting *inside* the observed connect distribution rather than outside it. An undocumented divergence is one nobody can audit, which is exactly how it survived two architectures. |
 
 **Adding to this table is a decision, not a workaround.** A divergence that is not
 here is a defect.
