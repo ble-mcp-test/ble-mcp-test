@@ -60,7 +60,7 @@ from typing import Any, get_type_hints
 
 from mcp.server import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 VERSION = "1.0.0"
 
@@ -192,11 +192,46 @@ def _down_message(path: str, exc: Exception) -> str:
 # --- what the tools return ----------------------------------------------------
 #
 # Declared rather than passed through as dicts, so the SDK derives an outputSchema
-# and every reply comes back as structuredContent. It also means a drift in the
-# socket contract fails validation here instead of silently dropping a field.
+# and every reply comes back as structuredContent.
 
 
-class Entry(BaseModel):
+class BridgeReply(BaseModel):
+    """Base for every reply model: strict about what is missing, open to what is new.
+
+    The two directions are not symmetric and both are deliberate.
+
+    **A declared field the bridge stops sending fails validation here.** That is the
+    drift this file's typed models exist to catch, and it stays.
+
+    **A field the bridge sends that this shim does not declare passes through.**
+    Pydantic's default would drop it, and the comment above this block used to claim
+    the models caught "a drift in the socket contract" -- true of a missing field,
+    false of an added one, and the false half is the one that bit. On 2026-08-29 a
+    shim 24 hours older than the daemon silently dropped `instance_id`,
+    `code_fingerprint` and `code_source_root`; the reader concluded they had not
+    shipped.
+
+    What made that misleading was not the absence but its NEIGHBOUR. `version` was
+    already declared, so it passed through reading `0.13.0` -- a freshly moved value
+    sitting beside three that were simply gone, which reads as "the daemon is current
+    and those fields do not exist" rather than "my view is stale". Pass-through turns
+    a fabricated absence into an undocumented presence, and an undocumented field is
+    self-evidently the reader's problem in a way a missing one is not.
+
+    This cannot help the upgrade that introduces it -- the shim doing the dropping is
+    always the one that predates the fix. It is ambiguous exactly once, then
+    permanently better, and there will be more fields.
+
+    `extra="allow"` also sets `additionalProperties: true` on the generated
+    outputSchema, which matters: the model and the schema are separate gates, and
+    extras surviving pydantic would still be dropped by a client validating
+    structuredContent against a schema that forbade them.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class Entry(BridgeReply):
     """One packet or one log line, in the order the bridge saw it."""
 
     id: int = Field(description="Monotonic id. Pass the last one back as `cursor`.")
@@ -207,7 +242,7 @@ class Entry(BaseModel):
     is_packet: bool
 
 
-class StreamResult(BaseModel):
+class StreamResult(BridgeReply):
     entries: list[Entry]
     next_cursor: int | None = Field(
         description="Pass as `cursor` next call. Holds its place when nothing new arrived."
@@ -223,7 +258,7 @@ class StreamResult(BaseModel):
     notice: str | None
 
 
-class SearchResult(BaseModel):
+class SearchResult(BridgeReply):
     entries: list[Entry]
     count: int
     pattern: str
@@ -232,7 +267,7 @@ class SearchResult(BaseModel):
     notice: str | None
 
 
-class ConnectionState(BaseModel):
+class ConnectionState(BridgeReply):
     held: bool = Field(description="Whether any connection owns the command path.")
     session: str | None
     ready: bool = Field(description="Whether the owner's device link is up.")
@@ -243,7 +278,7 @@ class ConnectionState(BaseModel):
     packets_received: int = Field(description="Lifetime total for the bridge process.")
 
 
-class Status(BaseModel):
+class Status(BridgeReply):
     version: str = Field(
         description="The released version of the mock and bridge. NOT a code-currency "
         "signal: a release number moves on release and code moves on merge, so two "

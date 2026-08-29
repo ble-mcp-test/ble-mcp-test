@@ -360,3 +360,87 @@ async def test_the_hint_is_attached_by_the_field_rather_than_by_a_hand_list(shim
     # the loop above while attaching the hint everywhere or nowhere.
     answers = {shim._takes_disabled_hint(t) for t in shim.TOOLS}
     assert answers == {True, False}
+
+
+# --- a bridge newer than the shim reading it ----------------------------------
+
+
+@pytest.fixture
+async def wired_to_a_newer_bridge(shim, tmp_path, monkeypatch):
+    """A real listener that answers `status` with a field this shim does not declare.
+
+    This is the cross-boundary case, and it is why the fault is injected into the
+    real ControlServer rather than mocked: the subject is the schema gate ABOVE the
+    socket, and a fake socket would prove nothing about it. Reaching into
+    `_handlers` is deliberate -- there is no supported way to make a correct bridge
+    emit a field its own version does not have, and the whole point is to simulate a
+    version this checkout cannot produce.
+    """
+    buf = LogBuffer(100)
+    path = CommandPath()
+    sock = str(tmp_path / "newer.sock")
+    monkeypatch.setenv("BLE_MCP_SOCKET_PATH", sock)
+    srv = ControlServer(
+        Config(socket_path=sock),
+        log_buffer=buf,
+        command_path=path,
+        started_at=time.monotonic(),
+    )
+    answer_status = srv._handlers["status"]
+    srv._handlers["status"] = lambda: {**answer_status(), "field_from_a_newer_bridge": "present"}
+    await srv.start()
+    try:
+        yield shim
+    finally:
+        await srv.stop()
+
+
+async def test_a_field_from_a_newer_bridge_reaches_the_caller(wired_to_a_newer_bridge):
+    """On 2026-08-29 a shim 24 hours older than the daemon dropped three new fields
+    silently, and the reader concluded they had not shipped. The absence was the
+    misleading part, and it was misleading because of its NEIGHBOUR: `version` was
+    already declared, so it passed through and read `0.13.0` -- a freshly moved value
+    sitting next to three that were simply gone.
+
+    Passing an unknown field through turns a fabricated absence into an undocumented
+    presence, and "undocumented" is self-evidently a client-side problem in a way
+    that "missing" is not.
+    """
+    shim = wired_to_a_newer_bridge
+    out = await shim.status()
+    assert out.field_from_a_newer_bridge == "present"
+    # model_dump is what becomes structuredContent, so surviving validation is not
+    # enough -- it has to survive serialisation too.
+    assert out.model_dump()["field_from_a_newer_bridge"] == "present"
+    assert out.version, "declared fields must still arrive"
+
+
+def test_every_reply_model_accepts_fields_it_does_not_declare(shim):
+    """Derived from the module rather than a list of names, so a reply model added
+    later cannot quietly miss this. A hand-list is the thing that drifts.
+
+    `extra="allow"` is invisible at every call site: delete it and every other test
+    in this file still passes, because they all assert DECLARED fields. That is the
+    load-bearing-and-untested combination, so this is the test that notices.
+    """
+    models = [
+        v
+        for v in vars(shim).values()
+        if isinstance(v, type) and hasattr(v, "model_fields") and v.__module__ == shim.__name__
+    ]
+    assert models, "found no reply models -- the discovery rule is wrong, not the code"
+    for model in models:
+        assert model.model_config.get("extra") == "allow", model.__name__
+
+
+def test_a_missing_declared_field_still_fails_validation(shim):
+    """The other direction must NOT loosen. Accepting unknown fields is not the same
+    as accepting an incomplete reply, and a bridge that stopped sending `uptime_seconds`
+    should still fail here rather than hand back a model with a hole in it."""
+    # Imported here, not at module scope: this file keeps pydantic out of COLLECTION
+    # time on purpose -- see the note above _load() about the cost landing on
+    # tests/stress/test_firehose.py's saturated-tick assertion in another file.
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        shim.Status(version="0.13.0")
