@@ -43,7 +43,6 @@ async function characteristicOn(options: Parameters<typeof startStubBridge>[0] =
     write: WRITE,
     notify: NOTIFY,
     sessionId: 'write-error-codes',
-    timeout: 5000,
     onMultipleDevices: 'error'
   });
   const device: any = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });

@@ -681,7 +681,6 @@ class MockBluetoothDevice {
     sessionId: string; 
     deviceId?: string;
     deviceName?: string;
-    timeout: number;
     onMultipleDevices: 'error' | 'first';
   };
   private characteristics: Map<string, MockBluetoothRemoteGATTCharacteristic> = new Map();
@@ -699,7 +698,6 @@ class MockBluetoothDevice {
       sessionId: string; 
       deviceId?: string;
       deviceName?: string;
-      timeout: number;
       onMultipleDevices: 'error' | 'first';
     }
   ) {
@@ -790,7 +788,6 @@ export class MockBluetooth {
     sessionId: string; 
     deviceId?: string;
     deviceName?: string;
-    timeout: number;
     onMultipleDevices: 'error' | 'first';
   };
 
@@ -801,7 +798,6 @@ export class MockBluetooth {
     sessionId: string; 
     deviceId?: string;
     deviceName?: string;
-    timeout: number;
     onMultipleDevices: 'error' | 'first';
   }) {
     this.bleConfig = bleConfig;
@@ -1163,7 +1159,6 @@ export interface WebBleMockConfig {
   notify?: string;        // OPTIONAL - notify characteristic UUID
   deviceId?: string;      // OPTIONAL - specific device ID
   deviceName?: string;    // OPTIONAL - device name filter
-  timeout?: number;       // OPTIONAL - discovery timeout (default: 5000ms)
   onMultipleDevices?: 'error' | 'first';  // OPTIONAL - multiple device behavior (default: 'error')
 }
 
@@ -1189,8 +1184,7 @@ export interface WebBleMockConfig {
  *   serverUrl: 'ws://localhost:25153',
  *   service: '9800',
  *   write: '9900',     // Optional: write characteristic UUID
- *   notify: '9901',    // Optional: notify characteristic UUID
- *   timeout: 10000     // Optional: connection timeout
+ *   notify: '9901'     // Optional: notify characteristic UUID
  * });
  * ```
  * 
@@ -1223,7 +1217,6 @@ export function injectWebBluetoothMock(config: WebBleMockConfig): void {
     sessionId: config.sessionId,
     deviceId: config.deviceId,
     deviceName: config.deviceName,
-    timeout: config.timeout || 5000,
     onMultipleDevices: config.onMultipleDevices || 'error'
   };
   

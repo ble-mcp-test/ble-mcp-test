@@ -62,7 +62,6 @@ export async function createMockProvider(): Promise<MockProvider> {
         write: WRITE,
         notify: NOTIFY,
         sessionId: `conformance-${openSessions.size}`,
-        timeout: 5000,
         onMultipleDevices: 'error'
       });
       const device: any = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });

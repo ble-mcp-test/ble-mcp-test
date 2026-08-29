@@ -15,7 +15,6 @@ export interface WebBleMockConfig {
   notify?: string;        // OPTIONAL - notify characteristic UUID
   deviceId?: string;      // OPTIONAL - specific device ID
   deviceName?: string;    // OPTIONAL - device name filter
-  timeout?: number;       // OPTIONAL - discovery timeout (default: 5000ms)
   onMultipleDevices?: 'error' | 'first';  // OPTIONAL - multiple device behavior (default: 'error')
 }
 ```
@@ -61,7 +60,6 @@ injectWebBluetoothMock({
 - **notify** (optional): Characteristic UUID for notifications. Defaults to device's primary notify characteristic.
 - **deviceId** (optional): Specific device ID to connect to. Useful in device farm environments with multiple identical devices.
 - **deviceName** (optional): Device name filter for device selection.
-- **timeout** (optional): Device discovery timeout in milliseconds. Default: 5000ms.
 - **onMultipleDevices** (optional): Behavior when multiple devices match filters. `'error'` (default) throws error, `'first'` connects to first found.
 
 #### Error Handling

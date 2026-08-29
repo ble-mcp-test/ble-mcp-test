@@ -66,6 +66,26 @@ const FORBIDDEN: ReadonlyArray<{ pattern: RegExp; why: string; appliesTo?: RegEx
     why: 'authentication died with the HTTP transport (TRA-1161); the socket is mode 0600, owner only'
   },
   {
+    // A knob that was accepted, defaulted, copied into the connect options,
+    // LOGGED, and read by nothing. `injectWebBluetoothMock({timeout})` reached
+    // `bleConfig.timeout` and stopped there: `WebSocketTransport.connect()` has
+    // no `timeout` parameter and bounds the handshake with a hardcoded 10000ms.
+    //
+    // What makes it worse than an unimplemented option is the log line. Every
+    // connect printed `{..."timeout":5000...}` -- the DEFAULT, for a field the
+    // caller had not set -- at the moment the value was discarded. It did not
+    // merely advertise a dead knob, it fabricated the appearance of a caller
+    // decision nobody had made, and two sessions spent real time reasoning
+    // about why "the client asked for 5000" (TRA-1189, 2026-08-29).
+    //
+    // Deleted rather than wired up: real `gatt.connect()` takes no timeout
+    // argument, so honouring it would be a divergence from the API this mock
+    // exists to double -- and the 5000 default would have made the unset case
+    // abandon EARLIER than the 10s it actually waited.
+    pattern: /OPTIONAL\s*-\s*discovery timeout|Optional: connection timeout|Device discovery timeout/i,
+    why: 'the mock config never had a working `timeout`; it was read by nothing and deleted in TRA-1189. Real gatt.connect() takes no timeout argument'
+  },
+  {
     // Same failure shape as the ports above: a documented value that no longer
     // works. 0.8.0 made the mock canonicalise UUIDs the way real Chromium does,
     // so a short form now throws a TypeError at argument validation rather than

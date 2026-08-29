@@ -31,7 +31,6 @@ async function characteristicOn(writeProperties: string[]) {
     write: WRITE,
     notify: NOTIFY,
     sessionId: 'write-properties-gate',
-    timeout: 5000,
     onMultipleDevices: 'error'
   });
   const device: any = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
