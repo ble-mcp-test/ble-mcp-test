@@ -36,8 +36,12 @@ where being helpful would produce a wrong answer wearing a right one's clothes:
 
 * an **unknown op** names the ops that do exist, so a caller reaching for the
   dropped `get_metrics` learns it was dropped rather than that the socket is broken;
-* an **unknown argument** is refused instead of ignored, because a silently dropped
-  filter returns the wrong rows and they look exactly like data;
+* an **unknown argument** is refused instead of ignored -- at **both** levels of the
+  envelope, inside `args` and beside `op` -- because a silently dropped filter
+  returns the wrong rows and they look exactly like data. A `cursor` written beside
+  `op` rather than inside `args` is the one that bites hardest: the reply is a
+  well-formed first page carrying a plausible `next_cursor`, so a paginating caller
+  loops on page 1 forever with nothing in any response to say so;
 * an **out-of-range limit** is refused instead of clamped, because a clamp leaves
   the caller's own value sitting in their request, apparently in force.
 
@@ -73,6 +77,11 @@ MAX_LINE_BYTES: Final = 64 * 1024
 #: human-driven MCP client is idle most of the time, and the client re-connects per
 #: call anyway.
 READ_TIMEOUT_S: Final = 300.0
+
+#: The entire top-level shape of a request. A key outside this set is refused, not
+#: dropped: nothing downstream reads it, so ignoring it answers a different question
+#: than the caller asked while looking exactly like the answer to theirs.
+ALLOWED_TOP_LEVEL: Final = ("op", "args")
 
 #: Bounds on `limit`. Refused outside them, never clamped.
 MIN_LIMIT: Final = 1
@@ -254,6 +263,15 @@ class ControlServer:
         if handler is None:
             raise ControlError(
                 f"{op!r} is not an op this bridge serves. It serves: {', '.join(self.ops)}."
+            )
+        misplaced = sorted(set(message) - set(ALLOWED_TOP_LEVEL))
+        if misplaced:
+            raise ControlError(
+                f"{op!r} was given {', '.join(repr(m) for m in misplaced)} at the top "
+                "level, where nothing reads it. Arguments go inside 'args': "
+                f'{{"op": {op!r}, "args": {{...}}}}. Refusing rather than ignoring it -- '
+                "a cursor dropped this way returns the first page forever behind a "
+                "valid-looking next_cursor, and the caller cannot tell."
             )
         args = message.get("args", {})
         if args is None:

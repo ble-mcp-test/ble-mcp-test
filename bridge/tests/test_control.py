@@ -104,6 +104,19 @@ async def _ask(srv, op, **args):
             await writer.wait_closed()
 
 
+async def _ask_raw(srv, message):
+    """Send a message exactly as given, without wrapping arguments in 'args'."""
+    reader, writer = await asyncio.open_unix_connection(srv.path)
+    try:
+        writer.write((json.dumps(message) + "\n").encode())
+        await writer.drain()
+        return json.loads(await asyncio.wait_for(reader.readline(), 5))
+    finally:
+        writer.close()
+        with contextlib.suppress(ConnectionResetError, BrokenPipeError):
+            await writer.wait_closed()
+
+
 async def test_the_socket_is_owner_only(server):
     """0600 is the entire authorization story on this path. mcp-http-transport.ts
     set `origin: '*'` on a 0.0.0.0 bind with the token consulted only if set;
@@ -362,6 +375,29 @@ async def test_an_unknown_argument_is_refused_rather_than_ignored(server):
     reply = await _ask(srv, "read_stream", limitt=5)
     assert reply["ok"] is False
     assert "limitt" in reply["reason"]
+
+
+async def test_an_argument_at_the_top_level_is_refused_rather_than_ignored(server):
+    """A cursor beside 'op' instead of inside 'args' lands where nothing reads it.
+    Ignoring it returns page 1 with a well-formed next_cursor, so a paginating
+    caller loops forever with no signal -- one wrote 27 GB of the same 200 records
+    before anyone noticed. The refusal names the key and where it belongs."""
+    srv, _, _ = server
+    reply = await _ask_raw(srv, {"op": "read_stream", "cursor": 100, "limit": 3})
+    assert reply["ok"] is False
+    assert "cursor" in reply["reason"]
+    assert "limit" in reply["reason"]
+    assert "args" in reply["reason"]
+
+
+async def test_a_misspelled_args_envelope_is_refused_rather_than_ignored(server):
+    """'params' is the same mistake wearing a different name: the whole argument
+    object lands at the top level and the call succeeds against defaults."""
+    srv, _, _ = server
+    reply = await _ask_raw(srv, {"op": "read_stream", "params": {"cursor": 100}})
+    assert reply["ok"] is False
+    assert "params" in reply["reason"]
+    assert "args" in reply["reason"]
 
 
 async def test_an_out_of_range_limit_is_refused_rather_than_clamped(server):
