@@ -36,12 +36,11 @@ pnpm test:run
 
 ### 1. Create a Branch
 ```bash
-# Branch naming:
-# - feature/add-xyz    (new features)
-# - fix/broken-xyz     (bug fixes)
-# - docs/update-xyz    (documentation)
+# Branch naming: <type>/<slug>
+# - feat/     fix/      docs/
+# - chore/    refactor/ test/
 
-git checkout -b feature/add-reconnect
+git checkout -b feat/add-reconnect
 ```
 
 ### 2. Write Your Code
@@ -77,13 +76,12 @@ export class WebSocketDataTransmissionManager {
 
 ### 3. Test Your Changes
 ```bash
-# Run all tests
+# The whole gate: lint + typecheck + both test suites
+just validate
+
+# Or the pieces individually
 pnpm test:run
-
-# Check types
 pnpm typecheck
-
-# Check code style
 pnpm lint
 ```
 

@@ -7,7 +7,7 @@ How we work in this repo. What the project *is* lives in `CLAUDE.md`.
 - Never push to `main`. All changes via PR.
 - Never squash or rebase merge — `gh pr merge --merge`.
 - Never merge without explicit confirmation.
-- Branch `<type>/tra-NNNN-slug`. Conventional commits: `feat:` `fix:` `docs:` `chore:` `refactor:` `test:`.
+- Branch `<type>/<slug>` — e.g. `fix/gattserverdisconnected-on-explicit-disconnect`. Conventional commits: `feat:` `fix:` `docs:` `chore:` `refactor:` `test:`.
 - Prefer incremental commits over amending.
 - Fold a small in-scope discovery into the open PR as its own commit.
 
