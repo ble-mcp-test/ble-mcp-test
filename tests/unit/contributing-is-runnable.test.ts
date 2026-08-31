@@ -8,9 +8,17 @@ import { fileURLToPath } from 'url';
  * Items 1 and 2 of that ticket are symptoms. This is the cause: **nothing reads
  * CONTRIBUTING.md.** No gate, no session, no CI, and evidently no human -- this
  * repo's copy told a contributor to
- * `git clone .../web-ble-bridge.git && cd web-ble-bridge` long after the package
- * was renamed `ble-mcp-test`, so step 2 of the documented path 404'd. The README
- * three lines away stayed correct, because people open the README.
+ * `git clone .../<the old package name>.git` long after the package was renamed,
+ * so step 2 of the documented path 404'd. The README three lines away stayed
+ * correct, because people open the README.
+ *
+ * The old name is deliberately NOT spelled here. `no-dead-server-instructions`
+ * forbids it across tracked files, and this file is tracked -- writing it out
+ * turns this docstring into the offence it describes. That is not hypothetical:
+ * the first version of this file did spell it, passed locally because
+ * `git ls-files` cannot see an untracked file, and failed the moment the merge
+ * made it tracked. Which is the same self-match that guard's own header
+ * documents about itself.
  *
  * It did not rot through carelessness. It rotted because nothing ever
  * contradicted it. So: something now contradicts it.
