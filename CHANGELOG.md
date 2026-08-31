@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0]
+
+### Added
+
+- **`DEVICE_BUSY` splits, and our own releasing connection becomes retryable.**
+  A new wire code `DEVICE_BUSY_SELF` joins `RETRYABLE_CONNECT_CODES`. A **live
+  foreign** holder still gets `DEVICE_BUSY` — unchanged, loud, never retried.
+
+  "No amount of waiting changes that" is true of a foreign holder and false when
+  the holder is your own previous connection still releasing. Measured over a
+  200-rep arm: 63 busy refusals, every holder released within 12–21ms — the
+  bridge's own close-processing cost, independently measured here over 997 cycles
+  and the number `postDisconnectDelay: 250` is built on.
+
+  No new knob. It reuses the existing connect retry — 250ms × 1.3, 5 attempts, a
+  ~2.4s ceiling — and the first step alone clears the measured window with ~12x
+  margin.
+
+  ⚠ **The bridge does not decide this on the session id.** It gates on the holder
+  actually closing; the session match only narrows it. Session ids are commonly
+  derived from the hostname for connection-pool reuse, so two live processes on
+  one host share a name — keying on the name alone would retry against a genuine
+  foreign holder, which is the exact case `DEVICE_BUSY` exists to refuse.
+
+  ⚠ **A client that does not PIN a session id gets nothing from this.** An absent
+  `session` is filled with a fresh uuid4 per connection, so a reconnecting
+  anonymous client never matches its own prior id and always sees plain
+  `DEVICE_BUSY`. The bridge has no identity to match on and does not invent one.
+
+  This is a robustness improvement, not a fix for the failure that surfaced it —
+  it makes a real collision legible and survivable rather than preventing it.
+
+  **Upgrading:** a consumer carrying its own retry keyed on `code ===
+  'DEVICE_BUSY'` should delete it **after** taking this version, not before. Once
+  the split lands, a `DEVICE_BUSY` you receive is *only ever* a live foreign
+  writer and deserves to stay loud. `RETRYABLE_CONNECT_CODES` is exported, so
+  `RETRYABLE_CONNECT_CODES.includes('DEVICE_BUSY_SELF')` is a guard that goes red
+  rather than a comment that rots.
+
+  TRA-1216.
+
+## [0.15.0]
+
+Version-only release; see `git log` for TRA-1210.
+
 ## [0.14.0]
 
 ### Added
