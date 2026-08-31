@@ -49,6 +49,16 @@
  * `DEVICE_BUSY`. That is correct: the bridge has no identity to match on and must
  * not invent one.
  *
+ * ⚠ **Do not delete your own busy retry unless your teardown awaits the close.**
+ * A matching session id is NECESSARY for `DEVICE_BUSY_SELF` and never SUFFICIENT:
+ * the bridge gates on `closing`, which it sets when it begins processing your
+ * socket close -- not when you decide to disconnect. A cleanup path that is
+ * time-bounded and swallows its own failures (the ordinary shape, since a teardown
+ * must not fail a test whose subject already passed) leaves a holder that is
+ * same-named and NOT closing, and its successor gets plain `DEVICE_BUSY`. What
+ * this release buys such a consumer is that their retry now fires rarely instead
+ * of on every reconnect -- a backstop, not a path they can remove.
+ *
  * ## An error frame with no code is NOT retried
  *
  * Absent is not retryable. That is the safe direction and it is deliberate: a

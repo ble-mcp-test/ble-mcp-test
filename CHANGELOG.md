@@ -44,6 +44,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RETRYABLE_CONNECT_CODES.includes('DEVICE_BUSY_SELF')` is a guard that goes red
   rather than a comment that rots.
 
+  ⚠ **But delete it only if your teardown awaits the close.** The split converts
+  a collision **only when the holder is already closing**, and `closing` is set
+  when the server begins processing the socket close — not when the client
+  decides to disconnect. A pinned client that tears down without awaiting
+  disconnect leaves a same-named holder that is not closing, and its next connect
+  gets plain `DEVICE_BUSY`: loud, unretryable, unchanged by this release.
+
+  This is not a residual race. A cleanup path that is time-bounded and swallows
+  its own failures — the ordinary shape, since a teardown must not fail a test
+  whose subject already passed — is a *documented producer* of non-closing
+  same-named holders. If that describes your teardown, keep your retry; what this
+  release buys you is that it now fires rarely instead of every reconnect.
+
   TRA-1216.
 
 ## [0.15.0]

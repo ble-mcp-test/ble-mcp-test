@@ -738,6 +738,25 @@ reconnecting anonymous client never matches its own prior id and always sees pla
 `DEVICE_BUSY`. That is correct rather than a gap: the bridge has no identity to
 match on and must not invent one.
 
+**A pinned client whose teardown does not await the close gets no benefit either,
+and this is the half a consumer cannot see from where they stand.** Matching
+session ids are *necessary* for `DEVICE_BUSY_SELF`, never *sufficient* — `closing`
+is the discriminator, and it is set when the server reaches `_relay`'s `finally`,
+which requires the client's socket to have actually closed. A teardown that is
+time-bounded and swallows its own failures — the ordinary shape, since a cleanup
+step must not fail a test whose subject already passed — is a **documented
+producer** of holders that are same-named and not closing. Their successor gets
+plain `DEVICE_BUSY`.
+
+So a consumer must not read the split as "the mock handles busy now" and delete
+its own busy handling. The correct claim is narrower: the **orderly** self
+collision moves upstream, so a consumer-side retry becomes a backstop that fires
+rarely rather than a primary path. Platform reached the wider conclusion from a
+genuinely verified premise — both of its config paths pin the same
+hostname-derived session id — and nearly deleted two such retries on it. The
+premise was an identity fact being used as an ordering fact, and no amount of
+further verifying it would have exposed that.
+
 ⚠ **This is a robustness improvement, not a fix for the failure that surfaced it.**
 The busy refusal was two levels downstream of a CS108 that stopped acking
 `RFID_POWER_OFF` (0x8001) for ~82 minutes; that defect is TRA-1217. This makes a
