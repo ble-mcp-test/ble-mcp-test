@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1]
+
+### Changed
+
+- **Docs only: `DEVICE_BUSY_SELF` requires a *closing* holder, not just a matching
+  session id.** No executable change — the `RETRYABLE_CONNECT_CODES` JSDoc gains the
+  precondition it was missing, and `dist/constants.d.ts` is the reason this ships as a
+  release rather than riding along: it is the only copy of that text a consumer can see
+  from inside their own `node_modules`.
+
+  0.16.0's upgrade note told a consumer to delete a retry keyed on `code ===
+  'DEVICE_BUSY'` and never said what makes that safe. The split converts a collision
+  **only when the holder is already closing**, and `closing` is set when the server
+  begins processing the socket close — not when the client decides to disconnect. A
+  pinned client whose teardown does not await the close leaves a same-named,
+  **non-closing** holder, and its successor gets plain `DEVICE_BUSY`: loud,
+  unretryable, unchanged by 0.16.0.
+
+  That is not a residual race. A cleanup path that is time-bounded and swallows its own
+  failures — the ordinary shape, since a teardown must not fail a test whose subject
+  already passed — is a *documented producer* of such holders. Platform read the note
+  the wide way and deleted two retries before catching it; both were restored.
+
+  **Upgrading:** `^0.16.0` already admits this (a caret on a 0.x is minor-locked but
+  patch-open), so `pnpm update ble-mcp-test` is enough — no range change.
+
+  TRA-1216.
+
 ## [0.16.0]
 
 ### Added
