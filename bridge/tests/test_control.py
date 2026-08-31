@@ -400,6 +400,21 @@ async def test_a_misspelled_args_envelope_is_refused_rather_than_ignored(server)
     assert "args" in reply["reason"]
 
 
+async def test_the_corrective_example_is_valid_json(server):
+    """The refusal exists to show a confused caller the shape they meant to send,
+    which it cannot do while printing something their parser rejects. `{op!r}` is
+    Python repr, so the op name came back single-quoted inside what reads as a JSON
+    request. Everything rendered must be JSON; the only non-JSON token allowed is
+    the deliberate `{...}` standing in for the caller's own arguments."""
+    srv, _, _ = server
+    reply = await _ask_raw(srv, {"op": "read_stream", "cursor": 100})
+    reason = reply["reason"]
+
+    example = reason[reason.index("{") : reason.rindex("}") + 1]
+    assert "'" not in example, f"the example is not JSON: {example}"
+    assert json.loads(example.replace("{...}", "{}")) == {"op": "read_stream", "args": {}}
+
+
 async def test_an_out_of_range_limit_is_refused_rather_than_clamped(server):
     """A clamp is a fallback: the caller keeps reading their own 5000 back and
     believing it took effect."""
