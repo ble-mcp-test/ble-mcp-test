@@ -68,6 +68,29 @@ class CommandPathBusy(OwnershipError):
     code = p.ERR_DEVICE_BUSY
 
 
+class CommandPathBusySelf(CommandPathBusy):
+    """Our own previous connection owns the path and is already releasing it.
+
+    A subclass of CommandPathBusy rather than a sibling, because it IS the busy
+    refusal -- it differs only in being survivable. Anything catching
+    CommandPathBusy keeps catching this, which is the safe direction for a new
+    exception: an unhandled refusal is worse than an over-broad one.
+
+    Retryable, and it is the only busy case that is. See BUSY_SELF_ERROR_PREFIX for
+    why the discriminator is `Claim.closing` and not the session id.
+    """
+
+    code = p.ERR_DEVICE_BUSY_SELF
+
+    def __init__(self, holder: str) -> None:
+        # Deliberately not super().__init__() -- CommandPathBusy's message names a
+        # different situation and offers force=true, which is the wrong advice here.
+        OwnershipError.__init__(
+            self, f"{p.BUSY_SELF_ERROR_PREFIX} (session {holder!r}). {p.BUSY_SELF_ERROR_ADVICE}"
+        )
+        self.holder = holder
+
+
 class CommandPathNotReady(OwnershipError):
     """The path is claimed but its device link is not up yet. Worth retrying."""
 
@@ -126,6 +149,18 @@ class Claim:
     #: connection waits on this before building its transport, so two transports
     #: never hold the one radio at the same time.
     torn_down: asyncio.Event = field(default_factory=asyncio.Event)
+    #: TRA-1216. This claim is on its way out: its socket is gone and its handler is
+    #: inside teardown. Set by the WS handler at the top of `_relay`'s `finally`,
+    #: BEFORE `transport.cleanup()` -- because cleanup IS the 12-21ms window, and a
+    #: flag set after it would be true only once there was nothing left to wait for.
+    #:
+    #: ⚠ It cannot be set here. `ownership.py` has no way to see a socket close, and
+    #: that split is the hazard this flag lives in the middle of: every unit test of
+    #: `claim()` can pass while the handler never sets it, in which case
+    #: DEVICE_BUSY_SELF is a code the bridge can never emit and the client retries on
+    #: a condition nothing satisfies. `torn_down` above answers a different question
+    #: -- "is the radio free yet" -- and is set on the far side of the same window.
+    closing: bool = False
     own_subscription: Subscription = field(init=False)
     device: DeviceInfo | None = None
     #: Wall clock, for "since when" in a human-readable answer. Paired with a
@@ -251,6 +286,25 @@ class CommandPath:
             return self._held
 
         if not force:
+            # TRA-1216. `closing` is what carries the meaning: waiting only helps
+            # when the holder is already on its way out, and then it helps a lot --
+            # 63 measured refusals, every holder released within 21ms. The session
+            # match merely adds "and it was mine".
+            #
+            # Both conditions, in this order, and neither is redundant:
+            #
+            # - Drop `closing` and a LIVE holder wearing our own name becomes
+            #   retryable. Both repos derive the session id from the hostname
+            #   deliberately, for pool reuse, so two live platform processes on one
+            #   host are indistinguishable by name -- the second would be handed a
+            #   ~2.4s retry against a genuinely foreign holder, which is the precise
+            #   case DEVICE_BUSY exists to refuse loudly.
+            # - Drop the non-empty `session` test and two ANONYMOUS clients match
+            #   each other, because params.py fills an absent session with a fresh
+            #   uuid4 and "" == "". An empty name is the absence of identity; a
+            #   client that does not pin one has no claim to be its own predecessor.
+            if session and current.session == session and current.closing:
+                raise CommandPathBusySelf(current.session)
             raise CommandPathBusy(current.session)
 
         if not current.is_ready:

@@ -22,13 +22,32 @@
  * `test_every_retryable_code_is_one_we_send` compares this list against it
  * mechanically across the language boundary.
  *
- * ## `DEVICE_BUSY` is deliberately NOT here
+ * ## `DEVICE_BUSY` is deliberately NOT here, and `DEVICE_BUSY_SELF` is
  *
- * It is a loud refusal -- another connection owns the command path, and no
- * amount of waiting changes that. Retrying it converts a precise refusal into a
- * long pause followed by some other failure, which is the same failure class
- * again. `test_the_busy_error_is_not_one_the_mock_silently_retries` enforces it
- * from the Python side.
+ * `DEVICE_BUSY` is a loud refusal -- a LIVE foreign connection owns the command
+ * path, and no amount of waiting changes that. Retrying it converts a precise
+ * refusal into a long pause followed by some other failure, which is the same
+ * failure class again. `test_the_busy_refusal_is_not_one_the_mock_silently_retries`
+ * enforces it from the Python side.
+ *
+ * `DEVICE_BUSY_SELF` (TRA-1216, 0.16.0) is the one busy case where waiting is
+ * exactly what fixes it: the holder is our OWN previous connection and it is
+ * already tearing down. Measured over platform's 200-rep arm, all 63 such
+ * refusals released within 21ms -- the bridge's own close-processing cost, the
+ * same number `postDisconnectDelay: 250` is built on. The existing connect retry
+ * covers it with roughly 12x margin on the first step alone, so this adds a code
+ * and no knob.
+ *
+ * ⚠ **The bridge does not decide this on the session id.** It gates on the holder
+ * actually closing; the session match only narrows it. Both repos derive the
+ * session id from the hostname on purpose, so two live processes on one host share
+ * a name -- keying on the name alone would retry against a genuine foreign holder.
+ *
+ * ⚠ **A client that does not PIN a session id gets nothing from this.** An absent
+ * `session` is filled with a fresh uuid4 per connection, so a reconnecting
+ * anonymous client never matches its own prior id and always sees plain
+ * `DEVICE_BUSY`. That is correct: the bridge has no identity to match on and must
+ * not invent one.
  *
  * ## An error frame with no code is NOT retried
  *
@@ -37,9 +56,12 @@
  * how a silent fallback gets built.
  */
 export const RETRYABLE_CONNECT_CODES: readonly string[] = [
-  // ownership.py CommandPathNotReady -> protocol.py ERR_NOT_READY. The one
-  // refusal that asks to be retried.
-  'NOT_READY'
+  // ownership.py CommandPathNotReady -> protocol.py ERR_NOT_READY. The path is
+  // claimed but its device link is not up yet.
+  'NOT_READY',
+  // ownership.py CommandPathBusySelf -> protocol.py ERR_DEVICE_BUSY_SELF. Our own
+  // previous connection still holds the path and is already releasing it.
+  'DEVICE_BUSY_SELF'
 ];
 
 /**

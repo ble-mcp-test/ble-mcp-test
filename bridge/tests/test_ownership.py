@@ -10,10 +10,12 @@ most here are the ones asserting a claim is refused even when the session ids ma
 import pytest
 
 from ble_bridge.transport import DeviceInfo
+from ble_bridge.ws import protocol as p
 from ble_bridge.ws.ownership import (
     END_OF_STREAM,
     CommandPath,
     CommandPathBusy,
+    CommandPathBusySelf,
     CommandPathNotReady,
     NothingToObserve,
 )
@@ -61,6 +63,84 @@ def test_a_claim_is_refused_while_the_holder_is_still_connecting():
     path.claim("a", force=False)  # claimed, never made ready
     with pytest.raises(CommandPathBusy):
         path.claim("b", force=False)
+
+
+# --- our own connection, still releasing --- TRA-1216 -------------------------
+#
+# The one case where "no amount of waiting changes that" is false. Measured on
+# platform's 200-rep arm: 63 refusals, every holder released within 21ms, which is
+# this bridge's own close-processing cost and nothing else.
+#
+# `closing` is the condition that carries the meaning -- waiting only helps when the
+# holder is already on its way out. The session id merely adds "and it was mine".
+# Keying on the id ALONE does not discriminate: both repos derive it from the
+# hostname deliberately, for connection pool reuse, so two live platform processes
+# on one host present the same name and the second would be handed a retry against
+# a genuinely foreign holder.
+
+
+def test_our_own_releasing_connection_is_a_distinguishable_refusal():
+    path = CommandPath()
+    holder = path.claim("trakrf-platform-dev-mssb", force=False)
+    holder.ready(DEVICE)
+    holder.closing = True
+    with pytest.raises(CommandPathBusySelf) as caught:
+        path.claim("trakrf-platform-dev-mssb", force=False)
+    assert caught.value.code == p.ERR_DEVICE_BUSY_SELF
+
+
+def test_a_LIVE_holder_under_the_same_session_id_is_still_the_loud_refusal():
+    """GUARD: goes red the moment the `closing` condition is dropped.
+
+    This is the case a session-id-only discriminator gets wrong, and it is the
+    expensive one: a live foreign holder wearing our own name. `DEVICE_BUSY` exists
+    to make exactly this loud, and a retry here would convert it into ~2.4s of
+    pause followed by the same refusal.
+    """
+    path = CommandPath()
+    path.claim("trakrf-platform-dev-mssb", force=False).ready(DEVICE)
+    with pytest.raises(CommandPathBusy) as caught:
+        path.claim("trakrf-platform-dev-mssb", force=False)
+    assert not isinstance(caught.value, CommandPathBusySelf)
+    assert caught.value.code == p.ERR_DEVICE_BUSY
+
+
+def test_a_foreign_session_gets_the_loud_refusal_even_while_we_are_closing():
+    """Closing is necessary, not sufficient. Somebody else's release is not our
+    business to wait on -- the slot it frees is not promised to us."""
+    path = CommandPath()
+    holder = path.claim("some-other-host", force=False)
+    holder.ready(DEVICE)
+    holder.closing = True
+    with pytest.raises(CommandPathBusy) as caught:
+        path.claim("trakrf-platform-dev-mssb", force=False)
+    assert not isinstance(caught.value, CommandPathBusySelf)
+
+
+def test_two_unnamed_sessions_are_foreign_to_each_other():
+    """GUARD: goes red the moment the non-empty `session` guard is dropped.
+
+    Driven through claim() directly on purpose: params.py fills an absent session
+    with a fresh uuid4 per connection, so no socket can reach this branch. That is
+    exactly why it needs a test -- the protection is real but unreachable from the
+    outside, so nothing else would notice it going away.
+
+    Two anonymous clients are not the same client. An empty name is the ABSENCE of
+    identity, and treating absence as a match is how a guard silently inverts.
+    """
+    path = CommandPath()
+    holder = path.claim("", force=False)
+    holder.ready(DEVICE)
+    holder.closing = True
+    with pytest.raises(CommandPathBusy) as caught:
+        path.claim("", force=False)
+    assert not isinstance(caught.value, CommandPathBusySelf)
+
+
+def test_a_claim_is_not_closing_until_someone_says_so():
+    """The flag defaults to the safe direction: unset means loud."""
+    path = CommandPath()
+    assert path.claim("a", force=False).closing is False
 
 
 def test_force_evicts_the_holder_and_reports_whom():
