@@ -1,10 +1,14 @@
-# Contributing to web-ble-bridge
+# Contributing to ble-mcp-test
 
 We love contributions! This guide will help you get started quickly.
 
 ## What is this project?
 
-web-ble-bridge is a minimal WebSocket-to-BLE bridge that lets you test Web Bluetooth code in browsers without BLE support. It's intentionally simple - under 600 lines of code that directly forward WebSocket messages to BLE devices.
+ble-mcp-test mocks the `navigator.bluetooth` Web API so browser E2E tests can drive **real BLE hardware** from headless environments — CI, VMs, containers.
+
+Commands flow browser → mock → WebSocket → Python bridge → ESPHome proxy over TCP → device, and back. The hardware is real; only the Web Bluetooth API is mocked. If no device is reachable, connections fail — that is correct behaviour, not a bug in the mock.
+
+Any GATT device works, configured by UUID env vars. CS108 UHF RFID is the reference device, not a requirement.
 
 ## Before You Start
 
@@ -19,8 +23,8 @@ web-ble-bridge is a minimal WebSocket-to-BLE bridge that lets you test Web Bluet
 # 1. Fork this repo on GitHub
 
 # 2. Clone your fork
-git clone https://github.com/YOUR_USERNAME/web-ble-bridge.git
-cd web-ble-bridge
+git clone https://github.com/YOUR_USERNAME/ble-mcp-test.git
+cd ble-mcp-test
 
 # 3. Install dependencies
 pnpm install
@@ -122,16 +126,18 @@ pnpm test:e2e
 
 1. **Push to your fork:**
    ```bash
-   git push origin feature/add-reconnect
+   git push origin feat/add-reconnect
    ```
 
 2. **Open a Pull Request:**
-   - Go to https://github.com/trakrf/web-ble-bridge
+   - Go to https://github.com/ble-mcp-test/ble-mcp-test
    - Click "New Pull Request"
    - Select your branch
    - Describe what you changed and why
 
-3. **PR Checklist:**
+3. **How it gets merged:** with a merge commit — `gh pr merge --merge`. Never squash, never rebase; the commit history is preserved deliberately.
+
+4. **PR Checklist:**
    - [ ] Tests pass (`pnpm test:run`)
    - [ ] Types check (`pnpm typecheck`)
    - [ ] Code follows project style

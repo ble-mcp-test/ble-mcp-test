@@ -98,6 +98,24 @@ const FORBIDDEN: ReadonlyArray<{ pattern: RegExp; why: string; appliesTo?: RegEx
     // guard that cannot tell a fixture from an instruction would force test
     // authors to write 36-character UUIDs to satisfy a rule about prose.
     appliesTo: /\.(md|html)$/
+  },
+  {
+    // The package was renamed `@trakrf/web-ble-bridge` -> `ble-mcp-test`, a
+    // BREAKING change recorded in CHANGELOG.md. `CONTRIBUTING.md` kept the old
+    // name in four load-bearing places: its title, its description, its
+    // `git clone` URL and its "open a PR" link -- the last pointing at
+    // `github.com/trakrf/web-ble-bridge`, which is the wrong org AND the wrong
+    // name for a repo that lives at `ble-mcp-test/ble-mcp-test`.
+    //
+    // So step 2 of the documented contributor path 404s. It failed the way
+    // TRA-1219 describes: nothing reads CONTRIBUTING.md, so nothing ever
+    // contradicted it. The README next to it stayed correct because people
+    // actually open the README.
+    //
+    // CHANGELOG.md and dated design docs are already skipped by isHistory(),
+    // which is where the rename is legitimately recorded.
+    pattern: /web-ble-bridge/,
+    why: 'the package was renamed to `ble-mcp-test` (see CHANGELOG); the old name 404s as a repo URL and names a package that no longer exists (TRA-1219)'
   }
 ];
 
