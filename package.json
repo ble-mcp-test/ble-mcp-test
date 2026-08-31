@@ -1,6 +1,6 @@
 {
   "name": "ble-mcp-test",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "Web Bluetooth API mock for driving real BLE hardware from headless tests.",
   "keywords": [
     "ble",
