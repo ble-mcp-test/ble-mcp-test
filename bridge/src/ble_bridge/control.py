@@ -269,7 +269,8 @@ class ControlServer:
             raise ControlError(
                 f"{op!r} was given {', '.join(repr(m) for m in misplaced)} at the top "
                 "level, where nothing reads it. Arguments go inside 'args': "
-                f'{{"op": {op!r}, "args": {{...}}}}. Refusing rather than ignoring it -- '
+                f'{{"op": {json.dumps(op)}, "args": {{...}}}}. Refusing rather than '
+                "ignoring it -- "
                 "a cursor dropped this way returns the first page forever behind a "
                 "valid-looking next_cursor, and the caller cannot tell."
             )
