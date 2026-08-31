@@ -369,6 +369,13 @@ class BridgeServer:
                 loops["idle"] = asyncio.create_task(idle.wait_for_expiry())
             outcome = await _race(loops)
         finally:
+            # TRA-1216. BEFORE cleanup(), not after: cleanup IS the 12-21ms window a
+            # reconnecting client collides with, and a flag set on the far side of it
+            # would only ever be true once there was nothing left to wait for -- a
+            # condition nothing can satisfy, which is failure class 1 exactly.
+            # `claim.release()` in _write's finally frees the slot after this returns;
+            # the flag stays true across that too, so the whole window is covered.
+            claim.closing = True
             await transport.cleanup()
             logger.info("session %s released the command path", params.session)
 

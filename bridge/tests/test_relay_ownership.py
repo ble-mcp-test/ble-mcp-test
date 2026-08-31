@@ -121,6 +121,140 @@ async def test_a_shared_session_id_does_not_widen_the_claim(relay):
             assert (await recv(second))[p.FIELD_ERROR].startswith(p.BUSY_ERROR_PREFIX)
 
 
+# --- our own connection, still releasing --- TRA-1216 -------------------------
+
+
+class BlockingCleanupTransport(StubTransport):
+    """A transport whose `cleanup()` parks until released.
+
+    This exists because the window under test is 12-21ms wide and a `sleep` cannot
+    reliably land inside it. Blocking `cleanup()` converts the race into a STATE: the
+    handler is held inside its teardown for as long as the test needs, so "is the
+    claim marked closing before cleanup runs" becomes a question with a definite
+    answer rather than a coin toss.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cleanup_entered = asyncio.Event()
+        self.may_finish_cleanup = asyncio.Event()
+
+    async def cleanup(self) -> None:
+        self.cleanup_entered.set()
+        await self.may_finish_cleanup.wait()
+        await super().cleanup()
+
+
+@pytest.fixture
+async def blocking_relay():
+    """As `relay`, but every transport parks in `cleanup()` until told to finish."""
+    transports: list[BlockingCleanupTransport] = []
+
+    def factory(_params):
+        t = BlockingCleanupTransport()
+        transports.append(t)
+        return t
+
+    server = BridgeServer(Config(ws_host="127.0.0.1", ws_port=0), factory)
+    port = await server.start()
+    assert port != 8080
+    try:
+        yield f"ws://127.0.0.1:{port}", transports
+    finally:
+        for t in transports:
+            t.may_finish_cleanup.set()
+        await server.stop()
+
+
+async def test_a_writer_refused_while_its_own_prior_connection_tears_down_gets_BUSY_SELF(
+    blocking_relay,
+):
+    """GUARD: goes red the moment the handler stops marking the claim closing.
+
+    This is the test the whole ticket turns on, and it has to drive a real socket.
+    `claim()` can be perfect and every unit test above can pass while the handler
+    never sets the flag -- in which case `DEVICE_BUSY_SELF` is a code this bridge
+    can NEVER emit, and the mock retries on a condition nothing satisfies. That is
+    failure class 1 in its original costume, and it is precisely what already
+    happened once to RETRYABLE_CONNECT_ERRORS.
+
+    Nothing else in the suite spans the two halves: ownership.py cannot see a socket
+    close, so the flag has to be set by the WS handler, and this is the only thing
+    that looks at the seam between them.
+    """
+    url, transports = blocking_relay
+    session = "trakrf-platform-dev-mssb"
+
+    owner = await websockets.connect(f"{url}/?{REQUIRED}&session={session}")
+    assert (await recv(owner))[p.FIELD_TYPE] == p.MSG_CONNECTED
+    await owner.close()
+
+    # The handler is now parked inside transport.cleanup() -- exactly the 12-21ms
+    # window platform's 63 refusals landed in, held open indefinitely.
+    await asyncio.wait_for(transports[0].cleanup_entered.wait(), 2.0)
+
+    async with websockets.connect(f"{url}/?{REQUIRED}&session={session}") as second:
+        frame = await recv(second)
+        assert frame[p.FIELD_TYPE] == p.MSG_ERROR
+        assert frame[p.FIELD_CODE] == p.ERR_DEVICE_BUSY_SELF, (
+            f"got {frame[p.FIELD_CODE]}: the handler did not mark its claim closing "
+            "before tearing the transport down, so DEVICE_BUSY_SELF is unreachable."
+        )
+
+    transports[0].may_finish_cleanup.set()
+
+
+async def test_a_FOREIGN_writer_refused_during_that_same_teardown_still_gets_BUSY(
+    blocking_relay,
+):
+    """The other half, in the same held-open window: closing is not sufficient.
+
+    Without this, dropping the session comparison would leave the suite green -- the
+    test above would still pass, because it never asks what a stranger sees.
+    """
+    url, transports = blocking_relay
+
+    owner = await websockets.connect(f"{url}/?{REQUIRED}&session=trakrf-platform-dev-mssb")
+    await recv(owner)
+    await owner.close()
+    await asyncio.wait_for(transports[0].cleanup_entered.wait(), 2.0)
+
+    async with websockets.connect(f"{url}/?{REQUIRED}&session=some-other-host") as second:
+        assert (await recv(second))[p.FIELD_CODE] == p.ERR_DEVICE_BUSY
+
+    transports[0].may_finish_cleanup.set()
+
+
+async def test_a_LIVE_holder_under_our_own_session_id_is_still_the_loud_refusal(relay):
+    """Over sockets, not just through claim(): a holder that is not going anywhere.
+
+    `test_a_shared_session_id_does_not_widen_the_claim` above asserts the same
+    situation on the message text. This asserts the CODE, which is what platform
+    branches on and what decides whether it retries.
+    """
+    url, _ = relay
+    shared = "trakrf-platform-dev-mssb"
+    async with websockets.connect(f"{url}/?{REQUIRED}&session={shared}") as owner:
+        await recv(owner)
+        async with websockets.connect(f"{url}/?{REQUIRED}&session={shared}") as second:
+            assert (await recv(second))[p.FIELD_CODE] == p.ERR_DEVICE_BUSY
+
+
+async def test_busy_self_is_one_the_mock_retries():
+    """The mirror of the test below: this one is IN the retryable set.
+
+    Both directions are asserted because the pair is the actual contract. Platform
+    asserts the same fact from its own side against the published package
+    (`RETRYABLE_CONNECT_CODES.includes('DEVICE_BUSY_SELF')`), which is what makes
+    its deletion of `connectPastABusyRelease()` safe.
+    """
+    retryable = _mock_retryable_codes()
+    assert p.ERR_DEVICE_BUSY_SELF in retryable, (
+        f"{p.ERR_DEVICE_BUSY_SELF} is missing from the client's retryable set. The "
+        "bridge would emit a refusal that says 'retry me' to a client that will not."
+    )
+
+
 async def test_the_busy_refusal_is_not_one_the_mock_silently_retries():
     """`DEVICE_BUSY` must not be in the client's retryable set.
 

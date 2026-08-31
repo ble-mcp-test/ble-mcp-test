@@ -653,8 +653,9 @@ frames end up carrying a placeholder nobody notices.
 |---|---|
 | `MISSING_PARAMS` | service / write / notify absent or blank |
 | `INVALID_PARAM` | a parameter was present but unusable |
-| `DEVICE_BUSY` | another connection owns the command path |
-| `NOT_READY` | claimed, device link not up yet — **the only retryable one** |
+| `DEVICE_BUSY` | a **live** foreign connection owns the command path |
+| `DEVICE_BUSY_SELF` | the holder is **our own** prior connection, already releasing — **retryable** |
+| `NOT_READY` | claimed, device link not up yet — **retryable** |
 | `NOTHING_TO_OBSERVE` | no connection owns the path, so there is no stream |
 | `TAKEOVER_STALLED` | the displaced session did not release in time |
 | `TRANSPORT_FAILED` | the device link could not be established |
@@ -686,8 +687,60 @@ language boundary rather than by review:
 
 ### `DEVICE_BUSY` is deliberately not retryable
 
-Another connection owns the command path; waiting does not change that. Retrying
-converts a precise refusal into a long pause followed by some other failure — the
-same class of defect, reintroduced by a one-line edit.
+A **live foreign** connection owns the command path; waiting does not change that.
+Retrying converts a precise refusal into a long pause followed by some other failure
+— the same class of defect, reintroduced by a one-line edit.
 `test_the_busy_refusal_is_not_one_the_mock_silently_retries` enforces it.
+
+### `DEVICE_BUSY_SELF` is the one busy case where waiting works — TRA-1216, 0.16.0
+
+"No amount of waiting changes that" is true of a foreign holder and **false** when
+the holder is your own previous connection still releasing. Measured over platform's
+200-rep arm: 63 busy refusals, every holder released within 12–21ms — this bridge's
+own close-processing cost, independently measured here over 997 cycles (median 16ms,
+p99 21ms) and the number `postDisconnectDelay: 250` is built on.
+
+So the refusal splits in two. Foreign stays `DEVICE_BUSY`, loud and unretryable.
+Our own releasing connection becomes `DEVICE_BUSY_SELF`, which joins
+`RETRYABLE_CONNECT_CODES` and is covered by the **existing** connect retry —
+`connectRetryDelay` 250ms × `retryBackoffMultiplier` 1.3, `maxConnectRetries` 5, a
+~2.4s ceiling. No new knob: the first step alone clears the measured window with
+~12x margin.
+
+**The discriminator is `Claim.closing`, not the session id.** Both this repo and
+platform derive the session id from the hostname deliberately — platform's
+`ble-bridge.config.ts` says `// Session ID - always the same for connection pool
+reuse` — so two live platform processes on one host present the same name and are
+permanently indistinguishable by it. A refusal keyed on the name alone would hand
+the second one a retry against a genuinely live foreign holder, which is the exact
+case `DEVICE_BUSY` exists to make loud. The name only narrows a decision `closing`
+has already made:
+
+```python
+if session and current.session == session and current.closing:
+    raise CommandPathBusySelf(current.session)
+raise CommandPathBusy(current.session)
+```
+
+**`closing` is set by the WS handler, not by `ownership.py`** — at the top of
+`_relay`'s `finally`, *before* `await transport.cleanup()`, because cleanup **is**
+the 12–21ms window. That split is the hazard: every unit test of `claim()` can pass
+while the handler never sets the flag, in which case `DEVICE_BUSY_SELF` is a code
+this bridge can never emit and the client retries on a condition nothing satisfies.
+`test_a_writer_refused_while_its_own_prior_connection_tears_down_gets_BUSY_SELF`
+drives a real socket through a transport whose `cleanup()` blocks — a sleep cannot
+reliably land inside a 21ms window, but a blocking cleanup turns the race into a
+state.
+
+**A client that does not pin a session id gets no benefit from this.** An absent
+`session` is filled with a fresh uuid4 per connection (`params.py`), so a
+reconnecting anonymous client never matches its own prior id and always sees plain
+`DEVICE_BUSY`. That is correct rather than a gap: the bridge has no identity to
+match on and must not invent one.
+
+⚠ **This is a robustness improvement, not a fix for the failure that surfaced it.**
+The busy refusal was two levels downstream of a CS108 that stopped acking
+`RFID_POWER_OFF` (0x8001) for ~82 minutes; that defect is TRA-1217. This makes a
+real failure legible and survivable — it does not stop it happening, and 0.16.0
+would not have recovered those 63 reps.
 

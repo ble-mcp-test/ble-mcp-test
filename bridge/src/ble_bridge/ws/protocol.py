@@ -72,7 +72,11 @@ FIELD_CODE: Final = "code"
 ERR_MISSING_PARAMS: Final = "MISSING_PARAMS"
 ERR_INVALID_PARAM: Final = "INVALID_PARAM"
 ERR_DEVICE_BUSY: Final = "DEVICE_BUSY"
-#: The ONLY refusal that asks to be retried. See NOT_READY_ERROR below.
+#: The holder is OUR OWN previous connection, and it is already tearing down.
+#: Retryable -- see BUSY_SELF_ERROR_PREFIX below for what distinguishes it from
+#: ERR_DEVICE_BUSY and why the session id alone does not.
+ERR_DEVICE_BUSY_SELF: Final = "DEVICE_BUSY_SELF"
+#: The refusal that asks to be retried on a path nobody has claimed yet.
 ERR_NOT_READY: Final = "NOT_READY"
 ERR_NOTHING_TO_OBSERVE: Final = "NOTHING_TO_OBSERVE"
 ERR_TAKEOVER_STALLED: Final = "TAKEOVER_STALLED"
@@ -89,6 +93,7 @@ ERROR_CODES: Final = (
     ERR_MISSING_PARAMS,
     ERR_INVALID_PARAM,
     ERR_DEVICE_BUSY,
+    ERR_DEVICE_BUSY_SELF,
     ERR_NOT_READY,
     ERR_NOTHING_TO_OBSERVE,
     ERR_TAKEOVER_STALLED,
@@ -100,11 +105,13 @@ ERROR_CODES: Final = (
     ERR_OBSERVER_MAY_NOT_WRITE,
 )
 
-#: The codes a client may retry a CONNECT on. Exactly one: waiting is what fixes
-#: it. `DEVICE_BUSY` is deliberately absent -- another connection owns the path
-#: and no amount of waiting changes that; retrying converts a precise refusal
-#: into a long pause followed by some other failure.
-RETRYABLE_CONNECT_CODES: Final = (ERR_NOT_READY,)
+#: The codes a client may retry a CONNECT on: the ones where waiting is what fixes
+#: it. `DEVICE_BUSY` is deliberately absent -- a live foreign connection owns the
+#: path and no amount of waiting changes that; retrying converts a precise refusal
+#: into a long pause followed by some other failure. `DEVICE_BUSY_SELF` is here
+#: because it is the one busy case where waiting DOES fix it: the holder is on its
+#: way out and the measured wait is under 21ms.
+RETRYABLE_CONNECT_CODES: Final = (ERR_NOT_READY, ERR_DEVICE_BUSY_SELF)
 
 FIELD_TYPE: Final = "type"
 FIELD_DEVICE: Final = "device"
@@ -141,6 +148,24 @@ BUSY_ERROR_PREFIX: Final = "Device is busy: the command path is owned by another
 BUSY_ERROR_ADVICE: Final = (
     "Connect with role=observer to read the notification stream without writing, "
     "or with force=true to take the command path over."
+)
+#: TRA-1216. The same collision as BUSY_ERROR_PREFIX, minus the part that made it
+#: permanent: the holder is our own prior connection and it is ALREADY tearing down,
+#: so the slot frees itself in single-digit milliseconds.
+#:
+#: ⚠ The discriminator is `Claim.closing`, NOT the session id. Both repos derive the
+#: session id from the hostname on purpose -- `// Session ID - always the same for
+#: connection pool reuse` -- so two live platform processes on one host present the
+#: same name, and a refusal keyed on the name alone would hand the second a retry
+#: against a genuinely foreign holder. That is the exact case DEVICE_BUSY exists to
+#: make loud. The name only narrows a decision that `closing` has already made.
+BUSY_SELF_ERROR_PREFIX: Final = (
+    "Device is busy: your own previous connection still owns the command path and is "
+    "releasing it now"
+)
+BUSY_SELF_ERROR_ADVICE: Final = (
+    "This clears in a few milliseconds; retry. If it does not, the holder is not the "
+    "connection you think it is."
 )
 NOTHING_TO_OBSERVE_ERROR: Final = "Nothing to observe: no connection owns the command path"
 NOT_READY_ERROR: Final = (
