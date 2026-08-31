@@ -250,7 +250,9 @@ reply     {"ok": true,  "result": {...}}
           {"ok": false, "reason": "<a sentence>"}
 ```
 
-The op names are the tool names. Lines over 64 KiB are refused rather than buffered.
+The op names are the tool names. `op` and `args` are the only top-level keys; arguments written
+beside `op` rather than inside `args` are refused, not dropped. Lines over 64 KiB are refused rather
+than buffered.
 
 **Path:** `$BLE_MCP_SOCKET_PATH` if set, else `$XDG_RUNTIME_DIR/ble-bridge.sock`, else
 `/tmp/ble-bridge-$UID.sock`. Must be absolute — the two processes have separate working
@@ -264,9 +266,11 @@ whether an MCP process exists.
 
 Three refusals are deliberate. An unknown op names the ops that exist, so a caller reaching for
 `get_metrics` learns it was dropped rather than that the socket is broken. An unknown argument is
-refused rather than ignored, because a silently dropped filter returns the wrong rows and they look
-exactly like data. An out-of-range `limit` is refused rather than clamped, because a clamp leaves
-the caller's own value in the request, apparently in force.
+refused rather than ignored — at both levels, inside `args` and beside `op` — because a silently
+dropped filter returns the wrong rows and they look exactly like data; a `cursor` written beside
+`op` earns a well-formed first page and a plausible `next_cursor`, so a paginating caller loops on
+page 1 forever with no signal. An out-of-range `limit` is refused rather than clamped, because a
+clamp leaves the caller's own value in the request, apparently in force.
 
 Starting the bridge over a socket file that something is still listening on is refused too. A file
 left behind with nothing listening is a stale socket from a hard kill, and is removed with a warning.
