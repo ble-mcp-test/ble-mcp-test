@@ -103,15 +103,62 @@ describe('a gate is inert on a host that has what it needs', () => {
     expect(hostCannotRun(entry.suite)).toBe(!present);
   });
 
-  it.runIf(process.platform === 'linux')('runs every gated suite on Linux', () => {
-    // Linux has flock(1), /proc and getconf CLK_TCK. lsof is a package rather
-    // than a kernel feature, so it is asserted separately below.
-    for (const id of [FLOCK, PROCFS, CLK_TCK]) {
-      expect(hasCapability(id), `${id} should be present on Linux`).toBe(true);
+  /**
+   * What each supported platform is KNOWN to provide, and known to lack.
+   *
+   * ⚠ This replaces an `it.runIf(process.platform === 'linux')`, which was a
+   * silent skip inside the change that added the machinery against silent skips.
+   * On darwin it reported as skipped and the banner could not name it, because
+   * it was not a `hostCannotRun` gate -- so it was invisible to both halves of
+   * the mechanism. Found from cheetah's count: 28 skipped against the 27 the
+   * manifest accounts for.
+   *
+   * The fix is not to name the skip but to DELETE it. A table of what each
+   * platform provides runs everywhere and can go red everywhere, which is
+   * strictly more than a Linux-only assertion ever did.
+   *
+   * The `absent` column is the half that catches the dangerous mutation. A probe
+   * hardcoded to `true` passes every `present` assertion on every host; only a
+   * platform that genuinely lacks the thing can catch it. macOS is where
+   * `flock(1)` and `/proc` are falsifiable, and it is now the host that does so.
+   *
+   * Values are MEASURED, not assumed. The ticket asserted "macOS has neither
+   * getconf, /proc"; cheetah's banner reported `getconf CLK_TCK` and `lsof`
+   * present on darwin and only `flock(1)` and `/proc` absent. The probe was
+   * right because it probes; the premise it was written from was wrong.
+   *
+   * `lsof` is deliberately absent from BOTH columns on linux: it is a package
+   * rather than a kernel feature and a minimal install may not have it.
+   */
+  const PLATFORM_TRUTH: Record<string, { present: string[]; absent: string[] }> = {
+    linux: { present: [FLOCK, PROCFS, CLK_TCK], absent: [] },
+    darwin: { present: [CLK_TCK, LSOF], absent: [FLOCK, PROCFS] },
+  };
+
+  it('agrees with what this platform is known to provide, and to lack', () => {
+    const truth = PLATFORM_TRUTH[process.platform];
+    // An unsupported platform asserts nothing here rather than failing the gate:
+    // "red by construction on a host nobody characterised" is the state this
+    // whole ticket existed to remove. The it.each above still holds everywhere.
+    if (!truth) return;
+
+    for (const id of truth.present) {
+      expect(hasCapability(id), `${id} should be present on ${process.platform}`).toBe(true);
     }
-    if (hasCapability(LSOF)) {
-      expect(hostSkipList()).toEqual([]);
+    for (const id of truth.absent) {
+      expect(
+        hasCapability(id),
+        `${id} should be ABSENT on ${process.platform}. A probe that reports it ` +
+          'present here is over-broad, and an over-broad probe makes every gate ' +
+          'it feeds pass vacuously.',
+      ).toBe(false);
     }
+  });
+
+  it('skips nothing on a host that has every capability the manifest names', () => {
+    const everything = [...new Set(HOST_DEPENDENT_SUITES.flatMap((s) => s.requires))];
+    if (!everything.every((id) => hasCapability(id))) return;
+    expect(hostSkipList()).toEqual([]);
   });
 });
 

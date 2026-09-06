@@ -23,6 +23,18 @@ unmeasured. Two platform stacks, one skip set, no divergence on either. So
 "the mock is faithful to Web Bluetooth" now needs no qualification by platform,
 and `docs/design/2026-08-27-client-contract.md` gains no platform column.
 
+### Re-confirmed after the TRA-1257 merge
+
+Both `cheetah` runs above were **pre-merge**. Arm B was run again on `cheetah`
+against `main` @ `77c97cc` — the TRA-1257 merge — and is still **21/21, exit 0,
+twice consecutively**, in 1.5m and 1.4m. Both reached
+`check 21/21 -- listeners/accepts-what-it-implements`; no abort, no failures.
+
+That merge moved `channel: 'chrome'` out of an inline literal and into
+`armBProject(platform)`, so the browser arm B launches was worth re-establishing
+rather than assuming — the refactor is the kind that keeps every test green while
+launching a different binary.
+
 ⚠ **The skip set being identical across hosts is structural, not evidence.**
 Both runs report `21/42 checks run`, but which 21 is computed from
 `CONFORMANCE_CHECKS` and the provider's `capabilities` literal in
@@ -121,16 +133,23 @@ permanent red baseline hides the next real failure inside it.
 Now those suites **skip with a named reason** and the run prints which ones:
 
 ```
-  present  flock(1)
+  ABSENT   flock(1)
   ABSENT   /proc
-  ...
+  present  getconf CLK_TCK
+  present  lsof
 ==============================================================================
 VITEST HOST GATE on cheetah (darwin)
-  N checks NOT RUN on this host:
+  7 checks NOT RUN on this host:
     - ble-radio-lock  (tests/unit/radio-lock.test.ts)
         needs flock(1). ...
 ==============================================================================
 ```
+
+Measured on `cheetah` 2026-09-06: `29 passed (29)` files, `245 passed | 28
+skipped (273)` tests, and `pre-test-cleanup` printing its own `2 checks NOT RUN`.
+**macOS answers `getconf CLK_TCK` and ships `lsof`** — only `flock(1)` and
+`/proc` are missing. TRA-1257's own body claimed macOS had no `getconf` either;
+it was wrong, and the probe was right because it probes rather than assumes.
 
 So when you run the gate here:
 
@@ -159,6 +178,28 @@ so the first branch is the one you should see.
 it is missing the gate stops and says so by name — that is a real failure with a
 one-line remedy, not a host quirk to absorb.
 
+⚠ **The JS side is not the whole gate, and on `cheetah` the Python side is
+still red.** Measured 2026-09-06 at `77c97cc`: `10 failed, 453 passed, 8
+skipped, 58 errors`, for two reasons that have nothing to do with this host's
+arm-B role —
+
+* **`OSError: AF_UNIX path too long`** (58 errors + 8 failures). macOS `$TMPDIR`
+  is `/private/var/folders/…`, so pytest's `tmp_path` plus a socket name exceeds
+  the 104-byte `sun_path` limit; the same shape on Linux `/tmp` is well under it.
+  `TMPDIR=/tmp/pt uv run pytest tests/test_control.py` clears all 58.
+  **Unfixed** — it needs the socket fixtures to shorten their path.
+* **The Python 3.13 `cleanup_socket` default** — FIXED. It was never a macOS
+  issue: 3.13 gave `create_unix_server()` `cleanup_socket=True`, so `close()`
+  unlinks the socket file and a test simulating `kill -9` by closing the
+  listener produced the opposite of the state it was about. Reproduced on
+  Linux under 3.13 and green under 3.12 on the same host, and
+  `requires-python = ">=3.12"` admits both — so it was equally a time bomb on
+  `mssb`. See `_leave_a_corpse` in `bridge/tests/test_control.py`.
+
+So `just validate` does not yet exit 0 on `cheetah`. That residue was never
+measured before TRA-1257 and is not part of its host-role story: the pre-merge
+"25 red" figure was the vitest side only, which the 58 errors alone establish.
+
 ## The hosts
 
 Arm B needs a host with a real radio of its own; **which** host is not fixed, and
@@ -168,7 +209,7 @@ play.
 | host | stack | status |
 |---|---|---|
 | `knuckles` (Linux) | Blink on **BlueZ** | in use; green 21/21, 2026-09-06. Slow — see the hazard above. |
-| `cheetah` (MacBook, M1) | Blink on **CoreBluetooth** | in use; **green 21/21, 2026-09-06, twice consecutively**, 1.6m and 1.3m. Fast, and the stack preview and prod testing actually use. |
+| `cheetah` (MacBook, M1) | Blink on **CoreBluetooth** | in use; **green 21/21, 2026-09-06, twice consecutively**, 1.6m and 1.3m — and again post-merge at `77c97cc`, 1.5m and 1.4m. Fast, and the stack preview and prod testing actually use. |
 
 `cheetah` matters for more than speed: all preview and prod hardware testing is
 done from it, so fidelity established only on knuckles would leave the shipping

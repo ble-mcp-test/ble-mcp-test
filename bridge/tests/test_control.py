@@ -18,6 +18,7 @@ import contextlib
 import json
 import os
 import socket
+import stat
 import time
 
 import pytest
@@ -480,15 +481,44 @@ async def test_an_overlong_line_is_refused_rather_than_buffered_forever(server):
             await writer.wait_closed()
 
 
+def _leave_a_corpse(path) -> None:
+    """Make sure a dead socket FILE is on disk at `path`.
+
+    Simulating `kill -9` by closing the listener stopped working on Python
+    3.13, which gave `create_unix_server()` `cleanup_socket=True` by default:
+    `close()` now unlinks the file. A hard kill does not -- nothing runs -- so
+    on 3.13 the close-based simulation produces the opposite of the state the
+    test is about, and the test failed while the behaviour under test was fine.
+
+    Verified as a VERSION dependency, not a platform one: it fails on 3.13 and
+    passes on 3.12 on the same Linux host, and `requires-python = ">=3.12"`
+    admits both. Found on cheetah (macOS/3.13), reproduced on mssb (Linux/3.13).
+
+    Binding and closing a bare socket leaves the file behind on every supported
+    version, so the corpse is created directly rather than inferred from a
+    cleanup policy the interpreter is free to change. It must be a real socket:
+    `_clear_the_path()` deliberately REFUSES to unlink anything that is not one.
+    """
+    if os.path.exists(path):
+        return
+    corpse = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        corpse.bind(str(path))
+    finally:
+        corpse.close()
+
+
 async def test_a_stale_socket_file_is_replaced(tmp_path):
     """kill -9 leaves the file behind. Refusing to start over a corpse would make
     every hard restart a manual cleanup."""
     path = tmp_path / "stale.sock"
     first = _make(path)
     await first.start()
-    first._server.close()  # drop the listener, leave the file on disk
+    first._server.close()  # drop the listener
     await first._server.wait_closed()
+    _leave_a_corpse(path)  # ...and make sure the file is still there to start over
     assert os.path.exists(path)
+    assert stat.S_ISSOCK(os.stat(path).st_mode), "the corpse must be a socket, not a plain file"
 
     second = _make(path)
     await second.start()
