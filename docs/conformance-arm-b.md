@@ -10,13 +10,15 @@ This file is how to run it without rediscovering any of that.
 
 ## Current status: known-red, 18/19
 
-First run 2026-09-06 on `knuckles` against a real CS108. One failure,
-`chain/second-device-is-distinct`, tracked by **TRA-1255**: real Chromium returns
-the same `BluetoothDevice` for a second `requestDevice()` on the same peripheral
-and the mock returns a distinct one. The spec is on Chrome's side, so the mock is
-the defect.
+Run twice on 2026-09-06 on `knuckles` against a real CS108, with an identical
+result both times: 18 green, one red, and no link failures on the second pass.
+The failure is `chain/second-device-is-distinct`, tracked by **TRA-1255** — real
+Chromium returns the same `BluetoothDevice` for a second `requestDevice()` on the
+same peripheral and the mock returns a distinct one. The spec is on Chrome's
+side, so the mock is the defect.
 
-Expect that one red until TRA-1255 lands. A **second** failure is news.
+Expect that one red until TRA-1255 lands. A **second** failure is news, and so is
+this one going green on its own.
 
 ## Why it needs its own host
 

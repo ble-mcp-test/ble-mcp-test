@@ -86,9 +86,14 @@ just conformance-real
 ```
 
 **⚠ This arm is KNOWN-RED: 18 of 19 checks pass.** First run 2026-09-06 on
-`knuckles`, ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ.
-Written under TRA-1187; run under TRA-1222. Operator runbook:
+`knuckles`, ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ,
+and **run twice that day with an identical divergence set** — the same 18 green,
+the same one red, and no link failures on the second pass. Written under
+TRA-1187; run under TRA-1222. Operator runbook:
 [`docs/conformance-arm-b.md`](../../docs/conformance-arm-b.md).
+
+Twice matters. One run cannot distinguish a stable result from a lucky one, and
+this banner is the thing that will be quoted.
 
 The one failure is real, and it is the mock's:
 

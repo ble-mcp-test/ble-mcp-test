@@ -101,8 +101,9 @@ function requireUuids(): { service: string; write: string; notify: string; alias
  *
  * ## Status, stated rather than implied
  *
- * ⚠ KNOWN-RED: 18/19. First run 2026-09-06 on knuckles (ASUS BT500, hci0)
- * against a real CS108. `chain/second-device-is-distinct` fails because real
+ * ⚠ KNOWN-RED: 18/19. Run twice on 2026-09-06 on knuckles (ASUS BT500, hci0)
+ * against a real CS108, identical both times.
+ * `chain/second-device-is-distinct` fails because real
  * Chromium returns the SAME BluetoothDevice for a second requestDevice() on the
  * same peripheral, as the spec's per-realm device map requires, while the mock
  * mints a distinct one. That is a mock defect, not a deliberate divergence --
