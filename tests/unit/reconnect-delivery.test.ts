@@ -14,9 +14,24 @@
  * frames into nothing.
  *
  * It stayed invisible because the characteristic cache hid it. A reconnecting
- * consumer calls `getCharacteristic()` again and gets the CACHED instance back,
+ * consumer calls `getCharacteristic()` again and got the CACHED instance back,
  * so the lazy wiring never re-ran — the one call that would have repaired it was
  * the call whose result made it unnecessary to make.
+ *
+ * ## What TRA-1255 changed underneath this file
+ *
+ * That cache is now emptied on disconnect, which is what the spec's "clean up
+ * the disconnected device" requires (index.bs:4417, step 5). So a reconnect
+ * yields a NEW characteristic object, and this file asserted the opposite —
+ * `expect(second.characteristic).toBe(first.characteristic)` — as intended
+ * behaviour, in the same tree where the conformance suite called the same fact a
+ * hazard. Only one of those could be right; the spec settles which.
+ *
+ * The subject is unchanged and is the reason the file still exists: after a
+ * reconnect, frames must reach a consumer that re-derived and re-subscribed.
+ * Nothing about the wiring bug is any less possible now — it is if anything
+ * easier to reintroduce, because the repaired path is the one that now runs
+ * every time.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { MockBluetooth, updateMockConfig } from '../../src/index.js';
@@ -66,14 +81,26 @@ describe('delivery after a reconnect', () => {
     await first.server.disconnect();
     await settle();
 
-    // Same characteristic instance comes back out of the cache, which is exactly
-    // why the old lazy wiring never re-ran.
+    // A NEW characteristic instance: the disconnect emptied the attribute cache,
+    // as "clean up the disconnected device" step 5 requires. Asserted here and
+    // not only in the conformance suite because it is what makes the rest of
+    // this test a real question — against the cached instance the listener below
+    // would already be attached, and delivery would prove nothing about whether
+    // the transport handler was rebound.
     const second = await subscribe();
-    expect(second.characteristic).toBe(first.characteristic);
+    expect(second.characteristic).not.toBe(first.characteristic);
+    second.characteristic.addEventListener('characteristicvaluechanged', () => { received += 1; });
 
     bridge.notify([0x02]);
     await settle();
 
+    // 2 carries BOTH halves, which is why the counter is shared rather than one
+    // per instance. The new characteristic delivered (2 > 1), and the one from
+    // the ended connection did not — it still holds its listener and its
+    // subscription, so had the disconnect left it in the device's fan-out
+    // registry this single frame would have counted twice and read 3. A
+    // reconnect that delivers everything twice presents as duplicated device
+    // frames, i.e. as a reader fault.
     expect(received).toBe(2);
   });
 

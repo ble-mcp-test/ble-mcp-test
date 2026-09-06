@@ -101,13 +101,18 @@ function requireUuids(): { service: string; write: string; notify: string; alias
  *
  * ## Status, stated rather than implied
  *
- * ⚠ KNOWN-RED: 18/19. Run twice on 2026-09-06 on knuckles (ASUS BT500, hci0)
- * against a real CS108, identical both times.
- * `chain/second-device-is-distinct` fails because real
- * Chromium returns the SAME BluetoothDevice for a second requestDevice() on the
- * same peripheral, as the spec's per-realm device map requires, while the mock
- * mints a distinct one. That is a mock defect, not a deliberate divergence --
- * TRA-1255. Do not read arm A's green as covering any of this.
+ * ⚠ NO RESULT EXISTS FOR THE CODE IN THIS TREE, and the last one is stale in the
+ * hopeful direction. It was 18/19, run twice on 2026-09-06 on knuckles (ASUS
+ * BT500, hci0) against a real CS108, identical both times. The red was
+ * `chain/second-device-is-distinct`: real Chromium returns the SAME
+ * BluetoothDevice for a second requestDevice() on the same peripheral, as the
+ * spec's per-realm device map requires, while the mock minted a distinct one.
+ *
+ * TRA-1255 fixed the mock and rewrote that check to assert the opposite, added
+ * two more, and put a disconnect/reconnect inside a check for the first time.
+ * None of it has faced real Chromium. Do not read arm A's green as covering any
+ * of it -- refusing that inference is what this arm is for. See
+ * docs/conformance-arm-b.md for what the re-run is actually checking.
  *
  * Three defects in THIS repo, not on the bench, are why it had never produced a
  * result before that date: no transient activation under page.evaluate(), a
@@ -237,6 +242,27 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
           // post-disconnect delay for the same reason; a real CS108 over BlueZ
           // is no more forgiving of an immediate re-attach.
           await new Promise(resolve => setTimeout(resolve, 750));
+        },
+        async reconnect(session: any) {
+          // Down and back up on the SAME device object -- no requestDevice, so
+          // no second chooser answer and no transient activation needed. The
+          // operator still answers exactly once per check.
+          //
+          // Same settle and same four attempts as `open()`, and for the same
+          // reason: a real peripheral needs a moment to tear the link down and
+          // resume advertising, and a flake here would be recorded as a fidelity
+          // failure against a clause about object identity.
+          try { session.server.disconnect(); } catch { /* already gone */ }
+          await new Promise(resolve => setTimeout(resolve, 750));
+          for (let attempt = 1; ; attempt++) {
+            try {
+              await session.device.gatt.connect();
+              break;
+            } catch (error) {
+              if (attempt >= 4) throw error;
+              await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+            }
+          }
         },
         async inject() { throw new Error('arm B cannot inject a notification'); },
         async drop() { throw new Error('arm B cannot drop the link'); },

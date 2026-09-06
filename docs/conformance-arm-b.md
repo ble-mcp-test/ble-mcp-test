@@ -8,17 +8,34 @@ contract checks arm A runs against the mock.
 It is **manual, permanently**, and it needs a host the bridge does not run on.
 This file is how to run it without rediscovering any of that.
 
-## Current status: known-red, 18/19
+## Current status: no result for the code in the tree
 
-Run twice on 2026-09-06 on `knuckles` against a real CS108, with an identical
-result both times: 18 green, one red, and no link failures on the second pass.
-The failure is `chain/second-device-is-distinct`, tracked by **TRA-1255** — real
-Chromium returns the same `BluetoothDevice` for a second `requestDevice()` on the
-same peripheral and the mock returns a distinct one. The spec is on Chrome's
-side, so the mock is the defect.
+**A re-run is owed, and until it happens this arm has said nothing about what is
+currently on `main`.**
 
-Expect that one red until TRA-1255 lands. A **second** failure is news, and so is
-this one going green on its own.
+The last result — 2026-09-06, twice on `knuckles` against a real CS108, 18 green
+and one red both times with no link failures on the second pass — was against code
+TRA-1255 has since changed. The red was `chain/second-device-is-distinct`: real
+Chromium returned the same `BluetoothDevice` for a second `requestDevice()` on the
+same peripheral where the mock returned a distinct one, and the spec is on
+Chrome's side, so the mock was the defect.
+
+What the re-run is actually checking is therefore **new**, not a repeat:
+
+- the failing check now asserts the opposite of what it asserted then, and should
+  be green for a reason that did not exist before;
+- `chain/connect-when-connected-resolves-the-same-server` and
+  `chain/reconnect-replaces-attributes` are new and have never faced real
+  Chromium;
+- `chain/reconnect-replaces-attributes` puts the radio through a **disconnect and
+  reconnect inside a check**, which no previous arm B run did. It uses the same
+  750 ms settle and four attempts as `open()`, so a flake there should present as
+  a failure to reconnect rather than as a fidelity failure — but that pacing has
+  only ever been exercised on the chooser path.
+
+So: expect the old red to be green, expect two more checks than last time, and
+treat anything else as news. Arm A is green on all of it, and that is not
+evidence — refusing that inference is the entire reason this arm exists.
 
 ## Why it needs its own host
 

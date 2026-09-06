@@ -542,6 +542,19 @@ class MockBluetoothRemoteGATTServer {
   constructor(public device: MockBluetoothDevice) {}
 
   async connect(): Promise<MockBluetoothRemoteGATTServer> {
+    // `connect()` step 5 (spec index.bs:3141): "If this.connected is true,
+    // resolve promise with this and return promise." No second link is
+    // attempted.
+    //
+    // Unreachable before TRA-1255 and now on the ordinary path: `requestDevice`
+    // returns the same device for the same peripheral, so a consumer that asks
+    // twice reaches an already-connected server. Without this the mock opened a
+    // SECOND socket, which the bridge -- one writer slot, not a pool -- refuses
+    // as `Device is busy` naming the caller's own session.
+    if (this.connected) {
+      return this;
+    }
+
     let lastError: Error | null = null;
     const config = resolveMockConfig();
     let retryDelay = config.connectRetryDelay;
@@ -667,8 +680,34 @@ class MockBluetoothRemoteGATTServer {
     }
   }
   
-  /** One service instance per UUID -- see the note on the characteristic cache. */
+  /**
+   * One service instance per UUID -- see the note on the characteristic cache.
+   *
+   * Scoped to the CONNECTION, not to the device: `clearAttributeCache` empties
+   * it on every disconnect. See the note there.
+   */
   private services = new Map<string, MockBluetoothRemoteGATTService>();
+
+  /**
+   * Spec step 5 of "clean up the disconnected device" (index.bs:4417): remove
+   * every attribute instance belonging to this device from the cache.
+   *
+   * The identity guarantee is per connection. Keep these across a disconnect --
+   * which the mock did before TRA-1255, and which a unit test asserted as intended
+   * -- and a reconnect hands the consumer back the previous connection's service
+   * and characteristic objects, still carrying its subscription state and its
+   * listeners. Nothing raises: a stale characteristic looks exactly like a live
+   * one until frames fail to arrive, which is this codebase's most expensive
+   * failure shape.
+   *
+   * That was survivable only for as long as `requestDevice` minted a fresh
+   * device per call, which is itself the defect TRA-1255 fixed. Once one
+   * peripheral is one `BluetoothDevice` for the life of the page, this is the
+   * only thing standing between a reconnect and the previous session's objects.
+   */
+  clearAttributeCache(): void {
+    this.services.clear();
+  }
 
   async getPrimaryService(serviceUuid: string | number): Promise<MockBluetoothRemoteGATTService> {
     if (!this.connected) {
@@ -744,6 +783,18 @@ class MockBluetoothDevice {
   cleanUpDisconnectedDevice(): void {
     if (!this.gatt.connected) return;
     this.gatt.connected = false;
+    // Step 5 of the same algorithm, and it runs BEFORE the event: a
+    // `gattserverdisconnected` handler that re-enters the connect chain must not
+    // find the cache it is about to repopulate still holding the dead
+    // connection's objects.
+    //
+    // Two maps, because the mock keeps two. `services` is the identity cache
+    // proper; `characteristics` here is the fan-out REGISTRY the transport
+    // handler iterates -- leaving it populated would keep delivering this
+    // connection's frames to the previous connection's characteristic objects,
+    // which is the silent half of the same bug.
+    this.gatt.clearAttributeCache();
+    this.characteristics.clear();
     this.dispatchEvent('gattserverdisconnected');
   }
 
@@ -823,6 +874,32 @@ class MockBluetoothDevice {
       }
     }
   }
+}
+
+/**
+ * What makes two `requestDevice()` calls name the SAME peripheral here.
+ *
+ * The spec keys its device map on the Bluetooth device itself -- an address the
+ * UA holds and the page never sees. The mock has no address: the peripheral it
+ * will reach is decided entirely by what it forwards to the bridge, so the
+ * selection tuple IS the identity, and two calls that would resolve to the same
+ * bridge-side device produce the same key.
+ *
+ * The known limit, stated rather than discovered later: `service` is part of the
+ * key. Two calls filtering on DIFFERENT services could pick the same physical
+ * peripheral in Chrome and would get one object there; here they get two,
+ * because they are two different bridge connect requests and nothing available
+ * to this layer can tell that they are not two devices. Collapsing them would
+ * mean one transport carrying the wrong service -- wrong in the direction that
+ * fails silently, which is the worse one.
+ */
+function deviceInstanceKey(
+  name: string,
+  config: { service: string; deviceId?: string; deviceName?: string }
+): string {
+  // NUL-joined: a separator that cannot appear in a UUID or a device name, so
+  // no two distinct tuples can collide by concatenation.
+  return [name, config.deviceId ?? '', config.deviceName ?? '', config.service].join('\u0000');
 }
 
 // Mock Bluetooth API
@@ -1086,26 +1163,41 @@ export class MockBluetooth {
       effectiveConfig.service = serviceUuid;
     }
     
+    const name = deviceName || '';  // Empty string when no device specified
+    const key = deviceInstanceKey(name, effectiveConfig);
+    const existing = this.deviceInstanceMap.get(key);
+    if (existing) return existing;
+
     const device = new MockBluetoothDevice(
       'mock-device-id',
-      deviceName || '',  // Empty string when no device specified
+      name,
       this.serverUrl,
       effectiveConfig
     );
-    this.devices.push(device);
+    this.deviceInstanceMap.set(key, device);
 
     return device;
   }
 
   /**
-   * Every device this instance has minted, so `teardown` can reach them.
+   * The spec's `[[deviceInstanceMap]]` (index.bs:2285): "get the
+   * `BluetoothDevice` representing" is a lookup keyed by the device, minting a
+   * new object only on a miss. One peripheral is therefore ONE
+   * `BluetoothDevice` for the life of the realm, and this class is the realm --
+   * one `MockBluetooth` per page, exactly as one `navigator.bluetooth`.
    *
-   * A fresh device per `requestDevice` is deliberate -- it is what keeps a
-   * reconnect from colliding with the previous session's characteristic objects.
-   * The cost is that nothing else holds a reference, so without this list an
-   * instance being replaced would strand live transports with no way to reach them.
+   * The mock minted a fresh device per call until TRA-1255. That is arm B's first
+   * and only red: real Chromium returned the same object where the mock returned
+   * a distinct one (TRA-1255). It was not a shortcut -- it was load-bearing,
+   * because it was what kept a reconnect away from the previous connection's
+   * characteristics. That job now belongs to `clearAttributeCache`, where the
+   * spec puts it, and the two changes are only safe together.
+   *
+   * It doubles as the handle `teardown` needs: nothing else holds a reference to
+   * a device, so without this map an instance being replaced would strand live
+   * transports with no way to reach them.
    */
-  private devices: MockBluetoothDevice[] = [];
+  private deviceInstanceMap = new Map<string, MockBluetoothDevice>();
 
   /**
    * Release everything this instance owns. Idempotent, and never throws.
@@ -1116,7 +1208,8 @@ export class MockBluetooth {
    * was trying to prevent.
    */
   async teardown(): Promise<void> {
-    const devices = this.devices.splice(0);
+    const devices = [...this.deviceInstanceMap.values()];
+    this.deviceInstanceMap.clear();
     await Promise.all(devices.map(async device => {
       try {
         await device.gatt.disconnect();
