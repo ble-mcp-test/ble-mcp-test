@@ -47,11 +47,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumer can produce, and it is why arm A was structurally unable to observe the
   per-realm device map that arm B found wrong.
 
-  **Arm B found this defect and has now confirmed the fix: 21/21, twice consecutively,
-  on real Chromium against a real CS108** (`knuckles`, ASUS BT500, 2026-09-06). So the
-  three clauses above are verified against the API the mock doubles, rather than asserted
-  from the specification — which is the only form of evidence that means anything here,
-  and the reason the arm exists.
+  **Arm B found this defect and has now confirmed the fix on both platform stacks —
+  21/21, twice consecutively on each, against a real CS108:** `knuckles` over **BlueZ**
+  (ASUS BT500) and `cheetah` over **CoreBluetooth** (Google Chrome 152, built-in Apple
+  radio), both 2026-09-06. So the three clauses above are verified against the API the
+  mock doubles rather than asserted from the specification, and verified on the stack
+  that ships rather than only on a test bench.
+
+  Web Bluetooth has one implementation — Firefox and WebKit have both formally declined
+  — so **Blink on its two BLE backends is the whole of the real world.** No divergence on
+  either, which is why `docs/design/2026-08-27-client-contract.md` needs no platform
+  column: "faithful to Web Bluetooth" requires no qualification.
+
+  ⚠ **Arm B runs 21 of 42 checks.** The rest need a notification injected on cue or a
+  link dropped on cue, which no real peripheral offers, so they remain arm A only — the
+  mock agreeing with itself. And none of it exercises the wire: no roles, no takeover, no
+  release timing. This is a strong claim about the client surface, not about the system.
 
   ⚠ **A precondition the run made visible: anything else able to claim the adapter must
   be stopped first.** On Linux that is `blueman-applet`/`blueman-tray`, a second BlueZ

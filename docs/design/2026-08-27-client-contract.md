@@ -549,13 +549,18 @@ takeover, no release timing, no error frames**. It proves the client surface and
 nothing about the wire. Release timing is the most dangerous silence: it is the
 property four e2e specs encoded wrong for months with nothing to contradict them.
 
-**Arm B has been run, and it is green.** 2026-09-06, on `knuckles` with an ASUS
-BT500 against a real CS108: first at 18/19, which found the mock minting a fresh
-device per `requestDevice()` where Chromium returns the same object; then at
-**21/21, twice consecutively, after the fix** (TRA-1255). So the three clauses
-that fix touches — device identity, attribute invalidation on disconnect, and
-`connect()` on a connected server — are **verified against Chromium**, not
-asserted from the algorithm.
+**Arm B has been run, and it is green on both platform stacks.** 2026-09-06: on
+`knuckles` over **BlueZ** (ASUS BT500) first at 18/19, which found the mock
+minting a fresh device per `requestDevice()` where Chromium returns the same
+object; then at **21/21 after the fix** (TRA-1255), and at **21/21 on `cheetah`
+over CoreBluetooth** (Google Chrome 152), twice consecutively on each. So the
+three clauses that fix touches — device identity, attribute invalidation on
+disconnect, and `connect()` on a connected server — are **verified against
+Chromium**, not asserted from the algorithm.
+
+**Which is why this document carries no platform column.** Web Bluetooth has one
+implementation; Firefox and WebKit both formally declined, so Blink on its two
+BLE backends is the whole of the real world, and neither diverged.
 
 **That is the strongest thing this document can say about any clause, and it
 covers 21 of them.** Everything else here is still asserted: a clause arm B
