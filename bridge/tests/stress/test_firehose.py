@@ -47,9 +47,16 @@ async def test_relay_loses_nothing_at_a_functional_rate():
     assert result.lost == 0
     assert result.missing == 0
     assert result.out_of_order == 0
-    assert result.saturated_ticks == 0
+    # `saturated_ticks` deliberately NOT asserted here. It is a claim about the
+    # host's spare capacity, not about the relay -- and on a slow or busy box it
+    # fires while lost/missing/out_of_order above stay clean, which is the relay
+    # working. Asserted only in the opt-in path below. (TRA-1257)
 
 
+@pytest.mark.skipif(
+    not os.environ.get("FIREHOSE_BASELINE"),
+    reason="opt-in: a timing claim needs an idle host. `just firehose` from bridge/.",
+)
 async def test_achieved_rate_is_measured_over_the_generation_window():
     """The generation window closes when emission stops, not after the drain.
 
