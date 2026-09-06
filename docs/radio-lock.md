@@ -124,6 +124,26 @@ surfaces as a **connect failure against a bridge reporting free**, which is not
 `DEVICE_BUSY` and does not mean the transport is broken. Co-ordinate arm B by
 hand.
 
+**The lock does not shrink this rule — it makes it more important.** A green
+acquisition will *feel* like clearance, and against a browser on knuckles it
+still is not clearance. Holding the lock tells you no other **mssb** operation
+is running; it says nothing whatsoever about the reader.
+
+There is one observable, and it is not `held`. **A hand test holds the device
+through a real connection, and a connected peripheral stops advertising** — so
+the bridge cannot hear it. `held: false` is blind to that browser by
+construction; the advertising probe is not. In the log:
+
+```
+esphome …: proxy reachable; waiting to hear the device      <- nothing is advertising
+esphome …: heard the device advertising; requesting the BLE link
+```
+
+Read it in the honest direction. *Heard advertising* is real evidence nobody
+holds the device. *Not heard* means something holds it **or** it is powered off
+or out of range — those are indistinguishable from here, and it is still not a
+lock. Use it to decide whether to ask, not as permission to proceed.
+
 **Same-host is the assumption.** Both participants run on mssb today. If that
 stops being true, this mechanism does not survive it and the design has to
 change — it will not degrade gracefully, it will silently stop excluding
