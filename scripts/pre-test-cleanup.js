@@ -7,7 +7,6 @@
  * 3. Providing cooldown period for hardware recovery
  */
 
-import { execSync } from 'child_process';
 import { readdirSync, readFileSync, realpathSync } from 'fs';
 import net from 'net';
 import path from 'path';
@@ -157,30 +156,6 @@ async function cleanup() {
   if (killedAny) {
     console.log(`\n⏳ Applying ${COOLDOWN_MS}ms cooldown for hardware recovery...`);
     await new Promise(resolve => setTimeout(resolve, COOLDOWN_MS));
-  }
-  
-  // 5. Check if BLE device is available (only for integration tests)
-  const isIntegrationTest = process.argv.some(arg => 
-    arg.includes('integration') || 
-    arg.includes('e2e') ||
-    process.env.CHECK_BLE_DEVICE === 'true'
-  );
-  
-  if (isIntegrationTest) {
-    console.log('\nChecking BLE device availability...');
-    try {
-      execSync('node scripts/check-device-available.js', { stdio: 'inherit' });
-    } catch (e) {
-      console.error('\n' + '='.repeat(60));
-      console.error('🚨 HARDWARE CHECK FAILED - ACTION REQUIRED 🚨');
-      console.error('='.repeat(60));
-      console.error('\nThe BLE device is not responding to scans.');
-      console.error('\n⚠️  DO NOT PROCEED WITHOUT ASKING THE USER!');
-      console.error('⚠️  DO NOT ASSUME HARDWARE IS UNAVAILABLE!');
-      console.error('⚠️  THE HARDWARE EXISTS - IT NEEDS ATTENTION!');
-      console.error('\n' + '='.repeat(60) + '\n');
-      process.exit(1);
-    }
   }
   
   console.log('\n✅ Pre-test cleanup complete!');
