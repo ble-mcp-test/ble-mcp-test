@@ -144,6 +144,21 @@ holds the device. *Not heard* means something holds it **or** it is powered off
 or out of range — those are indistinguishable from here, and it is still not a
 lock. Use it to decide whether to ask, not as permission to proceed.
 
+**You do not have to protect the gap between a hand test's reps.** A hand test
+disconnects and reconnects; if the device is advertising and you take it in that
+window, that is accepted — the person hand-testing would rather lose the reader
+mid-session than have every automated run tiptoe around a browser that might
+come back. Without this the observable above would be useless: *advertising now*
+would always carry *"but someone may reconnect in a second"*, and there would be
+nothing you could ever act on.
+
+**The reciprocal is what makes that cheap, and it needs no announcement.** A hand
+test that reconnects and does not find the device has its own tell — the device is
+simply not there to pick — and the answer is to check the bridge's status and see
+who took it. Each side's loss is visible to the side that suffers it, so neither
+has to warn the other about this window. That is the whole reason it can be
+conceded rather than co-ordinated.
+
 **Same-host is the assumption.** Both participants run on mssb today. If that
 stops being true, this mechanism does not survive it and the design has to
 change — it will not degrade gracefully, it will silently stop excluding
