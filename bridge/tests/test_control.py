@@ -578,6 +578,20 @@ async def test_the_daemon_serves_the_relay_and_the_socket_together(tmp_path, mon
     # A concrete free port, not 0: config refuses 0 as outside 1-65535, and the
     # relay's binding is incidental to what this test is about.
     monkeypatch.setenv("BLE_MCP_WS_PORT", str(_a_free_port()))
+    # The device config is SUPPLIED, never inherited. `from_env` refuses to build
+    # a config without these two, so taking them from the ambient shell made this
+    # test pass only where direnv had already exported the deployment's values --
+    # and fail everywhere else: a bare `ssh mssb 'just test'`, a fresh clone, a
+    # cron run. Worse, the failure did not stay local: it took seven downstream
+    # tests with it, because `expected_mock_version()` is @cache'd process-wide,
+    # so whichever value lands in that memo first is the one every later test
+    # sees. Three sessions measured this suite and got 0, 8 and 8 failures with
+    # nothing in the tree to explain the difference (TRA-1257).
+    #
+    # Nothing here reaches a radio: no BLE session is opened, so the proxy host
+    # only has to be well-formed, not reachable.
+    monkeypatch.setenv("ESPHOME_PROXY_HOST", "192.0.2.1")  # TEST-NET-1, RFC 5737
+    monkeypatch.setenv("BLE_MCP_DEVICE_MAC", "AA:BB:CC:DD:EE:FF")
     config = from_env(dict(os.environ))
     task = asyncio.create_task(entry._run(config, LogBuffer(100)))
     try:
