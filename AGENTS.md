@@ -35,5 +35,5 @@ How we work in this repo. What the project *is* lives in `CLAUDE.md`.
 ## Style
 
 - DELETE, don't deprecate. No `.old` files, no commented-out code.
-- Keep files under 500 lines.
+- Aim for files under 300 lines. At 500, stop and justify the file rather than adding to it.
 - Ask when requirements are unclear. Never delete code without explicit instruction.

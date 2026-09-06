@@ -51,9 +51,14 @@ git checkout -b feat/add-reconnect
 
 **Project Philosophy:**
 - **Simple** - No abstractions, managers, or complex patterns
-- **Small** - Keep files under 150 lines
+- **Small** - Aim for under 300 lines a file. 150 is the right size for a helper, a page
+  object or a simple adapter, but it is a preference for small things, not a ceiling on
+  everything. Past 500, stop and justify the file rather than adding to it — a handful of
+  modules here are genuinely over, and they earned it one deliberate decision at a time
 - **Direct** - Code should do exactly what it says
 - **Async** - Use async/await (no callbacks except event handlers)
+
+`AGENTS.md` carries the same rules in the terser form this repo's agents read.
 
 **Good Example:**
 ```typescript
