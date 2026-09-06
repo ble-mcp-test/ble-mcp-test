@@ -5,6 +5,73 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0]
+
+### Fixed
+
+- **One peripheral is now one `BluetoothDevice`, and its attributes die with the
+  connection.** Two lifetimes, and the mock had both wrong in ways that concealed each
+  other. Found by the first run of conformance arm B — real Chromium under the same
+  contract checks — which is the only thing in this repo that can compare the mock
+  against the API it doubles.
+
+  | | before | now |
+  |---|---|---|
+  | a second `requestDevice()` for the same peripheral | a **new** device object | the **same** object, as `[[deviceInstanceMap]]` requires |
+  | `getPrimaryService` / `getCharacteristic` after a reconnect | the **previous connection's** objects | **new** ones, as "clean up the disconnected device" step 5 requires |
+  | `connect()` on an already-connected server | opened a **second socket** | resolves with that server, no second link |
+
+  **What this asks of a consumer: re-derive the service and characteristics after every
+  reconnect, and re-call `startNotifications()`.** That has always been what real Chrome
+  requires; the mock was more forgiving, and being more forgiving than the API you double
+  is not a kindness — it is a green suite over code that will fail in a browser. A
+  consumer that caches a characteristic across a disconnect now receives **silence**
+  rather than frames, which is the same thing Chrome does. `trakrf/platform` was checked
+  before this landed and needs no change: it nulls every reference in one teardown owner
+  and rebuilds the chain on each connect.
+
+  The two defects were load-bearing for each other, which is why this is one release and
+  not two. A fresh device per call was what kept a reconnect away from the never-cleared
+  attribute cache, so fixing the identity alone would have promoted a hazard nobody hit
+  into the ordinary path of every reconnect — silently, with a green suite. The shape is
+  written up in
+  [`docs/design/2026-09-06-defects-that-conceal-each-other.md`](docs/design/2026-09-06-defects-that-conceal-each-other.md):
+  one hazard with two locks on it, where removing one lock is the dangerous operation.
+
+  Minor rather than patch: this changes observable behaviour on the reconnect path.
+  TRA-1255.
+
+- **The conformance suite's arm A now holds one `MockBluetooth` for the whole run**,
+  because the realm is the arm — arm B is one page with one `navigator.bluetooth`. A
+  fresh mock per session is not a fresh page but a fresh *navigator*, something no
+  consumer can produce, and it is why arm A was structurally unable to observe the
+  per-realm device map that arm B found wrong.
+
+  **Arm B found this defect and has now confirmed the fix on both platform stacks —
+  21/21, twice consecutively on each, against a real CS108:** `knuckles` over **BlueZ**
+  (ASUS BT500) and `cheetah` over **CoreBluetooth** (Google Chrome 152, built-in Apple
+  radio), both 2026-09-06. So the three clauses above are verified against the API the
+  mock doubles rather than asserted from the specification, and verified on the stack
+  that ships rather than only on a test bench.
+
+  Web Bluetooth has one implementation — Firefox and WebKit have both formally declined
+  — so **Blink on its two BLE backends is the whole of the real world.** No divergence on
+  either, which is why `docs/design/2026-08-27-client-contract.md` needs no platform
+  column: "faithful to Web Bluetooth" requires no qualification.
+
+  ⚠ **Arm B runs 21 of 42 checks.** The rest need a notification injected on cue or a
+  link dropped on cue, which no real peripheral offers, so they remain arm A only — the
+  mock agreeing with itself. And none of it exercises the wire: no roles, no takeover, no
+  release timing. This is a strong claim about the client surface, not about the system.
+
+  ⚠ **A precondition the run made visible: anything else able to claim the adapter must
+  be stopped first.** On Linux that is `blueman-applet`/`blueman-tray`, a second BlueZ
+  client that pairs and auto-connects while the chooser is open; on macOS it is the TCC
+  Bluetooth grant. Both fail the same way — an empty chooser, indistinguishable from a
+  device that is not there. `docs/conformance-arm-b.md` records blueman as a
+  *precondition with a mechanism* rather than a closed case: the decisive experiment,
+  restoring it and watching the failures return, has not been run.
+
 ## [0.17.0]
 
 ### Added
