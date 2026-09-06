@@ -65,9 +65,10 @@
     "test": "pnpm run pretest && vitest run tests/unit tests/conformance",
     "test:run": "pnpm run pretest && vitest run",
     "test:watch": "vitest",
-    "test:e2e": "pnpm run pretest && pnpm exec playwright test",
-    "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 pnpm run pretest && pnpm exec playwright test",
-    "test:e2e:ci": "pnpm run pretest && pnpm exec playwright test",
+    "test:e2e": "./bin/ble-radio-lock --label ble-mcp-test-e2e -- pnpm run test:e2e:held",
+    "test:e2e:held": "pnpm run pretest && pnpm exec playwright test",
+    "test:e2e:dev": "DEV_SERVER_URL=http://localhost:5173 ./bin/ble-radio-lock --label ble-mcp-test-e2e-dev -- pnpm run test:e2e:held",
+    "test:e2e:ci": "./bin/ble-radio-lock --label ble-mcp-test-e2e-ci -- pnpm run test:e2e:held",
     "test:unit": "pnpm run pretest && vitest run tests/unit",
     "test:conformance": "vitest run tests/conformance",
     "test:conformance:real": "pnpm exec playwright test -c playwright.conformance.config.ts",
@@ -76,7 +77,7 @@
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc --noEmit -p tsconfig.test.json",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm run clean && pnpm run build && pnpm run pretest && pnpm exec playwright test"
+    "prepublishOnly": "pnpm run clean && pnpm run build && ./bin/ble-radio-lock --label ble-mcp-test-publish-gate -- pnpm run test:e2e:held"
   },
   "devDependencies": {
     "@playwright/test": "^1.40.0",

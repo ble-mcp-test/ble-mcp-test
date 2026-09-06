@@ -73,11 +73,31 @@ build: build-ts
 # symptom, which is this repo's first named failure class wearing a build flag.
 validate: lint typecheck-ts build test
 
+# --- The shared reader ---
+
+# Hold the reader across a MULTI-COMMAND operation, then run those commands in
+# the shell it opens. Publish is why this exists: gate, then OTP, then a retry
+# on expiry are one critical section, and wrapping each command separately
+# releases in the gaps -- which is precisely how 2026-08-31 went wrong.
+#
+# Single commands need nothing here: `test-e2e` and `bridge`'s `hardware` carry
+# their own wrap, and a wrap nested inside this hold passes through.
+radio-hold:
+    bin/ble-radio-lock --label ble-mcp-test-hold hold
+
 # Arm B of the conformance suite: the SAME contract checks, against REAL Chromium
 # navigator.bluetooth instead of the mock. Opt-in, like `just hardware`, and for
 # the same reason -- it needs hardware. `just test` runs arm A, which can only
 # establish that the mock agrees with ITSELF; only this arm can establish that it
 # agrees with the API it doubles.
+#
+# DELIBERATELY NOT under the radio lock. This runs on knuckles, and flock is
+# same-kernel: a lock held on mssb is invisible here, so wrapping it would read
+# as coverage while excluding nothing. Arm B takes the reader through a real
+# Bluetooth stack, which the bridge cannot see either -- it surfaces to the
+# other side as a connect failure against a bridge reporting free. Co-ordinate
+# it by hand. This is the hole in constraint 5's same-host assumption, and it is
+# named rather than papered over.
 #
 # Needs BLE_MCP_CONFORMANCE_ARM_B=1, a machine whose Chromium can reach a real BLE
 # adapter (BlueZ over D-Bus -- the ESPHome proxy is the bridge's route, not
