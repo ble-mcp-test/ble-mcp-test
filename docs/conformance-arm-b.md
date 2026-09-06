@@ -8,34 +8,60 @@ contract checks arm A runs against the mock.
 It is **manual, permanently**, and it needs a host the bridge does not run on.
 This file is how to run it without rediscovering any of that.
 
-## Current status: no result for the code in the tree
+## Current status: GREEN, 21/21
 
-**A re-run is owed, and until it happens this arm has said nothing about what is
-currently on `main`.**
+Confirmed 2026-09-06 on `knuckles` against a real CS108 over BlueZ, **twice
+consecutively**, exit 0 both times. The first outright pass this arm has ever
+produced.
 
-The last result — 2026-09-06, twice on `knuckles` against a real CS108, 18 green
-and one red both times with no link failures on the second pass — was against code
-TRA-1255 has since changed. The red was `chain/second-device-is-distinct`: real
-Chromium returned the same `BluetoothDevice` for a second `requestDevice()` on the
-same peripheral where the mock returned a distinct one, and the spec is on
-Chrome's side, so the mock was the defect.
+Getting there took two things. TRA-1255 fixed the mock defect the arm's first ever
+run found (`chain/second-device-is-distinct`: real Chromium returns the *same*
+`BluetoothDevice` for a second `requestDevice()` on one peripheral; the mock minted
+a distinct one, and the spec is on Chrome's side). And **blueman had to be
+stopped** — see below, because it is now a precondition of the run.
 
-What the re-run is actually checking is therefore **new**, not a repeat:
+A **second** failure, or this one returning, is news.
 
-- the failing check now asserts the opposite of what it asserted then, and should
-  be green for a reason that did not exist before;
-- `chain/connect-when-connected-resolves-the-same-server` and
-  `chain/reconnect-replaces-attributes` are new and have never faced real
-  Chromium;
-- `chain/reconnect-replaces-attributes` puts the radio through a **disconnect and
-  reconnect inside a check**, which no previous arm B run did. It uses the same
-  750 ms settle and four attempts as `open()`, so a flake there should present as
-  a failure to reconnect rather than as a fidelity failure — but that pacing has
-  only ever been exercised on the chooser path.
+### ⚠ Kill blueman before every run
 
-So: expect the old red to be green, expect two more checks than last time, and
-treat anything else as news. Arm A is green on all of it, and that is not
-evidence — refusing that inference is the entire reason this arm exists.
+```bash
+pkill -f '[b]lueman-applet'; pkill -f '[b]lueman-tray'
+```
+
+The bracket in `[b]lueman` is not a typo. `pkill -f` matches against full command
+lines including its own, so a plain `pkill -f blueman-applet` run from a shell
+whose command line contains that string kills the shell too. Observed.
+
+`blueman-applet` and `blueman-tray` are a **second BlueZ client** on the same
+adapter, and they pair and auto-connect — contending for the peripheral Chrome is
+asking for, in the window while the chooser is open. With them running, two
+post-fix runs failed in two different ways: `GATT Error Unknown.` from
+`startNotifications()`, and a second `requestDevice()` returning the right device
+with a *different service object*, which is what a dropped link looks like. With
+them stopped, two runs passed clean.
+
+That is a well-supported hypothesis with a mechanism, **not a closed case**: the
+decisive experiment — restore blueman, watch the failures come back — has not been
+run, and the machine's load fell at the same time. Kill it anyway; the cost is
+nothing and the alternative is a test that fails for reasons that have nothing to
+do with the mock.
+
+They come back on next login (XFCE autostart), so this is per-session unless
+someone disables the autostart entries.
+
+### ⚠ This host is slow enough to be a measurement hazard
+
+knuckles is a 2-core 1.6GHz Celeron N3050. A headed Chromium under xrdp saturates
+it — load average ~2.1 on 2 cores, to the point that terminal input lags. So
+**delays between BLE operations here are scheduling latency, not operator
+latency**, and answering the chooser faster changes nothing.
+
+Arm B is timing-sensitive by construction: `chain/second-request-returns-the-same-device`
+assumes the link does not drop between two `requestDevice()` calls, and on this box
+that gap is wide enough for an idle CS108 to drop it. A green run from here is
+therefore worth less than a green run from a fast machine. TRA-1256 moves the
+confirming run to macOS/CoreBluetooth, which is both quicker and the stack that
+actually ships.
 
 ## Why it needs its own host
 

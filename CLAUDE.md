@@ -43,7 +43,7 @@ cd bridge && just hardware   # opt-in, needs a real device
 
 **Hardware reality.** `cd bridge && just hardware` drives a live CS108 over TCP through the ESPHome proxy, no local radio: needs `ESPHOME_PROXY_HOST` + `BLE_MCP_DEVICE_MAC` and a powered reader, holds the device ~2 min, and fails rather than falling back to the stub. Skipped by default.
 
-**Conformance arm B is the only check that establishes fidelity, and it is manual forever.** It runs real Chromium `navigator.bluetooth` on a host with its own radio — knuckles, never mssb, and never the bridge's host — with a human answering Chrome's chooser once per check. **Known-red at 18/19** since its first run, 2026-09-06; the one failure is a mock defect, TRA-1255. `docs/conformance-arm-b.md`.
+**Conformance arm B is the only check that establishes fidelity, and it is manual forever.** It runs real Chromium `navigator.bluetooth` on a host with its own radio — knuckles, never mssb, and never the bridge's host — with a human answering Chrome's chooser once per check. **Green at 21/21** as of 2026-09-06, confirmed twice — and only with `blueman` killed first, which is a precondition of the run, not a footnote. It is timing-sensitive and knuckles is a saturated 2-core Celeron, so a green run from there is worth less than one from a fast host; TRA-1256 moves the confirming run to macOS. `docs/conformance-arm-b.md`.
 
 **The reader is shared, and held by a lock rather than an announcement.** Radio entry points wrap `bin/ble-radio-lock`; hold a multi-command operation — publish above all — inside `just radio-hold`. It offers no way to ask whether the reader is free, and arm B on knuckles is outside it. `docs/radio-lock.md`.
 
