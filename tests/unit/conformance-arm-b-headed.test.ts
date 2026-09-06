@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ARM_B_ENV } from '../conformance/arm-status.js';
+import { armBChannel } from '../../playwright.conformance.config.js';
 
 /**
  * Arm B cannot run headless, and for months the config said so in prose while
@@ -54,5 +55,46 @@ describe('arm B runs headed', () => {
       config.use?.headless,
       'Without arm B requested the spec skips, and CLAUDE.md\'s headless rule stands.',
     ).toBe(true);
+  });
+});
+
+/**
+ * TRA-1256. The second way arm B dies looking like a hardware fault, and the
+ * macOS twin of the headless trap above.
+ *
+ * macOS gates Bluetooth per application on bundle identity. Playwright's bundled
+ * Chromium is ad-hoc-signed, so it cannot reliably hold that grant -- and an
+ * ungranted app is not refused, it is handed an EMPTY chooser, which reads as an
+ * out-of-range peripheral. Installed Google Chrome has a real bundle ID, so
+ * darwin drives `channel: 'chrome'`.
+ *
+ * What edit would turn this red: dropping the channel (back to bundled Chromium
+ * on macOS), or applying it everywhere, which would retire knuckles' recorded
+ * green by running Linux on a different binary than produced it.
+ */
+describe('arm B drives real Chrome on macOS', () => {
+  it("uses channel 'chrome' on darwin, which can hold the TCC Bluetooth grant", () => {
+    expect(
+      armBChannel('darwin'),
+      "Playwright's bundled Chromium is ad-hoc-signed and cannot reliably hold " +
+        'the macOS per-app Bluetooth permission. Without the grant the chooser ' +
+        'comes up empty, which is indistinguishable from a device out of range.',
+    ).toBe('chrome');
+  });
+
+  it('leaves every other platform on bundled Chromium', () => {
+    expect(
+      armBChannel('linux'),
+      "knuckles' green 21/21 was produced by Playwright's bundled Chromium. " +
+        'Switching Linux to installed Chrome would retire that baseline.',
+    ).toBeUndefined();
+  });
+
+  it('wires the channel into the project the run actually launches', async () => {
+    const config = (await import('../../playwright.conformance.config.js')).default;
+    expect(
+      config.projects?.[0]?.use?.channel,
+      'armBChannel can be right and unused. This asserts the config passes it.',
+    ).toBe(armBChannel(process.platform));
   });
 });
