@@ -14,8 +14,24 @@ Confirmed 2026-09-06 on `knuckles` against a real CS108 over BlueZ, **twice
 consecutively**, exit 0 both times. The first outright pass this arm has ever
 produced.
 
-Getting there took two things. TRA-1255 fixed the mock defect the arm's first ever
-run found (`chain/second-device-is-distinct`: real Chromium returns the *same*
+**Confirmed again the same day on `cheetah` — macOS, CoreBluetooth, installed
+Google Chrome 152 — 21/21, exit 0, in 1.6 minutes.** That is the run that
+matters most, because all preview and prod hardware testing is done from that
+machine: fidelity established only on knuckles left the shipping stack
+unmeasured. Two platform stacks, one skip set, no divergence on either. So
+"the mock is faithful to Web Bluetooth" now needs no qualification by platform,
+and `docs/design/2026-08-27-client-contract.md` gains no platform column.
+
+⚠ **The skip set being identical across hosts is structural, not evidence.**
+Both runs report `21/42 checks run`, but which 21 is computed from
+`CONFORMANCE_CHECKS` and the provider's `capabilities` literal in
+`tests/conformance/arm-b.spec.ts` (`injectNotification: false`,
+`dropLink: false`) — neither of which can vary by host. Do not read the
+matching skip lists as a second measurement. The measurement is that both ran
+green.
+
+Getting the **first** green took two things, both of them knuckles' story rather
+than the arm's. TRA-1255 fixed the mock defect the arm's first ever run found (`chain/second-device-is-distinct`: real Chromium returns the *same*
 `BluetoothDevice` for a second `requestDevice()` on one peripheral; the mock minted
 a distinct one, and the spec is on Chrome's side). And **blueman had to be
 stopped** — see below, because it is now a precondition of the run.
@@ -70,10 +86,16 @@ actually ships.
 
 ## Why it needs its own host
 
-Chrome talks to a BLE adapter through BlueZ over D-Bus. The ESPHome proxy is the
-**bridge's** route to the device; Chrome knows nothing about it. So arm B needs a
-machine with a real radio of its own — unlike every other hardware test here,
-which only needs the bridge to have one.
+Chrome talks to a BLE adapter through the host's own stack — BlueZ over D-Bus on
+Linux, CoreBluetooth on macOS. The ESPHome proxy is the **bridge's** route to the
+device; Chrome knows nothing about it. So arm B needs a machine with a real radio
+of its own — unlike every other hardware test here, which only needs the bridge to
+have one.
+
+A corollary worth stating because it has already cost one wrong probe: **arm B
+does not touch the bridge or the proxy at all**, so neither is a thing to check
+before a run. The one shared resource is the peripheral itself, which has a
+single link.
 
 `mssb` can never be that host: `AF_BLUETOOTH` returns errno 97 there
 permanently. Check the socket, never `/sys` — inside a container
@@ -92,16 +114,12 @@ play.
 | host | stack | status |
 |---|---|---|
 | `knuckles` (Linux) | Blink on **BlueZ** | in use; green 21/21, 2026-09-06. Slow — see the hazard above. |
-| `cheetah` (MacBook) | Blink on **CoreBluetooth** | **not yet run** — TRA-1256. Faster, and the stack preview and prod testing actually use. |
+| `cheetah` (MacBook, M1) | Blink on **CoreBluetooth** | in use; **green 21/21, 2026-09-06**, 1.6m wall clock. Fast, and the stack preview and prod testing actually use. |
 
 `cheetah` matters for more than speed: all preview and prod hardware testing is
-done from it, so fidelity established only on knuckles leaves the shipping stack
-unmeasured. On macOS the browser must be **installed Google Chrome** via
-`channel: 'chrome'` rather than Playwright's bundled Chromium, which is
-ad-hoc-signed and cannot reliably hold the TCC Bluetooth grant. Without that
-grant the chooser comes up **empty**, which is indistinguishable from an
-out-of-range device. Safari is not an option — WebKit declined Web Bluetooth, as
-did Firefox.
+done from it, so fidelity established only on knuckles would leave the shipping
+stack unmeasured. Safari is not an option on either — WebKit declined Web
+Bluetooth, as did Firefox.
 
 ### knuckles (Linux, BlueZ)
 
@@ -145,6 +163,67 @@ ssh knuckles.local 'bash -lic "node -v"'
 An XFCE terminal over xrdp is already a login shell, so working there sidesteps
 this entirely — and you need to be at that desktop anyway, to answer the chooser.
 
+### cheetah (macOS, CoreBluetooth)
+
+Verified 2026-09-06, by command:
+
+| | |
+|---|---|
+| host | `cheetah`, MacBook (Apple M1) |
+| adapter | built-in Apple `BCM_4387`, controller `F4:D4:88:78:C9:66`, PCIe |
+| browser | **installed Google Chrome** 152.0.7977.82, driven by `channel: 'chrome'` |
+| toolchain | node 24, pnpm; Playwright 1.54.1 |
+| result | 21/21, exit 0, 1.6m |
+
+#### ⚠ It must be installed Chrome, not Playwright's Chromium
+
+macOS gates Bluetooth **per application**, in System Settings → Privacy &
+Security → Bluetooth, keyed on bundle identity. Playwright's bundled Chromium is
+ad-hoc-signed with no stable identity, so a grant for it is unreliable and can
+evaporate between runs.
+
+`playwright.conformance.config.ts` therefore sets `channel: 'chrome'` on darwin,
+via `armBChannel(process.platform)`. It is **not** applied on other platforms:
+knuckles' green was produced by bundled Chromium, and switching Linux to a
+different binary would retire that baseline. `tests/unit/conformance-arm-b-headed.test.ts`
+holds all three halves of that — darwin gets the channel, other platforms do not,
+and the config actually passes it to the project it launches.
+
+An ungranted app is **not refused**. It is handed an **empty chooser**, which
+reads as an out-of-range peripheral or a dead adapter — the same failure shape
+blueman produces on knuckles, and CLAUDE.md's failure class 2 exactly. If the
+chooser comes up with nothing in it, check the permission before the bench.
+
+The grant cannot be read from a script: `TCC.db` returns `authorization denied`
+without Full Disk Access. So it is confirmed by running, not by querying. On a
+first run against a Chrome that has never used Bluetooth, macOS prompts — answer
+it; that path is fine, and it is only a **previously denied** grant that produces
+the silent empty chooser.
+
+#### CoreBluetooth does not expose MAC addresses
+
+Peripherals are per-host UUIDs, so the CS108 does **not** appear as
+`6C:79:B8:26:03:A7` the way it does on knuckles. Harmless — arm B filters on
+service UUID — but it will look wrong to anyone diffing the two runs side by
+side. Pick `CS108Reader2603A7` by name.
+
+#### No blueman here, and nothing that replaces it
+
+macOS has no second BLE client daemon contending for the adapter, so the
+knuckles precondition does not carry over. The general rule behind it still
+does: anything else able to claim the adapter is a precondition to check. On
+this host that list is short — an already-paired CS108 held by another app, or
+a bridge holding the reader's single link from elsewhere.
+
+#### This host is fast, which is the point
+
+21 checks in **1.6 minutes**, operator-paced throughout. Contrast knuckles,
+where the same 1.6m is scheduling latency on a saturated 2-core Celeron. The
+timing-sensitive check — `chain/second-request-returns-the-same-device`, which
+assumes the link survives the gap between two `requestDevice()` calls — has the
+narrowest window it will get here. That is why `cheetah` is the confirming run
+rather than a second opinion.
+
 ## The UUIDs, which have no fallback
 
 Arm B requires the three `BLE_MCP_*_UUID` variables in **canonical form**: full
@@ -167,6 +246,11 @@ BLE_MCP_NOTIFY_UUID=00009901-0000-1000-8000-00805f9b34fb
 Those are the CS108's. A different peripheral means different values; nothing in
 the suite assumes these.
 
+`.env.local` on `cheetah` already carries the canonical forms, so that trap is
+knuckles-specific. Pass them explicitly anyway — the Playwright config loads no
+dotenv file, so an inherited value is a property of your shell rather than of
+the run.
+
 ## Coordinating the radio
 
 `just conformance-real` is **deliberately not under the radio lock**, and this is
@@ -175,8 +259,8 @@ is invisible on knuckles, so wrapping arm B would read as coverage while
 excluding nothing.
 
 Worse, the two claimants are mutually invisible. Arm B reaches the CS108 through
-knuckles' own Bluetooth stack; the bridge reaches it over TCP through the ESPHome
-proxy. Neither can see the other. Contention surfaces on the bridge side as a
+the arm-B host's own Bluetooth stack; the bridge reaches it over TCP through the
+ESPHome proxy. Neither can see the other. Contention surfaces on the bridge side as a
 connect failure against a reader it believes is free.
 
 So **coordinate by hand, and confirm it with a person**:
@@ -189,7 +273,8 @@ So **coordinate by hand, and confirm it with a person**:
 
 ## Running it
 
-From the repo on knuckles, at the XFCE desktop:
+From the repo on whichever host you are using — knuckles at the XFCE desktop,
+cheetah at the Mac desktop — with that host's setup section above satisfied:
 
 ```bash
 BLE_MCP_CONFORMANCE_ARM_B=1 \
@@ -202,9 +287,10 @@ pnpm run test:conformance:real
 `just conformance-real` sets only `BLE_MCP_CONFORMANCE_ARM_B`; the UUIDs are
 yours to supply.
 
-A Chromium window opens. **The chooser appears once per runnable check** — 19 as
-the contract stands — because every check calls `provider.open()` and each
-`requestDevice()` needs its own gesture and its own choice. Pick the peripheral
+A browser window opens — bundled Chromium on Linux, installed Google Chrome on
+macOS. **The chooser appears once per runnable check** — 21 as the contract
+stands — because every check calls `provider.open()` and each `requestDevice()`
+needs its own gesture and its own choice. Pick the peripheral
 (`CS108Reader2603A7`) and confirm, each time. The run prints which check it is
 waiting on, so a chooser reappearing is distinguishable from one that hung.
 
@@ -213,7 +299,7 @@ The only bytes arm B writes are `0x01 0x02`, which is not a valid CS108 frame
 
 ### The reconnect churn, which is harder on the radio than any real client
 
-Every check opens its own session, so a full run connects and disconnects 19
+Every check opens its own session, so a full run connects and disconnects 21
 times in a row. Nothing a consumer does looks like that. Observed 2026-09-06:
 five checks in, `Connection Error: Connection attempt failed.` — the peripheral
 had not finished tearing the previous link down and resuming advertising.
@@ -238,16 +324,21 @@ either direction. Only a completed run with failures is evidence against the
 mock. Do not record an abort as a failure on the ticket, and do not record it as
 a pass.
 
-## Two things that must not be re-broken
+## Three things that must not be re-broken
 
-Both were discovered the first time this arm was actually run, and both are held
-by `tests/unit/conformance-arm-b-headed.test.ts`.
+All three are held by `tests/unit/conformance-arm-b-headed.test.ts`. Two were
+discovered the first time this arm was actually run; the third, on the first
+macOS run. They share a shape: each one fails as **an empty or absent chooser**,
+which reads as broken hardware rather than as a misconfigured browser.
 
+0. **It drives installed Chrome on macOS.** See the `cheetah` section — bundled
+   Chromium cannot hold the TCC grant, and the failure is an empty chooser rather
+   than an error.
 1. **It runs headed.** `playwright.conformance.config.ts` sets `headless` from
    `armBStatus(process.env)`, so it is false exactly when arm B is requested. A
    headless browser shows no chooser, `requestDevice()` never settles, and the
    run dies on the test timeout looking like a dead adapter.
-2. **The timeout is a person's, not a machine's.** All 19 chooser answers happen
+2. **The timeout is a person's, not a machine's.** All 21 chooser answers happen
    inside a single `page.evaluate`, sharing one test timeout rather than getting
    one each. It is 45 minutes when arm B is requested.
 
