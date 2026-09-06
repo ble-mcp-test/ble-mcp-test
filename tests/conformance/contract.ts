@@ -142,10 +142,37 @@ export interface ConformanceProvider {
   /** Shown in the result line. e.g. "arm A (mock + stub bridge)". */
   readonly name: string;
   readonly capabilities: ProviderCapabilities;
-  /** A fresh connected chain. Called once per check, so no check inherits state. */
+  /**
+   * A connected chain, reached through `requestDevice()`.
+   *
+   * Called once per check, and once more inside the checks that need a second
+   * `requestDevice()`. **It does not produce a fresh realm.** Both arms hold one
+   * `navigator.bluetooth` for the whole run -- arm B has one page, arm A has one
+   * `MockBluetooth` -- so the device object, and any listener a previous check
+   * left on it, persist. That is the spec's `[[deviceInstanceMap]]`, not a leak,
+   * and arm A used to mint a `MockBluetooth` per call, which made it the one
+   * arm where two `requestDevice()` calls could not return the same device.
+   */
   open(): Promise<ConformanceSession>;
   /** Release whatever `open` produced. Must tolerate an already-closed session. */
   close(session: ConformanceSession): Promise<void>;
+  /**
+   * Drop the link and bring it back up on the SAME device object, the way a
+   * consumer's reconnect does.
+   *
+   * On the seam rather than in a check body because the retry policy belongs to
+   * the transport, not to the contract. Arm B needs a settle and up to four
+   * attempts -- a real CS108 has to tear the previous link down and resume
+   * advertising -- and a bare `connect()` in a check body would record a radio
+   * flake as a fidelity failure, which is the misattribution this suite is most
+   * careful about. Nothing in the contract asserts that `connect()` succeeds
+   * first time, so retrying here hides no clause.
+   *
+   * The session's `service` and characteristic fields are STALE afterwards, by
+   * design: the point of the checks that call this is that a reconnect replaces
+   * them. Re-derive from `session.server`.
+   */
+  reconnect(session: ConformanceSession): Promise<void>;
   /** Deliver `bytes` on the notify characteristic. Only when `injectNotification`. */
   inject(session: ConformanceSession, bytes: number[]): Promise<void>;
   /** Drop the link under the client. Only when `dropLink`. */
@@ -265,25 +292,85 @@ const CHAIN: ConformanceCheck[] = [
     }
   },
   {
-    id: 'chain/second-device-is-distinct',
-    clause: 'a second requestDevice yields a distinct device with distinct characteristics',
+    id: 'chain/second-request-returns-the-same-device',
+    clause: 'a second requestDevice for the same peripheral returns the SAME device object',
     category: 'fidelity',
     needs: [],
     async run(session, provider) {
-      // Scope, not absence: the identity cache above is per DEVICE. Hoist it and a
-      // reconnect gets the previous session's characteristic objects back, still
-      // carrying its subscription state and its handlers.
+      // The spec's `[[deviceInstanceMap]]`: "get the BluetoothDevice
+      // representing" is a lookup in a per-realm map keyed by the device, and it
+      // mints a new object only on a miss (index.bs:2285). So one peripheral is
+      // one `BluetoothDevice` for the lifetime of the page.
+      //
+      // THIS CHECK USED TO ASSERT THE OPPOSITE, and it is arm B's first red:
+      // real Chromium returned the same device where the mock minted a fresh
+      // one. The old clause conflated device identity with per-connection
+      // attribute scoping -- see `chain/reconnect-replaces-attributes`, which is
+      // where that intent went and where it is actually testable.
+      // `second` is NOT closed here, and that is the point rather than an
+      // omission: it is the same server as `session`, which the runner closes.
       const second = await provider.open();
-      try {
-        assert(second.device !== session.device, 'the second requestDevice returned the same device');
-        assert(second.service !== session.service, 'the second device shares the first device\'s service');
-        assert(
-          second.notifyCharacteristic !== session.notifyCharacteristic,
-          'the second device shares the first device\'s characteristic'
-        );
-      } finally {
-        await provider.close(second);
-      }
+      assert(second.device === session.device, 'the second requestDevice returned a different device');
+      // The connection never dropped between the two calls, so the attribute
+      // cache is still populated and the same objects come back with it.
+      assert(second.service === session.service, 'the same connected device yielded a different service');
+      assert(
+        second.notifyCharacteristic === session.notifyCharacteristic,
+        'the same connected device yielded a different characteristic'
+      );
+    }
+  },
+  {
+    id: 'chain/connect-when-connected-resolves-the-same-server',
+    clause: 'connect() on an already-connected server resolves with that server',
+    category: 'fidelity',
+    needs: [],
+    async run(session) {
+      // Spec step 5 of `connect()` (index.bs:3141): "If this.connected is true,
+      // resolve promise with this and return promise." No second link is
+      // attempted, so a consumer that calls connect() twice does not take the
+      // radio twice -- against the bridge's single writer slot, a second attempt
+      // would be refused as busy by the caller's own session.
+      const again = await session.server.connect();
+      assert(again === session.server, 'connect() on a connected server resolved with a different server');
+      assertEqual(session.server.connected, true, 'connected after a second connect()');
+    }
+  },
+  {
+    id: 'chain/reconnect-replaces-attributes',
+    clause: 'a disconnect clears the attribute cache: a reconnect yields new service and characteristic objects',
+    category: 'fidelity',
+    needs: [],
+    async run(session, provider) {
+      // THE SCOPE CLAUSE, in the form that is actually testable against one
+      // peripheral. The identity caches asserted by `chain/service-identity` and
+      // `chain/characteristic-identity` are scoped to the CONNECTION, not to the
+      // page: keep them across a disconnect and a reconnect hands back the
+      // previous session's objects, still carrying its subscription state and
+      // its handlers -- silently, because a stale characteristic raises nothing.
+      //
+      // The spec spells this out as step 5 of "clean up the disconnected
+      // device" (index.bs:4417): remove every entry from the
+      // `[[attributeInstanceMap]]` whose key is inside the device, and null the
+      // represented service and characteristic behind every object that
+      // survives.
+      const serviceUuid = session.service.uuid;
+      const notifyUuid = session.notifyCharacteristic.uuid;
+
+      await provider.reconnect(session);
+
+      const service = await session.server.getPrimaryService(serviceUuid);
+      const notify = await service.getCharacteristic(notifyUuid);
+      assert(service !== session.service, 'the reconnect returned the previous connection\'s service');
+      assert(
+        notify !== session.notifyCharacteristic,
+        'the reconnect returned the previous connection\'s characteristic'
+      );
+      // The device is the one thing that DOES survive -- the two halves of this
+      // fix, asserted together so neither can be satisfied by throwing the other
+      // away.
+      assertEqual(service.uuid, serviceUuid, 'the reconnected service uuid');
+      assertEqual(notify.uuid, notifyUuid, 'the reconnected characteristic uuid');
     }
   }
 ];
@@ -392,30 +479,38 @@ const DELIVERY: ConformanceCheck[] = [
     }
   },
   {
-    id: 'notify/subscription-does-not-leak-across-devices',
-    clause: 'a second device starts unsubscribed, whatever the first device did',
+    id: 'notify/subscription-does-not-survive-a-reconnect',
+    clause: 'a reconnected characteristic starts unsubscribed, whatever the previous connection did',
     category: 'fidelity',
     needs: ['injectNotification'],
     async run(session, provider) {
+      // The DELIVERY half of `chain/reconnect-replaces-attributes`, and the half
+      // that reaches a consumer as silence rather than as a wrong object.
+      // Identity and delivery are separate questions: a check that only compared
+      // references would stay green against an implementation that handed back a
+      // new object still wired into the old subscription.
+      //
       // Stated observably rather than by reading a private flag, so it is a claim
-      // about behaviour that arm B could also make. Hoist the identity cache
-      // above the device -- an easy and superficially tidy refactor -- and a
-      // reconnect gets the SAME characteristic back, carrying subscription state
-      // from a connection that has ended.
+      // arm B could make too -- it is reported NOT RUN there only because no
+      // scaffolding makes a real CS108 emit a chosen payload on cue.
+      //
+      // This asked about a SECOND DEVICE until TRA-1255. That framing died with
+      // the mock's fresh-device-per-requestDevice defect: with one peripheral
+      // there is only ever one device, so the question was unaskable and the
+      // check was really asserting the defect.
       await session.notifyCharacteristic.startNotifications();
 
-      const second = await provider.open();
-      try {
-        const seen: unknown[] = [];
-        second.notifyCharacteristic.addEventListener(
-          'characteristicvaluechanged', (e: unknown) => seen.push(e)
-        );
-        await provider.inject(second, [0xa7]);
-        await settle();
-        assertEqual(seen.length, 0, 'events delivered to a fresh device that never subscribed');
-      } finally {
-        await provider.close(second);
-      }
+      const notifyUuid = session.notifyCharacteristic.uuid;
+      const serviceUuid = session.service.uuid;
+      await provider.reconnect(session);
+
+      const service = await session.server.getPrimaryService(serviceUuid);
+      const notify = await service.getCharacteristic(notifyUuid);
+      const seen: unknown[] = [];
+      notify.addEventListener('characteristicvaluechanged', (e: unknown) => seen.push(e));
+      await provider.inject(session, [0xa7]);
+      await settle();
+      assertEqual(seen.length, 0, 'events delivered to a reconnected characteristic that never subscribed');
     }
   },
   {

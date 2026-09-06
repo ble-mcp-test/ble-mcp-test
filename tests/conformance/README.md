@@ -60,9 +60,18 @@ The corollary is the half that matters, because it is where the damage happens:
 just test          # or: pnpm run test:conformance
 ```
 
-Runs all 28 checks against the mock, through a real `requestDevice` →
+Runs every check against the mock, through a real `requestDevice` →
 `gatt.connect()` → `getPrimaryService` → `getCharacteristic` chain, against an
-in-process stub bridge.
+in-process stub bridge. The run prints the count; this file does not, because
+every hand-written count in this repo has drifted.
+
+**One `MockBluetooth` for the whole arm, because the realm is the arm.** Arm B is
+one page holding one `navigator.bluetooth` across all its checks, so arm A holds
+one mock across all of its own. Building a fresh one per `open()` — which this did
+until TRA-1255 — is not a fresh page but a fresh *navigator*, something no
+consumer can produce, and it made arm A structurally unable to observe the spec's
+per-realm device map at all. Checks therefore inherit device-level state from one
+another, exactly as they always have in arm B.
 
 **Nothing here sets `gatt.connected` by hand.** Four unit files used to, with the
 note *"a real connect needs a live bridge, and none of the lifecycle behaviour
@@ -85,7 +94,15 @@ with nothing to contradict them.
 just conformance-real
 ```
 
-**⚠ This arm is KNOWN-RED: 18 of 19 checks pass.** First run 2026-09-06 on
+**⚠ THE LAST RECORDED RESULT IS STALE, AND IT IS STALE IN THE HOPEFUL
+DIRECTION.** TRA-1255 fixed the one red below and changed what this arm asserts:
+the failing check now asserts the opposite of what it used to, two checks were
+added, and one was rewritten. None of that has been through real Chromium. Arm A
+is green on all of it and that is not evidence — blocking exactly that inference
+is what this arm is for. **The status below describes the 2026-09-06 runs, of code
+that no longer exists.** Re-run before quoting anything from it.
+
+**⚠ The 2026-09-06 result: KNOWN-RED, 18 of 19 checks pass.** First run on
 `knuckles`, ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ,
 and **run twice that day with an identical divergence set** — the same 18 green,
 the same one red, and no link failures on the second pass. Written under
@@ -99,14 +116,29 @@ The one failure is real, and it is the mock's:
 
 | check | what real Chromium did |
 |---|---|
-| `chain/second-device-is-distinct` | returned **the same** `BluetoothDevice` on a second `requestDevice()` for the same peripheral. The mock returns a distinct one. |
+| `chain/second-device-is-distinct` | returned **the same** `BluetoothDevice` on a second `requestDevice()` for the same peripheral. The mock returned a distinct one. |
 
 The spec mandates Chrome's behaviour — "get the `BluetoothDevice` representing
-*device*" is a lookup in a per-realm map — so this is a mock defect and not a
-deliberate divergence. **TRA-1255** carries the fix; that ticket also covers the
-harder half, which is that the clause conflates per-device cache scoping (real,
-worth keeping) with object distinctness across calls (false against the real
-API, and only testable with two peripherals).
+*device*" is a lookup in a per-realm map — so this was a mock defect and not a
+deliberate divergence.
+
+**Fixed under TRA-1255, and the fix is three changes rather than one**, because
+the old check was entangled and the mock had two defects that concealed each
+other:
+
+| then | now |
+|---|---|
+| `chain/second-device-is-distinct` | `chain/second-request-returns-the-same-device` — the same clause, inverted to what the spec and Chromium actually do |
+| — | `chain/connect-when-connected-resolves-the-same-server` — reachable only now that a second `requestDevice()` lands on a connected server |
+| the distinctness clause carried the cache-scoping intent | `chain/reconnect-replaces-attributes` carries it, in the form one peripheral can answer |
+| `notify/subscription-does-not-leak-across-devices` | `notify/subscription-does-not-survive-a-reconnect` — the delivery half of the same thing |
+
+The ticket expected the scoping intent to need **two peripherals**, which this arm
+cannot supply. It does not. The intent as its own comment stated it — *"a reconnect
+gets the previous session's characteristic objects back, still carrying its
+subscription state and its handlers"* — is about a **reconnect**, and the spec
+puts it in "clean up the disconnected device" step 5: the attribute cache is
+scoped to the *connection*. One peripheral, down and up, asks it exactly.
 
 **Known-red is a different claim from unrun, and the difference is the point.**
 An arm nobody has tried supports no conclusion at all. This one has now been
@@ -222,6 +254,23 @@ has any evidence about. Two breaks demonstrated on this branch:
 | key `getCharacteristic` on the raw argument instead of the canonical UUID | `uuid/rejects-bare-16-bit-string` | `getCharacteristic('1234'): resolved, but should have rejected` |
 | same break | `uuid/rejects-uppercase-128-bit` | `getCharacteristic() with uppercase hex: resolved, but should have rejected` |
 | same break | `uuid/alias-and-expansion-are-one-characteristic` | `getCharacteristic(alias) and getCharacteristic(canonical string) returned different instances: 48879 vs 0000beef-0000-1000-8000-00805f9b34fb` |
+| remove the device instance map from `requestDevice` | `chain/second-request-returns-the-same-device` | `the second requestDevice returned a different device` |
+| stop clearing the attribute cache on disconnect | `chain/reconnect-replaces-attributes` | `the reconnect returned the previous connection's service` |
+| same break | `notify/subscription-does-not-survive-a-reconnect` | `events delivered to a reconnected characteristic that never subscribed: expected 0, got 1` |
+| remove the already-connected short-circuit from `connect()` | `tests/unit/device-identity.test.ts` — **not a conformance check** | `expected 2 to be 1` (stub bridge connections) |
+
+The last row is the one to read twice, because it is a check that could NOT be
+written here. `connect()` returning the same server is true of the fixed
+implementation *and* of the broken one — the broken one just opens a second socket
+on the way. Nothing on the client surface can see that socket, and arm B has no
+stub bridge to count connections with, so the conformance check
+`chain/connect-when-connected-resolves-the-same-server` states the clause both
+arms can ask about and the socket count is asserted in a unit test instead.
+Over-satisfiable is the dangerous shape of a bad check: it launders the defect
+through a clean baseline.
+
+The three rows above it were watched red before the fix existed, not after —
+they are the failures TRA-1255 was written from.
 
 That last row is worth reading twice: `48879` is `0xbeef` used verbatim as a map
 key. The message only says that because breaking the mock showed the first

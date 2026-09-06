@@ -129,21 +129,39 @@ somebody keeps re-checking.**
 
 | member | guarantee |
 |---|---|
-| `navigator.bluetooth.requestDevice(options)` | resolves to a device with a `gatt` server. A **fresh device per call** — that is what keeps a reconnect from colliding with the previous session's objects. |
-| `device.gatt.connect()` | resolves to the server; `connected` is `true` after it resolves and `false` before. |
+| `navigator.bluetooth.requestDevice(options)` | resolves to a device with a `gatt` server. **The same object for the same peripheral, for the life of the page** — a second call does not mint a second device. |
+| `device.gatt.connect()` | resolves to the server; `connected` is `true` after it resolves and `false` before. On an **already-connected** server it resolves with that same server and attempts no second link. |
 | `device.gatt.connected` | reflects the link. |
 | `device.gatt.disconnect()` | **`connected` becomes `false` synchronously**, before the returned promise settles. Callers must still `await` it: the bridge's command path is released when the *server* processes the socket close, so a fire-and-forget disconnect lets the next connect race ahead and be refused as busy by its own session. |
-| `server.getPrimaryService(uuid)` | rejects when not connected; otherwise resolves, and **returns the same instance for the same UUID**. |
-| `service.getCharacteristic(uuid)` | **returns the same instance for the same UUID.** |
+| `server.getPrimaryService(uuid)` | rejects when not connected; otherwise resolves, and **returns the same instance for the same UUID, for the life of the connection**. |
+| `service.getCharacteristic(uuid)` | **returns the same instance for the same UUID, for the life of the connection.** |
 | `navigator.bluetooth.getAvailability()` | is an adapter reachable — *not* is the reader free. A reader held by another session still reports `true`, because "someone else is using it" is a connect-time answer that names the holder. |
 
-**Identity is per device, and the scope is load-bearing.** A consumer re-runs its
-whole connect chain on reconnect. That is safe only because `requestDevice` mints
-a fresh device, so the reconnect gets fresh characteristics. Hoist the cache above
-the device — key it on the `MockBluetooth`, or on `serverUrl`, an easy and
-superficially tidy refactor — and a reconnect gets the *same* characteristic
-object back, carrying subscription state and handlers from a connection that has
-ended.
+**The device outlives the connection; its attributes do not.** Those are two
+different lifetimes and the split is the whole clause. The device is keyed in a
+per-page map (`[[deviceInstanceMap]]`, `index.bs:2285`), so asking for the same
+peripheral twice hands back one object. Its services and characteristics are
+dropped on every disconnect (`clean up the disconnected device` step 5,
+`index.bs:4417`), so a reconnect discovers new ones.
+
+**Why the second half is load-bearing.** A consumer re-runs its whole connect
+chain on reconnect. Hold the attribute cache across the disconnect and that chain
+returns the *previous connection's* characteristic objects, still carrying its
+subscription state and its listeners — and nothing raises, because a stale
+characteristic is indistinguishable from a live one until frames fail to arrive.
+Two failures fall out of it, and the second is the expensive one: the consumer's
+freshly attached listener sits on an object the transport no longer feeds, and the
+old object keeps receiving into handlers the consumer believes it replaced.
+
+**This is what arm B found, and the mock had both halves wrong in compensating
+directions.** Until 0.18.0 `requestDevice` minted a fresh device per call, and the
+attribute cache was never cleared. The first defect concealed the second: a
+reconnect that went through `requestDevice` got a new device and therefore new
+attributes, so the missing invalidation only bit a consumer holding a device
+across `disconnect()`/`connect()` — a path a unit test asserted as *intended*
+while the conformance suite's own comment called it a hazard. Fixing the device
+identity without clearing the cache would have made that hazard the ordinary path.
+TRA-1255.
 
 **Why identity is a clause and not a nicety.** The device's characteristic map is
 a fan-out *registry* keyed by UUID, not the identity cache it resembles. A second
@@ -233,7 +251,14 @@ the Bikeshed source in the repo is whole.
 > ⚠ **This is an [asserted](#two-grades-of-claim) clause, not a verified one.** It
 > is read off the specification, not off Chrome. The mock's half is pinned by
 > `tests/unit/explicit-disconnect-event.test.ts` and by two conformance checks;
-> what would confirm Chrome itself is arm B, which has never run.
+> what would confirm Chrome itself is arm B.
+>
+> **Arm B has now run, and it settles exactly one of the two limbs.** The
+> explicit-`disconnect()` limb passed against real Chromium — so the half this
+> row used to get backwards is now verified rather than asserted. The
+> transport-drop limb needs `dropLink`, which arm B does not have (nothing makes
+> a real peripheral drop on cue), so its checks are reported NOT RUN there. That
+> half is still read off the algorithm alone.
 
 | `characteristic.dispatchEvent(event)` | the **public** notification-injection point, matching the real API's `EventTarget`. `testing.simulateNotification` goes through it rather than around it, so anything asserted about one holds for the other. |
 
@@ -524,10 +549,14 @@ takeover, no release timing, no error frames**. It proves the client surface and
 nothing about the wire. Release timing is the most dangerous silence: it is the
 property four e2e specs encoded wrong for months with nothing to contradict them.
 
-**Arm B has never been run.** It is written; no result is recorded. See
-[`tests/conformance/README.md`](../../tests/conformance/README.md) for what it
-needs — including the chooser problem, which is unfinished work rather than an
-unset flag.
+**Arm B has been run.** Twice, on 2026-09-06, on a box with a real adapter
+against a real CS108, with identical results both times: one clause red out of
+nineteen. That clause was the mock's — `requestDevice` minting a fresh device per
+call where Chromium returns the same object — and it is fixed above (TRA-1255).
+The fix has not itself been through arm B; a green arm A says nothing about that,
+which is the whole reason this arm exists. See
+[`tests/conformance/README.md`](../../tests/conformance/README.md) and
+[`docs/conformance-arm-b.md`](../conformance-arm-b.md) for what running it needs.
 
 **A skipped arm B is loud in the result line, not in the config.** A suite
 reporting green with arm B silently skipped is worse than a one-armed suite,
@@ -541,7 +570,7 @@ across both:
 | grade | what stands behind it | what would falsify it |
 |---|---|---|
 | **verified** | a check in `tests/conformance/` or `tests/unit/` that goes red when the behaviour changes | running `just validate` |
-| **asserted** | the Web Bluetooth specification, or someone's reading of Chrome. **Arm B has never run**, so nothing here is verified *against Chrome* | reading the normative algorithm, or finally running arm B |
+| **asserted** | the Web Bluetooth specification, or someone's reading of Chrome. Arm B has now run — twice, 2026-09-06 — so the clauses it exercises are verified against Chrome; **every clause it does not exercise, and every clause changed since, is not** | reading the normative algorithm, or re-running arm B |
 
 **A verified clause says the mock does this. An asserted clause says the real API
 does this — and is exactly as good as its citation.**

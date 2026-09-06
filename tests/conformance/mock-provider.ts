@@ -52,18 +52,30 @@ export async function createMockProvider(): Promise<MockProvider> {
   const bridge: StubBridge = await startStubBridge();
   const openSessions = new Set<ConformanceSession>();
 
+  /**
+   * ONE `MockBluetooth` for the whole arm, because the realm is the arm.
+   *
+   * Arm B is one page holding one `navigator.bluetooth` for all its checks. This
+   * used to be a fresh `MockBluetooth` per `open()`, which is not a fresh page --
+   * it is a fresh *navigator*, something no consumer can produce. The asymmetry
+   * was invisible until the spec's `[[deviceInstanceMap]]` came into scope: a
+   * per-realm device map cannot be observed at all from a harness that builds a
+   * new realm for every call, so arm A was structurally incapable of asking the
+   * question arm B answered.
+   */
+  const bluetooth = new MockBluetooth(bridge.url, {
+    service: SERVICE,
+    write: WRITE,
+    notify: NOTIFY,
+    sessionId: 'conformance',
+    onMultipleDevices: 'error'
+  });
+
   return {
     name: 'arm A (mock + in-process stub bridge)',
     capabilities: MOCK_PROVIDER_CAPABILITIES,
 
     async open(): Promise<ConformanceSession> {
-      const bluetooth = new MockBluetooth(bridge.url, {
-        service: SERVICE,
-        write: WRITE,
-        notify: NOTIFY,
-        sessionId: `conformance-${openSessions.size}`,
-        onMultipleDevices: 'error'
-      });
       const device: any = await bluetooth.requestDevice({ filters: [{ services: [SERVICE] }] });
       const server = await device.gatt.connect();
       const service = await server.getPrimaryService(SERVICE);
@@ -88,6 +100,14 @@ export async function createMockProvider(): Promise<MockProvider> {
       } catch {
         // Already gone. A check that drops the link on purpose lands here.
       }
+    },
+
+    async reconnect(session) {
+      // No retry and no settle, unlike arm B: the stub bridge has no radio to
+      // wait for, and pacing this would hide the case where the mock genuinely
+      // cannot reconnect.
+      await session.server.disconnect();
+      await session.server.connect();
     },
 
     async inject(session, bytes) {
