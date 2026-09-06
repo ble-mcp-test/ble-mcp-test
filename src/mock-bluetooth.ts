@@ -546,7 +546,7 @@ class MockBluetoothRemoteGATTServer {
     // resolve promise with this and return promise." No second link is
     // attempted.
     //
-    // Unreachable until 0.18.0 and now on the ordinary path: `requestDevice`
+    // Unreachable before TRA-1255 and now on the ordinary path: `requestDevice`
     // returns the same device for the same peripheral, so a consumer that asks
     // twice reaches an already-connected server. Without this the mock opened a
     // SECOND socket, which the bridge -- one writer slot, not a pool -- refuses
@@ -693,7 +693,7 @@ class MockBluetoothRemoteGATTServer {
    * every attribute instance belonging to this device from the cache.
    *
    * The identity guarantee is per connection. Keep these across a disconnect --
-   * which the mock did until 0.18.0, and which a unit test asserted as intended
+   * which the mock did before TRA-1255, and which a unit test asserted as intended
    * -- and a reconnect hands the consumer back the previous connection's service
    * and characteristic objects, still carrying its subscription state and its
    * listeners. Nothing raises: a stale characteristic looks exactly like a live
@@ -1186,7 +1186,7 @@ export class MockBluetooth {
    * `BluetoothDevice` for the life of the realm, and this class is the realm --
    * one `MockBluetooth` per page, exactly as one `navigator.bluetooth`.
    *
-   * The mock minted a fresh device per call until 0.18.0. That is arm B's first
+   * The mock minted a fresh device per call until TRA-1255. That is arm B's first
    * and only red: real Chromium returned the same object where the mock returned
    * a distinct one (TRA-1255). It was not a shortcut -- it was load-bearing,
    * because it was what kept a reconnect away from the previous connection's

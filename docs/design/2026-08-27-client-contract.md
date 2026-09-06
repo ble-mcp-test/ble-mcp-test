@@ -154,7 +154,7 @@ freshly attached listener sits on an object the transport no longer feeds, and t
 old object keeps receiving into handlers the consumer believes it replaced.
 
 **This is what arm B found, and the mock had both halves wrong in compensating
-directions.** Until 0.18.0 `requestDevice` minted a fresh device per call, and the
+directions.** Until TRA-1255 `requestDevice` minted a fresh device per call, and the
 attribute cache was never cleared. The first defect concealed the second: a
 reconnect that went through `requestDevice` got a new device and therefore new
 attributes, so the missing invalidation only bit a consumer holding a device
