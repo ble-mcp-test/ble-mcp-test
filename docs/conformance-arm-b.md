@@ -15,7 +15,8 @@ consecutively**, exit 0 both times. The first outright pass this arm has ever
 produced.
 
 **Confirmed again the same day on `cheetah` — macOS, CoreBluetooth, installed
-Google Chrome 152 — 21/21, exit 0, in 1.6 minutes.** That is the run that
+Google Chrome 152 — 21/21, exit 0, twice consecutively, in 1.6m and 1.3m.**
+That is the run that
 matters most, because all preview and prod hardware testing is done from that
 machine: fidelity established only on knuckles left the shipping stack
 unmeasured. Two platform stacks, one skip set, no divergence on either. So
@@ -114,7 +115,7 @@ play.
 | host | stack | status |
 |---|---|---|
 | `knuckles` (Linux) | Blink on **BlueZ** | in use; green 21/21, 2026-09-06. Slow — see the hazard above. |
-| `cheetah` (MacBook, M1) | Blink on **CoreBluetooth** | in use; **green 21/21, 2026-09-06**, 1.6m wall clock. Fast, and the stack preview and prod testing actually use. |
+| `cheetah` (MacBook, M1) | Blink on **CoreBluetooth** | in use; **green 21/21, 2026-09-06, twice consecutively**, 1.6m and 1.3m. Fast, and the stack preview and prod testing actually use. |
 
 `cheetah` matters for more than speed: all preview and prod hardware testing is
 done from it, so fidelity established only on knuckles would leave the shipping
@@ -173,7 +174,7 @@ Verified 2026-09-06, by command:
 | adapter | built-in Apple `BCM_4387`, controller `F4:D4:88:78:C9:66`, PCIe |
 | browser | **installed Google Chrome** 152.0.7977.82, driven by `channel: 'chrome'` |
 | toolchain | node 24, pnpm; Playwright 1.54.1 |
-| result | 21/21, exit 0, 1.6m |
+| result | 21/21, exit 0, **twice consecutively** — 1.6m and 1.3m |
 
 #### ⚠ It must be installed Chrome, not Playwright's Chromium
 
@@ -217,7 +218,7 @@ a bridge holding the reader's single link from elsewhere.
 
 #### This host is fast, which is the point
 
-21 checks in **1.6 minutes**, operator-paced throughout. Contrast knuckles,
+21 checks in **1.6 and 1.3 minutes**, operator-paced throughout. Contrast knuckles,
 where the same 1.6m is scheduling latency on a saturated 2-core Celeron. The
 timing-sensitive check — `chain/second-request-returns-the-same-device`, which
 assumes the link survives the gap between two `requestDevice()` calls — has the
@@ -323,6 +324,16 @@ how far it got. That is an **unfinished** run and says nothing about fidelity in
 either direction. Only a completed run with failures is evidence against the
 mock. Do not record an abort as a failure on the ticket, and do not record it as
 a pass.
+
+This path has now fired on both hosts and behaved both times — once on knuckles
+(operator stepped away, `0/19`) and once on cheetah between its two greens
+(chooser dismissed, `0/21`, exit 1). Both were discarded rather than recorded.
+That is the mechanism working, and it is the reason a cancelled chooser cannot
+enter the fidelity record as "real Chromium violates this clause".
+
+⚠ **Read the run's own exit code, not a wrapper's.** A backgrounded run reports
+the wrapper's status, which is 0 even when the run inside it exited 1. The
+banner and the `ABORTED` line are what say which happened.
 
 ## Three things that must not be re-broken
 
