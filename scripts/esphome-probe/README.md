@@ -28,14 +28,22 @@ uvx esphome run scripts/esphome-probe/waveshare-esp32-s3-eth.yaml
 Every config here pins `min_version: 2026.5.1` — the release with the connection-slot
 leak fix. Don't go older.
 
-**Flashing more than one board: change `esphome.name` first.** The config hardcodes
-`waveshare-s3-eth-probe`, and that name is the mDNS hostname. Flash two boards from
-it unedited and both answer to `waveshare-s3-eth-probe.local`; whichever replies
-first wins, and it need not be the same one twice. That presents as a proxy that
-intermittently has the wrong uptime, the wrong heap, or no link to the reader —
-none of which looks like a naming problem. Give each board its own `name:` (and
-`friendly_name:`) before `esphome run`, and confirm with `ping` that the host you
-reach is the one you just flashed.
+**Flashing more than one board: give each its own name.** `device_name` is the mDNS
+hostname. Flash two boards from the config unedited and both answer to
+`waveshare-s3-eth-probe.local`; whichever replies first wins, and it need not be the
+same one twice. That presents as a proxy that intermittently has the wrong uptime,
+the wrong heap, or no link to the reader — none of which looks like a naming problem.
+
+Override on the command line rather than editing the file:
+
+```bash
+uvx esphome -s device_name proxy-2 -s device_friendly_name "Proxy 2" \
+  run scripts/esphome-probe/waveshare-esp32-s3-eth.yaml
+```
+
+Editing the default instead means every later flash silently inherits whichever board
+was done last — the same collision, one step removed. Confirm with `ping` that the
+host you reach is the one you just flashed.
 
 Ethernet first, BLE second. A proxy on a lossy link produces `apiWarnings` and slow
 recoveries that read as BLE problems, so spend two minutes ruling it out **before**
