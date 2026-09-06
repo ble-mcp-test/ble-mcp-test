@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { armBStatus } from './tests/conformance/arm-status.js';
 
 /**
  * Arm B only. Separate from playwright.config.ts on purpose.
@@ -37,9 +38,17 @@ import { defineConfig } from '@playwright/test';
  * `navigator.bluetooth` does not exist in Playwright's Chromium at all, in
  * headless shell or the full channel. Probed on Chromium 139.
  *
- * headless stays true, per CLAUDE.md. A human answering the chooser will need a
- * headed run; that is a deliberate, recorded exception for `just conformance-real`
- * rather than a quiet flip of the repo-wide rule.
+ * headless follows the arm itself, and is not a standing flip of CLAUDE.md's
+ * rule: it is false exactly when BLE_MCP_CONFORMANCE_ARM_B says a human is about
+ * to answer the chooser, and true in every other run, when the spec skips and no
+ * browser opens anyway. Both sides read that one variable through
+ * `armBStatus`, so the spec cannot skip on a switch the browser ignored.
+ *
+ * This used to say headless stayed true and called a headed run "a deliberate,
+ * recorded exception" -- a sentence no code implemented. Headless, the chooser
+ * never appears, `requestDevice()` never settles, and the run dies on the 120s
+ * timeout below looking like a dead adapter. tests/unit/conformance-arm-b-headed
+ * holds the two in step.
  */
 export default defineConfig({
   testDir: './tests/conformance',
@@ -47,13 +56,20 @@ export default defineConfig({
   // arm A under vitest, arm B here -- and without this Playwright collects arm A
   // and dies importing vitest's expect alongside its own.
   testMatch: '**/*.spec.ts',
-  timeout: 120000,
+  // Human-paced when arm B actually runs. Every runnable check calls
+  // provider.open(), so the operator answers the chooser once PER CHECK -- 19
+  // times as the contract stands -- and all of them happen inside a single
+  // page.evaluate, so they share ONE test timeout rather than getting one each.
+  // At 120s that budgets ~6s per pair-and-connect and expires partway through,
+  // which surfaces as a timeout on a live device and reads as a dead adapter.
+  // The clock here is a person's, so it is sized like one.
+  timeout: armBStatus(process.env).requested ? 45 * 60 * 1000 : 120000,
   fullyParallel: false,
   workers: 1,
   reporter: 'list',
   outputDir: './tmp/conformance-results',
   use: {
-    headless: true,
+    headless: !armBStatus(process.env).requested,
     viewport: { width: 1280, height: 720 }
   },
   projects: [
