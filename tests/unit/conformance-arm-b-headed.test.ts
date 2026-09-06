@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ARM_B_ENV } from '../conformance/arm-status.js';
-import { armBChannel } from '../../playwright.conformance.config.js';
+import { armBChannel, armBProject } from '../../playwright.conformance.config.js';
 
 /**
  * Arm B cannot run headless, and for months the config said so in prose while
@@ -90,11 +90,39 @@ describe('arm B drives real Chrome on macOS', () => {
     ).toBeUndefined();
   });
 
-  it('wires the channel into the project the run actually launches', async () => {
-    const config = (await import('../../playwright.conformance.config.js')).default;
+  it('wires the channel into the project on darwin, asserted as a literal', () => {
+    // ⚠ This guard used to read `config.projects[0].use.channel ===
+    // armBChannel(process.platform)`, and on Linux that is `undefined ===
+    // undefined` -- which an ABSENT property satisfies just as well as a wired
+    // one. Verified by mutation on mssb: deleting the channel line from the
+    // config left all six checks in this file green. The guard against a
+    // computed-but-unused channel was live only on the host that does not run
+    // `just validate`.
+    //
+    // Asking armBProject for a named platform is what makes it fire everywhere.
     expect(
-      config.projects?.[0]?.use?.channel,
-      'armBChannel can be right and unused. This asserts the config passes it.',
-    ).toBe(armBChannel(process.platform));
+      armBProject('darwin').use.channel,
+      'armBChannel can be right and unused. This asserts the project passes it.',
+    ).toBe('chrome');
+  });
+
+  it('wires no channel on linux, so knuckles keeps the browser its green came from', () => {
+    expect(armBProject('linux').use.channel).toBeUndefined();
+  });
+
+  it('launches exactly that project, rather than one that merely resembles it', async () => {
+    // The other half: armBProject can be right and unused too.
+    const config = (await import('../../playwright.conformance.config.js')).default;
+    expect(config.projects).toHaveLength(1);
+    expect(config.projects?.[0]).toEqual(armBProject(process.platform));
+  });
+
+  it('keeps the WebBluetooth flag on both platforms', () => {
+    // Without it navigator.bluetooth does not exist in bundled Chromium at all,
+    // and the arm dies looking like a dead adapter. Redundant on the darwin
+    // channel rather than wrong -- one args list serves both.
+    for (const platform of ['darwin', 'linux']) {
+      expect(armBProject(platform).use.launchOptions.args).toContain('--enable-features=WebBluetooth');
+    }
   });
 });

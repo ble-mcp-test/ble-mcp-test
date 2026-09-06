@@ -65,6 +65,7 @@ import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'f
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { isProtectedProcess, listenerPidsOnPort } from './port-cleanup.js';
+import { CLK_TCK, LSOF, PROCFS, missingCapabilities } from './host-capabilities.js';
 
 const EXEC = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] };
 
@@ -298,14 +299,46 @@ export function newestSourceMtime(checkout) {
  * Returns a description of what was checked, so a caller can say which of the
  * several passing paths it took. "No daemon" and "daemon is current" are both
  * passes, and they are not the same claim.
+ *
+ * `hostDeps` is injected only by tests, so that the branches taken on a host
+ * WITHOUT /proc can be exercised on one that has it. A branch reachable on one
+ * machine and asserted on none is how this whole ticket happened.
  */
-export function assertBridgeCurrent({ port, log = console.log } = {}) {
+export function assertBridgeCurrent({ port, log = console.log, hostDeps } = {}) {
   const wsPort = port ?? resolveBridgePort();
+
+  // TRA-1257. This guard is Linux-shaped because the daemon is, and an arm-B
+  // host runs no daemon at all -- so the honest answer there is "nothing is
+  // listening, nothing can be stale", reached without touching /proc.
+  //
+  // But it is reached in that ORDER, and only that order. "This host cannot
+  // inspect processes" is never on its own a pass: that is the over-satisfiable
+  // shape which launders a stale daemon into a clean run. Both branches below
+  // therefore throw rather than degrade.
+  const cannotSeeListeners = missingCapabilities([LSOF], hostDeps);
+  if (cannotSeeListeners.length > 0) {
+    throw new Error(
+      `Cannot tell whether anything is listening on port ${wsPort}. ` +
+        cannotSeeListeners[0].because +
+        '\n"Cannot ask" is not "nothing is listening", and passing on an unanswerable question ' +
+        'is exactly the silence this guard exists to break. Install lsof.'
+    );
+  }
 
   const pids = listenerPidsOnPort(wsPort);
   if (pids.length === 0) {
     log(`  Port ${wsPort}: no bridge listening - nothing can be stale`);
     return { checked: false, reason: 'no listener', port: wsPort };
+  }
+
+  const cannotInspect = missingCapabilities([PROCFS, CLK_TCK], hostDeps);
+  if (cannotInspect.length > 0) {
+    throw new Error(
+      `Something is listening on port ${wsPort} (pid ${pids.join(', ')}) and this host cannot ` +
+        `establish how old it is. ${cannotInspect.map((c) => c.because).join(' ')}\n` +
+        'A daemon whose age cannot be established has not been shown to be current. Stop it, or ' +
+        'run the gate from the host the bridge runs on.'
+    );
   }
   if (pids.length > 1) {
     throw new Error(

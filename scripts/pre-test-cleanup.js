@@ -12,6 +12,7 @@ import net from 'net';
 import path from 'path';
 import { killPort } from './port-cleanup.js';
 import { assertBridgeCurrent } from './bridge-staleness.js';
+import { CAPABILITIES, PROCFS, hasCapability, renderNotRun } from './host-capabilities.js';
 
 const DEFAULT_TEST_PORTS = [25153, 25154, 25155, 25156];
 const COOLDOWN_MS = 5000;
@@ -108,12 +109,32 @@ function ownTestRunners() {
   return found;
 }
 
+/**
+ * What this host could not do, named rather than dropped.
+ *
+ * TRA-1257: several checks here need things only the bridge host has, and arm B
+ * structurally requires a host that is not it. Skipping quietly would leave the
+ * gate green on a run that did half of them -- so the count and the names go
+ * into what the script PRINTS, the way tests/conformance/arm-status.ts does.
+ */
+const notRun = [];
+
 // Main cleanup
 async function cleanup() {
   let killedAny = false;
   
   // 1. Check and kill processes on test ports
   console.log('Checking test ports...');
+  if (!hasCapability(PROCFS)) {
+    // The sweep still detects a busy port; what it cannot do is identify the
+    // listener, and killPort refuses to kill what it cannot identify. So the
+    // sweep is inert here rather than absent, which is worth saying out loud:
+    // a busy port will surface later as a test failure, not as a cleanup.
+    notRun.push({
+      what: 'killing a listener on a test port (the port check itself still runs)',
+      because: CAPABILITIES[PROCFS].because,
+    });
+  }
   for (const port of TEST_PORTS) {
     const inUse = await isPortInUse(port);
     if (inUse) {
@@ -127,8 +148,17 @@ async function cleanup() {
   
   // 2. Kill orphaned test runners belonging to THIS repository
   console.log('\nChecking for orphaned test processes...');
-  const orphans = ownTestRunners();
-  if (orphans.length) {
+  // Identifying a runner means reading its cwd and argv, both of which are
+  // /proc. There is no substitute that is tight enough to kill on: the
+  // argv-substring form is what once killed an unrelated project's eslint.
+  const orphans = hasCapability(PROCFS) ? ownTestRunners() : null;
+  if (orphans === null) {
+    notRun.push({
+      what: 'the orphaned test-runner sweep',
+      because: CAPABILITIES[PROCFS].because,
+    });
+    console.log('  - NOT RUN: no /proc, so no runner can be identified');
+  } else if (orphans.length) {
     console.log(`  Found ${orphans.length} orphaned test runner(s): ${orphans.join(', ')}`);
     for (const pid of orphans) {
       try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ }
@@ -158,7 +188,8 @@ async function cleanup() {
     await new Promise(resolve => setTimeout(resolve, COOLDOWN_MS));
   }
   
-  console.log('\n✅ Pre-test cleanup complete!');
+  console.log(renderNotRun('PRE-TEST CLEANUP', notRun));
+  console.log('✅ Pre-test cleanup complete!');
 }
 
 // Run cleanup.

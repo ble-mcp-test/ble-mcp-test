@@ -26,6 +26,42 @@ export function armBChannel(platform: string): 'chrome' | undefined {
 }
 
 /**
+ * The whole project arm B launches, as a function of platform.
+ *
+ * TRA-1257. This used to be an object literal inline below, and the guard for
+ * "armBChannel can be right and unused" read
+ * `config.projects[0].use.channel === armBChannel(process.platform)`. On Linux
+ * both sides are `undefined` -- and an ABSENT property is also `undefined` -- so
+ * the assertion compared undefined to undefined and passed whether or not the
+ * config wired anything at all. Verified by mutation on mssb: deleting the
+ * channel line entirely left all six checks green.
+ *
+ * That made the guard live only on the host that does NOT run `just validate`,
+ * which is this ticket's own shape: a check whose ability to go red depends on
+ * which host runs it.
+ *
+ * Taking the platform as an argument is the fix. The wiring can now be asserted
+ * against platform LITERALS -- `armBProject('darwin')`, `armBProject('linux')` --
+ * the way the other two guards already are, so all three fire everywhere.
+ */
+export function armBProject(platform: string) {
+  return {
+    name: 'chromium',
+    use: {
+      browserName: 'chromium' as const,
+      // Real Chrome on macOS, bundled Chromium everywhere else. See armBChannel.
+      channel: armBChannel(platform),
+      launchOptions: {
+        args: [
+          '--disable-blink-features=AutomationControlled',
+          '--enable-features=WebBluetooth'
+        ]
+      }
+    }
+  };
+}
+
+/**
  * Arm B only. Separate from playwright.config.ts on purpose.
  *
  * The e2e config's testDir is tests/e2e, and arm B is not an e2e spec: it does
@@ -100,20 +136,5 @@ export default defineConfig({
     headless: !armBStatus(process.env).requested,
     viewport: { width: 1280, height: 720 }
   },
-  projects: [
-    {
-      name: 'chromium',
-      use: {
-        browserName: 'chromium',
-        // Real Chrome on macOS, bundled Chromium everywhere else. See armBChannel.
-        channel: armBChannel(process.platform),
-        launchOptions: {
-          args: [
-            '--disable-blink-features=AutomationControlled',
-            '--enable-features=WebBluetooth'
-          ]
-        }
-      }
-    }
-  ]
+  projects: [armBProject(process.platform)]
 });

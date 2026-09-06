@@ -121,6 +121,14 @@ its retry live outside it.
 `flock` is same-kernel: a lock held on mssb is invisible there, so wrapping that
 recipe would read as coverage while excluding nothing.
 
+The same fact has a second consequence, on the gate rather than on the radio.
+`flock(1)` does not exist on macOS at all, so `bin/ble-radio-lock` cannot run on
+`cheetah` — an arm-B host by design. Its tests therefore skip **by name, with
+their reason**, rather than failing; `tests/support/host-gate.ts` declares which,
+and the run prints the list. Making the lock work on macOS is a separate design
+question, not a portability patch: the mechanism is `flock(2)` and its documented
+scope is one host.
+
 Arm B is also invisible to the bridge — it reaches the reader through a real
 Bluetooth stack rather than through the ESPHome proxy. On the other side it
 surfaces as a **connect failure against a bridge reporting free**, which is not

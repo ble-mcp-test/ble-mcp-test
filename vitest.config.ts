@@ -5,6 +5,12 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     testTimeout: 60000,
+    // TRA-1257. Some suites here need things only the BRIDGE host has --
+    // flock(1), /proc, `getconf CLK_TCK`, lsof -- and arm B structurally
+    // requires a host that is not the bridge's. They skip there rather than
+    // failing, and this prints WHICH ones and why, on the way in and on the way
+    // out. A quiet skip would make the gate green on a host that ran half of it.
+    globalSetup: './tests/support/host-banner.ts',
     // '**/.claude/worktrees/**' is load-bearing: that directory is gitignored,
     // but globs do not consult gitignore, so without it a run collects every
     // sibling worktree's tests as this tree's own. See tests/unit/vitest-isolation.test.ts.
