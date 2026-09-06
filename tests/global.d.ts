@@ -50,6 +50,8 @@ declare module '*/bridge-staleness.js' {
   export function assertBridgeCurrent(opts?: {
     port?: number;
     log?: (message: string) => void;
+    /** Injected only by tests, to exercise the branches a host WITHOUT /proc takes. */
+    hostDeps?: HostProbeDeps;
   }): {
     checked: boolean;
     port: number;
@@ -68,4 +70,41 @@ declare module '*/bridge-service.js' {
   export const TEMPLATE: string;
   export function installedUnitPath(home?: string): string;
   export function renderUnit(template: string, repoRoot: string): string;
+}
+
+/**
+ * What `scripts/host-capabilities.js` exports.
+ *
+ * TRA-1257. Declared here rather than in the module because the module is plain
+ * JS on purpose: `scripts/pre-test-cleanup.js` runs it outside any TypeScript
+ * toolchain, and both sides have to derive the answer from ONE declaration.
+ */
+interface HostProbeDeps {
+  spawn?: (...args: any[]) => any;
+  readFile?: (...args: any[]) => any;
+}
+
+interface HostCapability {
+  because: string;
+  probe: (deps: Required<HostProbeDeps>) => boolean;
+}
+
+declare module '*/host-capabilities.js' {
+  export const FLOCK: string;
+  export const PROCFS: string;
+  export const CLK_TCK: string;
+  export const LSOF: string;
+  export const CAPABILITIES: Record<string, HostCapability>;
+  export const CAPABILITY_IDS: string[];
+  export function probeCapability(id: string, deps?: HostProbeDeps): boolean;
+  export function hasCapability(id: string): boolean;
+  export function missingCapabilities(
+    ids: string[],
+    deps?: HostProbeDeps
+  ): Array<{ id: string; because: string }>;
+  export function hostDescription(): string;
+  export function renderNotRun(
+    heading: string,
+    entries: Array<{ what: string; because: string }>
+  ): string;
 }

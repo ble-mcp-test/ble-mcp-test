@@ -13,6 +13,7 @@ import {
   processStartedAt,
   resolveBridgePort,
 } from '../../scripts/bridge-staleness.js';
+import { hostCannotRun } from '../support/host-gate.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(HERE, '../fixtures/port-holder.mjs');
@@ -122,7 +123,13 @@ describe('resolveBridgePort', () => {
   });
 });
 
-describe('the pieces the verdict is assembled from', () => {
+/**
+ * The /proc half. A start time is `/proc/<pid>/stat` field 22 divided by
+ * `getconf CLK_TCK`, and a checkout is `/proc/<pid>/cwd` -- neither of which
+ * exists on a host without procfs. Reported NOT RUN by name there rather than
+ * failing; see tests/support/host-gate.ts.
+ */
+describe.skipIf(hostCannotRun('reading a running process out of /proc'))('reading a running process out of /proc', () => {
   it('dates a JUST-STARTED process to now, which is where ps -o etimes= is wrong', async () => {
     // procps 4.0.4 reports 4123168576 elapsed seconds for a process a fraction
     // of a second old, dating it to 1896. That makes a daemon that has just been
@@ -150,7 +157,10 @@ describe('the pieces the verdict is assembled from', () => {
     // Started from <checkout>/bridge, exactly as WorkingDirectory= puts the daemon.
     expect(checkoutOf(daemon.pid)).toBe(execFileSync('git', ['-C', checkout, 'rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
   });
+});
 
+/** Git history and file mtimes only. Portable, and gated on nothing. */
+describe('the pieces the verdict is assembled from', () => {
   it('reads the bridge/ commit date with the pathspec relative to the checkout', () => {
     const at = Math.floor(Date.now() / 1000) - HOUR;
     const checkout = makeCheckout(at);
@@ -183,7 +193,12 @@ describe('the pieces the verdict is assembled from', () => {
   });
 });
 
-describe('assertBridgeCurrent', () => {
+/**
+ * The one verdict that inspects no process: lsof says nothing is listening, so
+ * there is no daemon to be stale. It needs lsof and nothing else, which is why
+ * it is gated separately from the rest.
+ */
+describe.skipIf(hostCannotRun('assertBridgeCurrent with nothing on the port'))('assertBridgeCurrent with nothing on the port', () => {
   it('passes when nothing is listening: there is no daemon to be stale', () => {
     // A port nothing holds. 0 is not a valid listen port for lsof, so use a
     // high one and prove it is free by the guard's own report.
@@ -192,7 +207,9 @@ describe('assertBridgeCurrent', () => {
     expect(result.checked).toBe(false);
     expect(logs.join('\n')).toContain('no bridge listening');
   });
+});
 
+describe.skipIf(hostCannotRun('assertBridgeCurrent'))('assertBridgeCurrent', () => {
   it('passes when the daemon started after the last bridge/ commit', async () => {
     const checkout = makeCheckout(Math.floor(Date.now() / 1000) - HOUR);
     const daemon = await startFakeDaemon(path.join(checkout, 'bridge'));
@@ -269,7 +286,7 @@ describe('assertBridgeCurrent', () => {
   });
 });
 
-describe('pre-test-cleanup.js wiring', () => {
+describe.skipIf(hostCannotRun('pre-test-cleanup.js wiring'))('pre-test-cleanup.js wiring', () => {
   it('exits NON-ZERO when the staleness guard fails', async () => {
     // The guard is worthless if pretest reports the failure and exits 0. Before
     // TRA-1202 the script ended `cleanup().catch(console.error)`, which did
@@ -316,6 +333,48 @@ describe('pre-test-cleanup.js wiring', () => {
     });
 
     expect(output).toContain('current');
+  });
+});
+
+/**
+ * The host that cannot answer the question.
+ *
+ * TRA-1257. An arm-B host runs no bridge daemon by design, so "nothing is
+ * listening, nothing can be stale" has to be reachable there without /proc. What
+ * must NOT be reachable is a pass that rests on "I could not check" -- that is
+ * the over-satisfiable shape, and it launders a stale daemon into a clean run.
+ *
+ * `hostDeps` fakes the absence here so both branches are red-able on a host that
+ * has /proc. A branch reachable on one machine and asserted on none is how this
+ * ticket happened in the first place.
+ */
+describe.skipIf(hostCannotRun('assertBridgeCurrent on a host without /proc'))('assertBridgeCurrent on a host without /proc', () => {
+  /** A host with lsof but no procfs -- macOS, and any arm-B box. */
+  const noProcfs = { readFile: () => { throw new Error('ENOENT'); } };
+
+  it('passes with nothing listening, which is the arm-B host on a good day', () => {
+    const logs: string[] = [];
+    const result = assertBridgeCurrent({ port: 27999, log: (m: string) => logs.push(m), hostDeps: noProcfs });
+    expect(result.checked).toBe(false);
+    expect(logs.join('\n')).toContain('no bridge listening');
+  });
+
+  it('FAILS rather than passing when something IS listening', async () => {
+    // The dangerous direction, pinned. Degrading to a shrug here would report a
+    // clean gate for a run answered by a daemon of unknown age.
+    const checkout = makeCheckout(Math.floor(Date.now() / 1000) - HOUR);
+    const daemon = await startFakeDaemon(path.join(checkout, 'bridge'));
+
+    expect(() => assertBridgeCurrent({ port: daemon.port, log: () => {}, hostDeps: noProcfs }))
+      .toThrow(/cannot establish how old it is/);
+  });
+
+  it('FAILS when it cannot even ask what is listening', () => {
+    // No lsof. "Cannot ask" is not "nothing is listening", and only one of those
+    // two answers permits a pass.
+    const noLsof = { spawn: () => ({ error: Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' }) }) };
+    expect(() => assertBridgeCurrent({ port: 27999, log: () => {}, hostDeps: noLsof }))
+      .toThrow(/Cannot tell whether anything is listening/);
   });
 });
 

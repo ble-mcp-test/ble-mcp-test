@@ -106,6 +106,59 @@ permanently. Check the socket, never `/sys` — inside a container
 python3 -c "import socket; socket.socket(31, socket.SOCK_RAW, 1)"
 ```
 
+## What `just validate` means on an arm-B host
+
+**A clean run here is not the same command's result as a clean run on the bridge
+host, and the difference is printed rather than assumed.**
+
+`just validate` is the whole gate, but part of that gate is scaffolding that
+needs things only the bridge's host has: `flock(1)`, `/proc`, `getconf CLK_TCK`,
+`lsof`. An arm-B host is *structurally* not the bridge's host, and macOS has
+neither `flock(1)` nor `/proc` at all. Before TRA-1257 that meant the gate was
+red by construction here — 25 red on `cheetah`, 13 on `knuckles` — and a
+permanent red baseline hides the next real failure inside it.
+
+Now those suites **skip with a named reason** and the run prints which ones:
+
+```
+  present  flock(1)
+  ABSENT   /proc
+  ...
+==============================================================================
+VITEST HOST GATE on cheetah (darwin)
+  N checks NOT RUN on this host:
+    - ble-radio-lock  (tests/unit/radio-lock.test.ts)
+        needs flock(1). ...
+==============================================================================
+```
+
+So when you run the gate here:
+
+* **Read the banner, not just the exit code.** It appears twice — once before
+  the run and once beside the summary — and it is the only place the skip set
+  is stated. `scripts/pre-test-cleanup.js` prints its own copy for the checks it
+  could not do.
+* **The skip set is pinned.** `tests/support/host-gate.ts` declares every
+  host-dependent suite, and `tests/unit/host-gate.test.ts` fails if one joins
+  the set without an entry. A suite cannot go quiet on its own.
+* **Everything that is not scaffolding still runs here, and can still go red.**
+  The mock, the client contract and conformance arm A are host-independent; none
+  of them is in the skip set on any host. A green gate on this box is a real
+  statement about the shipped package.
+* **A skip is not a portability exemption.** Each suite names the capabilities
+  it needs, so a check skipped on macOS for lacking `flock(1)` still runs — and
+  can still fail — on `knuckles` and on `mssb`.
+
+⚠ **The staleness guard does not degrade into a shrug here.** "This host cannot
+inspect processes" is never on its own a pass. With nothing listening on the
+bridge port it passes, because there is genuinely no daemon to be stale; with
+something listening that it cannot age, it FAILS. An arm-B host runs no bridge,
+so the first branch is the one you should see.
+
+`lsof` is the one capability that is a package rather than a platform fact. If
+it is missing the gate stops and says so by name — that is a real failure with a
+one-line remedy, not a host quirk to absorb.
+
 ## The hosts
 
 Arm B needs a host with a real radio of its own; **which** host is not fixed, and

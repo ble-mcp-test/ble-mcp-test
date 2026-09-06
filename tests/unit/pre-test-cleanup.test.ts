@@ -5,6 +5,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { argvIsProtected, killPort, isProtectedProcess } from '../../scripts/port-cleanup.js';
+import { hostCannotRun } from '../support/host-gate.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURE = path.resolve(HERE, '../fixtures/port-holder.mjs');
@@ -119,7 +120,13 @@ describe('argvIsProtected', () => {
   });
 });
 
-describe('killPort', () => {
+/**
+ * lsof finds the listener; /proc/<pid>/cmdline says what it is. Without both,
+ * killPort cannot answer "which single process owns this port, and what is it?"
+ * and refuses to kill anything -- so these assert a verdict the host cannot
+ * reach. Reported NOT RUN by name there; see tests/support/host-gate.ts.
+ */
+describe.skipIf(hostCannotRun('killPort'))('killPort', () => {
   it('spares a protected listener that has a client connected (TRA-1170)', async () => {
     const listener = await startFixture(['listen', PROTECTED_MARKER]);
     const client = await startFixture(['connect', '--port', String(listener.port)]);
@@ -242,7 +249,7 @@ function sweepSection(output: string): string {
   return output.slice(start, end);
 }
 
-describe('pre-test-cleanup.js', () => {
+describe.skipIf(hostCannotRun('pre-test-cleanup.js'))('pre-test-cleanup.js', () => {
   it('leaves a protected listener with a connected client alive (acceptance, TRA-1170)', async () => {
     const listener = await startFixture(['listen', PROTECTED_MARKER]);
     const client = await startFixture(['connect', '--port', String(listener.port)]);
@@ -273,6 +280,13 @@ describe('pre-test-cleanup.js', () => {
     expect(output).not.toContain('not found');
   });
 
+});
+
+/**
+ * `resolveTestPorts` throws at module scope, before any port is probed or any
+ * process inspected, so this runs on every host and is gated on nothing.
+ */
+describe('pre-test-cleanup.js argument handling', () => {
   it('refuses to run with an unparseable port override rather than falling back', () => {
     expect(() =>
       execFileSync(process.execPath, [SCRIPT], {

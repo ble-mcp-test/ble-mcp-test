@@ -17,6 +17,7 @@ import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { hostCannotRun } from '../support/host-gate.js';
 
 const TOOL = fileURLToPath(new URL('../../bin/ble-radio-lock', import.meta.url));
 
@@ -59,7 +60,39 @@ async function startHolder(
   throw new Error('holder never acquired the lock within 5s');
 }
 
-describe('ble-radio-lock', () => {
+/**
+ * The one check here that takes no lock. `ble-radio-lock path` prints and exits
+ * before fd 9 is opened, so it needs no flock(1) and runs on every host -- which
+ * matters, because the fixed path is the whole mechanism and both repos have to
+ * land on it.
+ */
+describe('ble-radio-lock path resolution', () => {
+  it('resolves to one fixed path with no computed fallback', () => {
+    const env = { ...process.env };
+    delete env.BLE_MCP_RADIO_LOCK;
+    delete env.XDG_RUNTIME_DIR;
+
+    const withoutRuntimeDir = spawnSync(TOOL, ['path'], { encoding: 'utf8', env });
+    const withRuntimeDir = spawnSync(TOOL, ['path'], {
+      encoding: 'utf8',
+      env: { ...env, XDG_RUNTIME_DIR: '/run/user/9999' },
+    });
+
+    // Both repos must land on the same file without coordinating. A path
+    // computed from the environment is this codebase's second named failure
+    // class -- it would look configured and lock nothing.
+    expect(withoutRuntimeDir.stdout.trim()).toBe('/tmp/ble-mcp-test.radio.lock');
+    expect(withRuntimeDir.stdout.trim()).toBe('/tmp/ble-mcp-test.radio.lock');
+  });
+});
+
+/**
+ * Everything below acquires, so everything below is flock(1). The mechanism is
+ * flock(2) on one fixed path and its documented scope is one host, so on a host
+ * without it these do not fail -- they are reported NOT RUN, by name, by
+ * tests/support/host-gate.ts.
+ */
+describe.skipIf(hostCannotRun('ble-radio-lock'))('ble-radio-lock', () => {
   it('runs the wrapped command and propagates success', () => {
     const lock = freshLockPath();
     const result = run(['--', 'sh', '-c', 'echo ran-under-lock'], lock);
@@ -126,24 +159,6 @@ describe('ble-radio-lock', () => {
     expect(afterDeath.stdout).toContain('acquired-after-death');
   });
 
-  it('resolves to one fixed path with no computed fallback', () => {
-    const env = { ...process.env };
-    delete env.BLE_MCP_RADIO_LOCK;
-    delete env.XDG_RUNTIME_DIR;
-
-    const withoutRuntimeDir = spawnSync(TOOL, ['path'], { encoding: 'utf8', env });
-    const withRuntimeDir = spawnSync(TOOL, ['path'], {
-      encoding: 'utf8',
-      env: { ...env, XDG_RUNTIME_DIR: '/run/user/9999' },
-    });
-
-    // Both repos must land on the same file without coordinating. A path
-    // computed from the environment is this codebase's second named failure
-    // class -- it would look configured and lock nothing.
-    expect(withoutRuntimeDir.stdout.trim()).toBe('/tmp/ble-mcp-test.radio.lock');
-    expect(withRuntimeDir.stdout.trim()).toBe('/tmp/ble-mcp-test.radio.lock');
-  });
-
   it('still refuses, and claims no holder it cannot verify, when the sidecar is stale', async () => {
     const lock = freshLockPath();
 
@@ -184,7 +199,7 @@ describe('ble-radio-lock', () => {
  * The pass-through is the one place this design could go quiet, so it fails
  * CLOSED: anything it cannot verify sends it back to a real acquire.
  */
-describe('ble-radio-lock nesting', () => {
+describe.skipIf(hostCannotRun('ble-radio-lock nesting'))('ble-radio-lock nesting', () => {
   it("passes through when it is already inside an ancestor's hold", () => {
     const lock = freshLockPath();
 

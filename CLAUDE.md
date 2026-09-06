@@ -55,6 +55,8 @@ cd bridge && just hardware   # opt-in, needs a real device
 
 **`pnpm run pretest` fails a run whose bridge predates the last `bridge/` commit.** The remedy it names is `just bridge-restart`.
 
+**The gate runs on two host roles, and skips by name on the one it was not written for.** Scaffolding needing `flock(1)`, `/proc`, `getconf CLK_TCK` or `lsof` skips on a host without them and the run prints which suites and why; `tests/support/host-gate.ts` declares the set and `tests/unit/host-gate.test.ts` fails if one joins it silently. `docs/conformance-arm-b.md`.
+
 **Gitignored is not glob-invisible.** `vitest.config.ts` must exclude `.claude/worktrees/**` or a run collects sibling worktrees' tests; `tests/unit/vitest-isolation.test.ts` guards it.
 
 ## Known failure classes
