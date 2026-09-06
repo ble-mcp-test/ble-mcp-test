@@ -26,6 +26,7 @@ kernel, and the smaller of the two platforms is the one that binds.
 from __future__ import annotations
 
 import asyncio
+import os
 import shutil
 import socket
 import tempfile
@@ -59,6 +60,29 @@ def test_tmp_path_is_not_under_the_deep_macos_tmpdir(tmp_path):
     # The specific thing that went wrong: gettempdir() is the problem on macOS,
     # so the fixture must not be built on it.
     assert str(tmp_path).startswith(SHORT_TMP_ROOT)
+
+
+def test_tmp_path_is_already_canonical(tmp_path):
+    """The fixture must hand out a path that survives being resolved.
+
+    ⚠ Found by cheetah, not here, and **this test cannot fail on Linux** --
+    `/tmp` is already a real directory, so the two strings are equal before and
+    after the fix. It is the macOS guard, and it is written down because the
+    first version of this file had nine checks that discriminated nothing and
+    said so only after being asked.
+
+    On macOS `/tmp` is a SYMLINK to `/private/tmp`. The fixture handed out
+    `/tmp/ble-.../repo`, code under test canonicalised what it was given and
+    returned `/private/tmp/ble-.../repo`, and the compare failed on a string the
+    test never built -- same directory, different name.
+    `test_startup.py::test_loads_env_local_from_a_parent_directory` was green on
+    main and red on the fix that was supposed to help it.
+
+    The conftest comment had ALREADY noticed the symlink and reasoned only about
+    its length: "resolves to /private/tmp on macOS, which is still short." True,
+    and the wrong question.
+    """
+    assert Path(os.path.realpath(tmp_path)) == tmp_path
 
 
 def test_tmp_path_is_fresh_and_per_test(tmp_path):

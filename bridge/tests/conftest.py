@@ -42,6 +42,7 @@ the fixture where nothing could call it with a chosen environment.
 
 from __future__ import annotations
 
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -56,7 +57,14 @@ SUN_PATH_MAX = 104
 #: `tempfile.gettempdir()` precisely BECAUSE gettempdir() is the problem on
 #: macOS -- it returns the deep `$TMPDIR`. `/tmp` exists on every platform this
 #: suite supports and resolves to `/private/tmp` on macOS, which is still short.
-SHORT_TMP_ROOT = "/tmp"
+#:
+#: It is resolved rather than used literally, because on macOS `/tmp` is a
+#: SYMLINK to `/private/tmp`. Any code under test that canonicalises a path it
+#: was handed then gets a string the test never built, and compares unequal --
+#: `test_startup.py::test_loads_env_local_from_a_parent_directory` failed on
+#: exactly that. Resolving here costs 8 bytes of the length budget and nothing
+#: on Linux, where `/tmp` is already real.
+SHORT_TMP_ROOT = os.path.realpath("/tmp")
 
 
 def assert_bindable(path: str | Path) -> Path:
