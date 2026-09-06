@@ -85,14 +85,46 @@ with nothing to contradict them.
 just conformance-real
 ```
 
-**⚠ This arm has never been run.** It was written under TRA-1187 and no result
-has been recorded. Arm A's green does not cover it — blocking exactly that
-inference is what the banner is for.
+**⚠ This arm is KNOWN-RED: 18 of 19 checks pass.** First run 2026-09-06 on
+`knuckles`, ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ.
+Written under TRA-1187; run under TRA-1222. Operator runbook:
+[`docs/conformance-arm-b.md`](../../docs/conformance-arm-b.md).
 
-Being unrun is not the same as being unfinished. Requirement 4 below is why: this
-arm is interactive by construction and therefore **deferred to the operator**, so
-"has anyone sat down at the box with the adapter and clicked through the chooser"
-is the only thing standing between here and a result.
+The one failure is real, and it is the mock's:
+
+| check | what real Chromium did |
+|---|---|
+| `chain/second-device-is-distinct` | returned **the same** `BluetoothDevice` on a second `requestDevice()` for the same peripheral. The mock returns a distinct one. |
+
+The spec mandates Chrome's behaviour — "get the `BluetoothDevice` representing
+*device*" is a lookup in a per-realm map — so this is a mock defect and not a
+deliberate divergence. **TRA-1255** carries the fix; that ticket also covers the
+harder half, which is that the clause conflates per-device cache scoping (real,
+worth keeping) with object distinctness across calls (false against the real
+API, and only testable with two peripherals).
+
+**Known-red is a different claim from unrun, and the difference is the point.**
+An arm nobody has tried supports no conclusion at all. This one has now been
+compared against the API it doubles, on real hardware, and disagrees in exactly
+one place that is named, ticketed and reproducible. Arm A's green still does not
+cover any of it.
+
+⚠ **The reason it had never run was not the operator.** Three defects stood
+between the arm and a result, all of them in this repo rather than on the bench,
+and all found the first time someone actually tried:
+
+1. `requestDevice()` requires **transient activation**, which `page.evaluate()`
+   does not have — every run would have died on
+   `SecurityError: Must be handling a user gesture to show a permission request`
+   before showing a chooser. The arm now clicks a real button for the gesture;
+   the human still answers the chooser.
+2. The Playwright config was **headless**, so no chooser could have been answered
+   even once the gesture worked.
+3. The test timeout was **120s for all 19 chooser answers combined**.
+
+"Written but never run" was therefore not the same as "ready to run", which is
+the thing this banner previously implied. `tests/unit/conformance-arm-b-headed.test.ts`
+now holds 2 and 3 mechanically.
 
 It needs, and none of these is optional:
 

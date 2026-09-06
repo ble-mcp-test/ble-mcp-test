@@ -101,8 +101,18 @@ function requireUuids(): { service: string; write: string; notify: string; alias
  *
  * ## Status, stated rather than implied
  *
- * ⚠ THIS ARM HAS NEVER BEEN RUN. Do not read arm A's green as covering it --
- * that is precisely the inference the loud banner exists to block.
+ * ⚠ KNOWN-RED: 18/19. First run 2026-09-06 on knuckles (ASUS BT500, hci0)
+ * against a real CS108. `chain/second-device-is-distinct` fails because real
+ * Chromium returns the SAME BluetoothDevice for a second requestDevice() on the
+ * same peripheral, as the spec's per-realm device map requires, while the mock
+ * mints a distinct one. That is a mock defect, not a deliberate divergence --
+ * TRA-1255. Do not read arm A's green as covering any of this.
+ *
+ * Three defects in THIS repo, not on the bench, are why it had never produced a
+ * result before that date: no transient activation under page.evaluate(), a
+ * headless browser with no chooser to answer, and 120s budgeted for all 19
+ * answers together. See tests/conformance/README.md and
+ * docs/conformance-arm-b.md.
  */
 const status = armBStatus(process.env);
 
@@ -155,7 +165,24 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
 
     const config = requireUuids();
 
-    const results = await page.evaluate(async (cfg) => {
+    // `requestDevice()` needs TRANSIENT ACTIVATION, and page.evaluate() has
+    // none -- injected script is not user-driven. The first hardware run of this
+    // arm died on
+    //   SecurityError: Must be handling a user gesture to show a permission request
+    // thrown before any chooser appeared. THAT is why this arm had never
+    // produced a result: not the hardware, not the operator, and not the
+    // headless flag. The docstring above quotes the very requirement the old
+    // shape could not satisfy -- failure class 1 from CLAUDE.md, in the file
+    // that names it.
+    //
+    // So the gesture comes from a real click on a real button, dispatched
+    // through Chromium's input pipeline, which grants activation exactly as a
+    // hand-driven click does. The HUMAN still answers the chooser, which is the
+    // part no automation can supply and the whole reason this arm exists.
+    // Driving the button is not faking the adapter: the radio, the peripheral,
+    // the chooser and the choice all stay real. The gesture was never the part
+    // that needed a person -- the CHOICE is.
+    const setup = await page.evaluate((cfg) => {
       const { CONFORMANCE_CHECKS, partitionChecks } = (window as any).Conformance;
 
       // The real API is the provider. Its capabilities are honest about what a
@@ -173,7 +200,27 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
             filters: [{ services: [cfg.service] }],
             optionalServices: [cfg.service]
           });
-          const server = await device.gatt.connect();
+          // The LINK is retried; the CHOICE is not. A real peripheral needs a
+          // moment to tear the previous connection down and resume advertising,
+          // and this arm reconnects once per check -- 19 times in a row, far
+          // harder on the radio than any normal client. Observed 2026-09-06: five
+          // checks in, `Connection Error: Connection attempt failed.`
+          //
+          // Retrying here rather than re-entering requestDevice() keeps the
+          // operator's single answer per check. Nothing in the contract asserts
+          // that gatt.connect() succeeds first time, so this hides no clause --
+          // it makes the transport reliable enough to ask about the ones that
+          // ARE asserted.
+          let server;
+          for (let attempt = 1; ; attempt++) {
+            try {
+              server = await device.gatt.connect();
+              break;
+            } catch (error) {
+              if (attempt >= 4) throw error;
+              await new Promise(resolve => setTimeout(resolve, 800 * attempt));
+            }
+          }
           const service = await server.getPrimaryService(cfg.service);
           return {
             device,
@@ -185,6 +232,10 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
         },
         async close(session: any) {
           try { session.server.disconnect(); } catch { /* already gone */ }
+          // Settle before the next check reconnects. The mock takes a
+          // post-disconnect delay for the same reason; a real CS108 over BlueZ
+          // is no more forgiving of an immediate re-attach.
+          await new Promise(resolve => setTimeout(resolve, 750));
         },
         async inject() { throw new Error('arm B cannot inject a notification'); },
         async drop() { throw new Error('arm B cannot drop the link'); },
@@ -192,26 +243,88 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
       };
 
       const { runnable, skipped } = partitionChecks(provider);
-      const failures: Array<{ id: string; message: string }> = [];
+      const state = {
+        provider,
+        runnable,
+        ran: [] as string[],
+        failures: [] as Array<{ id: string; message: string }>,
+        aborted: null as { id: string; message: string; cancelled: boolean } | null,
+        index: 0,
+        pending: null as Promise<void> | null
+      };
+      (window as any).__armB = state;
 
-      for (const check of runnable) {
-        const session = await provider.open();
-        try {
-          await check.run(session, provider);
-        } catch (error) {
-          failures.push({ id: check.id, message: (error as Error).message });
-        } finally {
-          await provider.close(session);
-        }
-      }
+      const button = document.createElement('button');
+      button.id = 'arm-b-next';
+      button.textContent = 'run next conformance check';
+      button.style.cssText = 'font-size:20px;padding:16px 24px;margin:24px';
+      document.body.appendChild(button);
+
+      button.addEventListener('click', () => {
+        const check = state.runnable[state.index];
+        if (!check) return;
+        // Everything up to `requestDevice()` runs synchronously inside this
+        // handler -- the async IIFE reaches `provider.open()`, which reaches
+        // `requestDevice()`, before it yields -- so the activation this click
+        // carries is still live when the chooser is asked for. Awaiting
+        // anything first would spend it, and the SecurityError would be back.
+        state.pending = (async () => {
+          let session;
+          try {
+            session = await state.provider.open();
+          } catch (error) {
+            // Answering the chooser is the OPERATOR's step, not the API's. A
+            // cancelled or unanswered picker is an aborted run and never a
+            // fidelity failure -- recording it as one would put "real Chromium
+            // violates this clause" on the record because somebody stepped away
+            // from the keyboard. Ask of this branch what CLAUDE.md asks of every
+            // negative assertion: it exists so that a human error and an API
+            // error cannot arrive at the same conclusion.
+            const cause = error as Error;
+            state.aborted = {
+              id: check.id,
+              message: cause.message,
+              // A cancelled picker and a radio that would not attach are
+              // different events with different remedies, and reporting both as
+              // "answer the chooser" sends the next operator to the wrong one.
+              cancelled: cause.name === 'NotFoundError'
+            };
+            return;
+          }
+          try {
+            await check.run(session, state.provider);
+          } catch (error) {
+            state.failures.push({ id: check.id, message: (error as Error).message });
+          } finally {
+            await state.provider.close(session);
+          }
+          state.ran.push(check.id);
+          state.index += 1;
+        })();
+      });
 
       return {
-        ran: runnable.map((c: any) => c.id),
+        runnable: runnable.map((c: any) => c.id),
         notRun: skipped.map((s: any) => ({ id: s.check.id, because: s.because })),
-        failures,
         total: CONFORMANCE_CHECKS.length
       };
     }, config);
+
+    // One click, one check, one chooser -- and the operator is told which is
+    // which, because "the chooser appeared again" is otherwise indistinguishable
+    // from "it hung and came back".
+    for (const [position, id] of setup.runnable.entries()) {
+      console.log(`arm B: check ${position + 1}/${setup.runnable.length} -- ${id}; answer the chooser`);
+      await page.click('#arm-b-next');
+      await page.evaluate(() => (window as any).__armB.pending);
+      const aborted = await page.evaluate(() => (window as any).__armB.aborted);
+      if (aborted) break;
+    }
+
+    const results = await page.evaluate(() => {
+      const state = (window as any).__armB;
+      return { ran: state.ran, failures: state.failures, aborted: state.aborted };
+    });
 
     // The result line carries what did NOT run, by name, for the same reason arm
     // A's banner does: a pass count quoted without its scope supports a stronger
@@ -221,13 +334,28 @@ test.describe('client contract, arm B (real navigator.bluetooth)', () => {
         '',
         '='.repeat(78),
         `CONFORMANCE: arm B (real Chromium navigator.bluetooth) -- ` +
-          `${results.ran.length}/${results.total} checks run`,
-        ...results.notRun.map((s: any) => `    NOT RUN ${s.id}: ${s.because}`),
+          `${results.ran.length}/${setup.total} checks run`,
+        ...setup.notRun.map((s: any) => `    NOT RUN ${s.id}: ${s.because}`),
         '='.repeat(78),
         ''
       ].join('\n')
     );
 
+      // Stated before the assertions so a partial run still leaves a record of
+      // how far it got, rather than only the reason it stopped.
+      if (results.aborted) {
+        throw new Error(
+          `arm B ABORTED at ${results.aborted.id} after ${results.ran.length}/` +
+            `${setup.runnable.length} checks: ${results.aborted.message}\n` +
+            (results.aborted.cancelled
+              ? 'The chooser was dismissed. Re-run with the operator at the keyboard.'
+              : 'The link would not attach -- the peripheral, its range or its ' +
+                'power, not the chooser. gatt.connect() is already retried four ' +
+                'times here, so this outlasted that.') +
+            '\nEither way this says nothing about fidelity: it is an unfinished ' +
+            'run, not a red one. See docs/conformance-arm-b.md.'
+        );
+      }
       expect(results.failures, 'fidelity clauses that the real API does not satisfy').toEqual([]);
       expect(results.ran.length, 'arm B ran no checks at all').toBeGreaterThan(0);
     } finally {
