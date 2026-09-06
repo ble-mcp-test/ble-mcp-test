@@ -1,9 +1,12 @@
 # Generic ESP32 dev kit as an ESPHome Bluetooth Proxy — WiFi fallback / control.
 #
-# Useful for two things: (1) a second data point if the GL-S10 turns out to be a
-# v2.1 with the IP101 packet-loss problem, and (2) measuring how much WiFi/BLE
-# radio contention costs versus the GL-S10's ethernet. Expect it to be worse than
-# ethernet — that is the point of measuring it.
+# Useful for two things: (1) a second data point when a wired proxy is behaving
+# oddly and you need to know whether the board or the link is at fault, and (2)
+# measuring how much WiFi/BLE radio contention costs against the reference board's
+# ethernet. Expect it to be worse than ethernet — that is the point of measuring it.
+#
+# The reference board is waveshare-esp32-s3-eth.yaml. This one is a control, not
+# a deployment target.
 #
 #   cp scripts/esphome-probe/secrets.example.yaml scripts/esphome-probe/secrets.yaml   # fill in WiFi
 #   uvx esphome run scripts/esphome-probe/esp32-devkit.yaml

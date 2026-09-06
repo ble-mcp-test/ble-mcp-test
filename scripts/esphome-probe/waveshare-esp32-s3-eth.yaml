@@ -10,6 +10,9 @@
 #   MOSI 11, MISO 12, CLK 13, CS 14, RESET 9, INT 10.
 
 esphome:
+  # This is the mDNS hostname. Change it before flashing a SECOND board from this
+  # file -- two proxies answering to waveshare-s3-eth-probe.local resolve to
+  # whichever replies first, which presents as one flaky proxy rather than as two.
   name: waveshare-s3-eth-probe
   friendly_name: Waveshare S3-ETH BLE Probe
   min_version: 2026.5.1   # slot-leak fix (esphome/esphome PR #16588)

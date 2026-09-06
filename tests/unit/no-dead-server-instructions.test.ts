@@ -182,16 +182,20 @@ const FORBIDDEN: ReadonlyArray<{ pattern: RegExp; why: string; appliesTo?: RegEx
   {
     // The Rust bridge (`rust-ble-test/`, PR #41) was superseded before it ever
     // shipped -- `docs/design/2026-08-23-python-bridge-rewrite.md` is its
-    // obituary. It is the one term here that still has a legitimate
-    // reader-facing use: `docs/MCP-SERVER.md` lists `restart_rust_bridge` among
-    // the tools that were NOT ported, and "died with the Rust bridge" is the
-    // whole reason that line earns its place. That line carries the marker.
+    // obituary.
     //
-    // Which is the distinction this entry exists to hold, and the reason the
-    // three patterns here are scoped rather than repo-wide: a sentence that
-    // names the old thing in order to say it is gone is the most useful sentence
-    // in the file for someone arriving with old assumptions. A sweep that cannot
-    // tell it from a stale assertion deletes it.
+    // It had one reader-facing use left: `docs/MCP-SERVER.md` listed
+    // `restart_rust_bridge` among the tools that were not ported. A removal
+    // notice earns its place when a reader might arrive looking for the thing,
+    // and nobody can be looking for a tool that only ever existed to restart a
+    // spike that never shipped -- unlike `get_metrics` and `scan_devices`, which
+    // were real tools on a published server. So the bullet is gone rather than
+    // marked, and this pattern now has no exception in reader-facing prose.
+    //
+    // The removal is still asserted, just not in prose:
+    // `bridge/tests/test_mcp_shim.py` checks `restart_rust_bridge` is not among
+    // the tool names. A test is the better place for it -- it goes red if the
+    // tool ever comes back, which a sentence cannot.
     pattern: /\bRust bridge\b|rust-ble-test/i,
     why: 'the Rust bridge was a spike that never shipped and was deleted in TRA-1163; naming it in reader-facing prose describes a component no reader can run',
     appliesTo: READER_FACING

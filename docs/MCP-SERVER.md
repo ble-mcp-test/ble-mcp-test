@@ -37,7 +37,7 @@ prevent.
 
 Every tool returns `structuredContent` against a declared `outputSchema`.
 
-**Three tools from the TypeScript server were not ported.**
+**Two tools from the TypeScript server were not ported.**
 
 - `get_metrics` — backed by `connection-metrics.ts`, which has no Python equivalent. A tool with no
   backing is worse than an absent one; `status` and `get_connection_state` carry the operability
@@ -45,8 +45,6 @@ Every tool returns `structuredContent` against a declared `outputSchema`.
 - `scan_devices` — scanned a local radio. There is no local radio: the bridge reaches the device
   over TCP through an ESPHome proxy. Discovery through that proxy would be a different tool with a
   different contract, and nothing has asked for one.
-- `restart_rust_bridge` — died with the Rust bridge. <!-- tra-1186-historical: naming the dead
-  component is the point of the line; the guard forbids it elsewhere in reader-facing prose -->
 
 `get_logs` is a **tool**. It is not the MCP protocol's `logging/*` capability, which is deprecated.
 A tool that returns log text and a server-to-client logging channel are different things.

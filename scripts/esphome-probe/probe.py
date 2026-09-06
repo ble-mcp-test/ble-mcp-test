@@ -7,7 +7,7 @@
 # ]
 # ///
 """
-ESPHome Bluetooth Proxy probe — measure what a GL-S10 / ESP32 proxy does under load.
+ESPHome Bluetooth Proxy probe — measure what an ESP32 proxy does under load.
 
 The proxy is the bridge's only route to the device, so this measures the transport
 the bridge actually runs on. Re-run it after new ESPHome firmware, a board swap, a
@@ -19,7 +19,7 @@ ESPHome native API via bleak-esphome — no Home Assistant.
 
 Usage (uv resolves the deps on first run):
 
-  uv run scripts/esphome-probe/probe.py --proxy gl-s10-xxxxxx.local --mode poll --minutes 15 --label esphome-poll
+  uv run scripts/esphome-probe/probe.py --proxy waveshare-s3-eth-probe.local --mode poll --minutes 15 --label esphome-poll
   uv run scripts/esphome-probe/probe.py --proxy 192.168.1.50 --mode inventory --minutes 10 --label esphome-inv
   uv run scripts/esphome-probe/probe.py --proxy 192.168.1.50 --mode recover --cycles 10 --label esphome-recover
   uv run scripts/esphome-probe/probe.py --proxy 192.168.1.50 --mode thrash --minutes 5 --label esphome-thrash
