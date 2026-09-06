@@ -172,3 +172,79 @@ describe('ble-radio-lock', () => {
     }
   });
 });
+
+/**
+ * Nesting. Constraint 4 of TRA-1241 is "one wrapping per entry point, not per
+ * call site" -- and that only composes if wrapping twice is safe. A publish
+ * holds the radio across the whole operation while the gate inside it wraps its
+ * own Playwright run. Without re-entrancy the inner wrap would refuse against
+ * its own ancestor, and the remedy would be to remember which of the two to
+ * wrap, which is the per-call-site bookkeeping the constraint rules out.
+ *
+ * The pass-through is the one place this design could go quiet, so it fails
+ * CLOSED: anything it cannot verify sends it back to a real acquire.
+ */
+describe('ble-radio-lock nesting', () => {
+  it("passes through when it is already inside an ancestor's hold", () => {
+    const lock = freshLockPath();
+
+    // The inner tool must be a genuine CHILD of the holder, not an exec chain.
+    // `radio-lock -- radio-lock -- cmd` execs the inner over the outer, so the
+    // inner reopens fd 9, closes the outer's open file description, and thereby
+    // RELEASES the lock before re-taking it -- a momentary release inside the
+    // operation, which is this ticket's own defect in miniature. It also passes
+    // whether or not pass-through exists, so it proves nothing. A shell that
+    // holds the lock and spawns beneath it is the shape the entry points
+    // actually produce.
+    const result = run(['--', 'sh', '-c', `"${TOOL}" -- echo nested-ran`], lock);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('nested-ran');
+  });
+
+  it('does not pass through on a marker naming a dead pid', async () => {
+    const lock = freshLockPath();
+    const holder = await startHolder(lock);
+    try {
+      const result = spawnSync(TOOL, ['--', 'sh', '-c', 'echo should-not-run'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          BLE_MCP_RADIO_LOCK: lock,
+          BLE_MCP_RADIO_HELD: `999999:${lock}`,
+        },
+      });
+
+      // A stale marker exported into some shell must not buy a free pass. It
+      // cannot be verified, so it is worth nothing and we acquire for real --
+      // which refuses, because someone else holds it.
+      expect(result.status).toBe(EXIT_RADIO_BUSY);
+      expect(result.stdout).not.toContain('should-not-run');
+    } finally {
+      holder.kill('SIGKILL');
+    }
+  });
+
+  it('does not pass through on a marker naming a live process that is not an ancestor', async () => {
+    const lock = freshLockPath();
+    const holder = await startHolder(lock);
+    try {
+      // The marker names the process genuinely holding the lock, and it is
+      // alive. We are still not inside its hold, so passing through would hand
+      // the radio to two operations at once.
+      const result = spawnSync(TOOL, ['--', 'sh', '-c', 'echo should-not-run'], {
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          BLE_MCP_RADIO_LOCK: lock,
+          BLE_MCP_RADIO_HELD: `${holder.pid}:${lock}`,
+        },
+      });
+
+      expect(result.status).toBe(EXIT_RADIO_BUSY);
+      expect(result.stdout).not.toContain('should-not-run');
+    } finally {
+      holder.kill('SIGKILL');
+    }
+  });
+});

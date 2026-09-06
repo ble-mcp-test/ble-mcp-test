@@ -76,6 +76,26 @@ holder_field() {
     sed -n "s/^${key}=//p" "$HOLDER_PATH" | head -1
 }
 
+# Is the given pid one of our own ancestors? ONLY an ancestor counts. A live
+# process that holds the lock but sits elsewhere in the tree is a different
+# operation, and passing through for it would hand the radio to two at once.
+is_ancestor() {
+    local target="$1"
+    local pid="$$"
+    local hops=0
+
+    while [ "$hops" -lt 64 ]; do
+        [ "$pid" = "$target" ] && return 0
+        case "$pid" in
+            ''|0|1) return 1 ;;
+        esac
+        pid="$(awk '/^PPid:/{print $2}' "/proc/${pid}/status" 2>/dev/null || true)"
+        hops=$(( hops + 1 ))
+    done
+
+    return 1
+}
+
 # Refuse, loudly, naming whoever we can actually verify.
 refuse() {
     local pid label command since ago now
@@ -181,15 +201,54 @@ if [ -z "$LABEL" ]; then
     LABEL="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
 fi
 
+# Re-entrancy, so that "one wrapping per entry point" composes rather than
+# forcing someone to remember which of two nested wraps to leave off. A publish
+# holds the radio for the whole operation; the gate inside it wraps its own
+# hardware run. The inner wrap is already protected by the outer hold.
+#
+# It fails CLOSED. Three things must all hold -- same lock path, the pid alive,
+# and that pid an ancestor of ours -- and anything unverifiable sends us to a
+# real acquire instead. A marker left exported in some shell therefore buys
+# nothing, which is what makes this safe to add rather than a hole. Do not
+# relax any of the three into an OR.
+if [ -n "${BLE_MCP_RADIO_HELD:-}" ]; then
+    held_pid="${BLE_MCP_RADIO_HELD%%:*}"
+    held_path="${BLE_MCP_RADIO_HELD#*:}"
+
+    case "$held_pid" in
+        ''|*[!0-9]*) held_pid='' ;;
+    esac
+
+    if [ -n "$held_pid" ] &&
+       [ "$held_path" = "$LOCK_PATH" ] &&
+       kill -0 "$held_pid" 2>/dev/null &&
+       is_ancestor "$held_pid"; then
+        echo "Already inside the radio hold taken by pid ${held_pid}; not re-acquiring." >&2
+        if [ "$MODE_HOLD" -eq 1 ]; then
+            exec "${SHELL:-/bin/bash}"
+        fi
+        exec "$@"
+    fi
+fi
+
 # Open for append, never for write: `>` would truncate, and truncation is a
 # write to a file another process may be holding. And NEVER unlink it -- a
 # deleted lock file is the classic race in which two processes hold flocks on
 # two different inodes at the same path and both believe they are exclusive.
+#
+# Note also that reopening fd 9 releases whatever flock the previous open file
+# description held. That is why the nested case passes through above rather than
+# arriving here: an inner wrap that reached this line would drop its own
+# ancestor's hold for the instant between the close and the flock.
 exec 9>>"$LOCK_PATH"
 
 if ! flock -n 9; then
     refuse
 fi
+
+# Descendants read this to recognise that they are inside our hold. It carries
+# our pid and the path, both of which they re-verify.
+export BLE_MCP_RADIO_HELD="$$:$LOCK_PATH"
 
 if [ "$MODE_HOLD" -eq 1 ]; then
     record_holder "interactive hold"
