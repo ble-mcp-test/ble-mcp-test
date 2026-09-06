@@ -94,33 +94,51 @@ with nothing to contradict them.
 just conformance-real
 ```
 
-**⚠ THE LAST RECORDED RESULT IS STALE, AND IT IS STALE IN THE HOPEFUL
-DIRECTION.** TRA-1255 fixed the one red below and changed what this arm asserts:
-the failing check now asserts the opposite of what it used to, two checks were
-added, and one was rewritten. None of that has been through real Chromium. Arm A
-is green on all of it and that is not evidence — blocking exactly that inference
-is what this arm is for. **The status below describes the 2026-09-06 runs, of code
-that no longer exists.** Re-run before quoting anything from it.
-
-**⚠ The 2026-09-06 result: KNOWN-RED, 18 of 19 checks pass.** First run on
-`knuckles`, ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ,
-and **run twice that day with an identical divergence set** — the same 18 green,
-the same one red, and no link failures on the second pass. Written under
-TRA-1187; run under TRA-1222. Operator runbook:
+**✅ GREEN: 21 of 21 runnable checks pass.** Confirmed 2026-09-06 on `knuckles`,
+ASUS BT500 (`0b05:1bf6`, `hci0`), against a real CS108 over BlueZ — **twice
+consecutively**, exit 0 both times. This is the first time the fidelity check has
+passed outright. Written under TRA-1187; first run under TRA-1222; the last red
+fixed under TRA-1255. Operator runbook:
 [`docs/conformance-arm-b.md`](../../docs/conformance-arm-b.md).
 
-Twice matters. One run cannot distinguish a stable result from a lucky one, and
-this banner is the thing that will be quoted.
+**⚠ It only passes with `blueman` stopped.** `blueman-applet` and `blueman-tray`
+are a second BlueZ client on the desktop session, and they can pair and
+auto-connect the same peripheral Chrome is asking for. Kill both before a run.
+This is a **precondition, stated as one** — see the runbook.
 
-The one failure is real, and it is the mock's:
+**Blueman is the leading explanation, and it is more than a coincidence.** With it
+running, two post-fix runs failed in two *different* ways — a `GATT Error Unknown.`
+from `startNotifications()`, and a second `requestDevice()` whose device matched
+but whose service object did not, which is exactly what a dropped link looks like.
+With it stopped, two runs passed clean. And there is a **mechanism**, which is what
+lifts this above bare correlation: blueman is a second BlueZ client on the same
+adapter, and it pairs and auto-connects — contending for the very peripheral Chrome
+is asking for, in the window while the chooser is open.
+
+What stops it being settled is that **the decisive experiment has not been run**:
+nobody has put blueman back and watched the failures return. Load average also
+fell between the two pairs of runs, so two things changed at once. Until someone
+restores blueman and reproduces a failure, this is a well-supported hypothesis
+with a mechanism — treat it as the reason to kill blueman, not as a closed case.
+
+The host is the other half of that caveat. knuckles is a 2-core 1.6GHz Celeron
+N3050, and a headed Chromium under xrdp saturates it. Delays between BLE
+operations there are **scheduling latency, not operator latency** — clicking
+faster changes nothing. Arm B is timing-sensitive by construction, so a green run
+from this box is worth less than a green run from a fast one. TRA-1256 moves the
+confirming run to macOS/CoreBluetooth, which is both quicker and the stack that
+actually ships.
+
+### What the last red was, and why it is gone
 
 | check | what real Chromium did |
 |---|---|
 | `chain/second-device-is-distinct` | returned **the same** `BluetoothDevice` on a second `requestDevice()` for the same peripheral. The mock returned a distinct one. |
 
-The spec mandates Chrome's behaviour — "get the `BluetoothDevice` representing
-*device*" is a lookup in a per-realm map — so this was a mock defect and not a
-deliberate divergence.
+Found on the arm's first ever run, 2026-09-06, and reproduced identically on a
+second run the same day — 18/19 both times. The spec mandates Chrome's behaviour
+— "get the `BluetoothDevice` representing *device*" is a lookup in a per-realm
+map — so this was a mock defect and not a deliberate divergence.
 
 **Fixed under TRA-1255, and the fix is three changes rather than one**, because
 the old check was entangled and the mock had two defects that concealed each
@@ -140,11 +158,12 @@ subscription state and its handlers"* — is about a **reconnect**, and the spec
 puts it in "clean up the disconnected device" step 5: the attribute cache is
 scoped to the *connection*. One peripheral, down and up, asks it exactly.
 
-**Known-red is a different claim from unrun, and the difference is the point.**
-An arm nobody has tried supports no conclusion at all. This one has now been
-compared against the API it doubles, on real hardware, and disagrees in exactly
-one place that is named, ticketed and reproducible. Arm A's green still does not
-cover any of it.
+**Unrun, known-red and green are three different claims, and this arm has now been
+all three in one day.** An arm nobody has tried supports no conclusion at all. A
+known-red one has been compared against the API it doubles and disagrees somewhere
+named. A green one agrees everywhere it was able to look — which is 21 of 42
+checks, the other 21 being NOT RUN by name below, not silently dropped. Arm A's
+green still does not cover any of it.
 
 ⚠ **The reason it had never run was not the operator.** Three defects stood
 between the arm and a result, all of them in this repo rather than on the bench,

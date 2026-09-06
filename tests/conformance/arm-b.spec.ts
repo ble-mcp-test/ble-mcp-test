@@ -101,18 +101,26 @@ function requireUuids(): { service: string; write: string; notify: string; alias
  *
  * ## Status, stated rather than implied
  *
- * ⚠ NO RESULT EXISTS FOR THE CODE IN THIS TREE, and the last one is stale in the
- * hopeful direction. It was 18/19, run twice on 2026-09-06 on knuckles (ASUS
- * BT500, hci0) against a real CS108, identical both times. The red was
- * `chain/second-device-is-distinct`: real Chromium returns the SAME
- * BluetoothDevice for a second requestDevice() on the same peripheral, as the
- * spec's per-realm device map requires, while the mock minted a distinct one.
+ * ✅ GREEN: 21/21 runnable checks, confirmed 2026-09-06 on knuckles (ASUS BT500,
+ * hci0) against a real CS108, TWICE consecutively. The first outright pass this
+ * arm has produced.
  *
- * TRA-1255 fixed the mock and rewrote that check to assert the opposite, added
- * two more, and put a disconnect/reconnect inside a check for the first time.
- * None of it has faced real Chromium. Do not read arm A's green as covering any
- * of it -- refusing that inference is what this arm is for. See
- * docs/conformance-arm-b.md for what the re-run is actually checking.
+ * It got there in two steps. The arm's first ever run, the same day, was 18/19
+ * twice over: `chain/second-device-is-distinct` failed because real Chromium
+ * returns the SAME BluetoothDevice for a second requestDevice() on one
+ * peripheral, as the spec's per-realm device map requires, while the mock minted
+ * a distinct one. TRA-1255 fixed the mock, inverted that clause, and added
+ * `connect-when-connected-resolves-the-same-server` and
+ * `reconnect-replaces-attributes`. All three are green on hardware.
+ *
+ * ⚠ It only passes with `blueman` STOPPED. blueman-applet and blueman-tray are a
+ * second BlueZ client on the same adapter that pairs and auto-connects,
+ * contending for the peripheral while the chooser is open. With them running,
+ * two post-fix runs failed two different ways; with them stopped, two passed
+ * clean. A mechanism plus that correlation makes it the leading explanation, but
+ * the decisive experiment -- put blueman back and watch it fail -- has not been
+ * run, so it is a PRECONDITION here rather than a closed case. See
+ * docs/conformance-arm-b.md.
  *
  * Three defects in THIS repo, not on the bench, are why it had never produced a
  * result before that date: no transient activation under page.evaluate(), a
