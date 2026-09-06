@@ -12,6 +12,9 @@ ble-radio-lock hold          # multi-command operations; release by exiting the 
 ble-radio-lock path          # the file both sides must agree on
 ```
 
+There are **three** shapes an operation takes, and picking the wrong one is the
+likeliest way to misuse this. See [choosing the wrap boundary](#choosing-the-wrap-boundary).
+
 ## Why a lock and not a flag
 
 On 2026-08-31 two sessions collided on the reader and **`held: false` was
@@ -163,6 +166,58 @@ conceded rather than co-ordinated.
 stops being true, this mechanism does not survive it and the design has to
 change — it will not degrade gracefully, it will silently stop excluding
 anything.
+
+**The concrete form that will be met first is CI.** A hardware job is just one more
+contender for a single reader, so this is the primitive that case needs — but
+`flock` is same-kernel and this script shells out to `flock(1)`, so a **hosted**
+runner cannot participate in the lock at all. It would acquire a lock on its own
+machine, exclude nothing, and report success. Hardware in CI therefore means a
+**self-hosted runner on the box holding the reader**, and that constraint is worth
+knowing while the runner choice is still open rather than after.
+
+## Choosing the wrap boundary
+
+**The boundary has to match the operation, not the command.** Every way of getting
+this wrong is a hold shorter than the thing it protects, which is the 2026-08-31
+defect at some other scale.
+
+| the operation is | wrap | why not the others |
+| --- | --- | --- |
+| **one command** — a test suite, a build | `ble-radio-lock -- <cmd>` | — |
+| **several commands a person runs** — publish: gate, OTP, retry on expiry | `ble-radio-lock hold`, then run them in that shell | wrapping each command releases in the gaps between them |
+| **a long-running driver that outlives its shell** — a soak arm, a supervised loop | `ble-radio-lock -- <the driver>` | see below |
+
+**A soak arm wraps the driver, not the repetitions.** Per-rep wrapping releases the
+reader in every inter-rep gap, and a rep that loses that race exits 75 **without
+running**. `hold` is wrong here too, and more obviously: it opens an interactive
+shell, and a detached arm outlives it.
+
+That refusal is also a reporting hazard worth designing against. **A harness that
+distinguishes outcomes by exit code alone will read a refusal as a failure** — the
+run never started, but 75 is just another non-zero. If yours tallies results, teach
+it that 75 means *did not run* rather than *ran and failed*; otherwise a contended
+rep lands in the record as a defect in the thing you were measuring.
+
+### The hold follows the file descriptor, not the process you think you started
+
+`flock` is held on an open file description, and this script `exec`s your command
+with that descriptor still open. So the lock is held for exactly as long as **any
+process holding that inherited descriptor** is alive — which is not always the
+process you launched.
+
+This is the same fact in both directions, and both matter:
+
+- It is **why a detached driver keeps the reader for its whole arm**. The hold
+  survives the launching shell going away, which is what makes the third row above
+  work at all.
+- It is **why a wrapped command that leaves a background child behind keeps the
+  reader held** — by something nobody is watching. Killing the process you started
+  does not release it if an orphan still holds the descriptor.
+
+There is deliberately no way to ask who holds the lock, so the only way to discover
+that second case is to **attempt an acquire and read the refusal**. A holder that
+has not recorded itself, or whose recorded pid is dead, reports as `unidentified` —
+which is the honest answer, and a signal to go looking for an orphan.
 
 ## Adopting it from another repo
 
