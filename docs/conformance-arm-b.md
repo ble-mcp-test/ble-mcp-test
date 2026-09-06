@@ -22,7 +22,12 @@ stopped** — see below, because it is now a precondition of the run.
 
 A **second** failure, or this one returning, is news.
 
-### ⚠ Kill blueman before every run
+### ⚠ Kill blueman before every run (Linux hosts)
+
+This one is `knuckles`-shaped, not universal. macOS has no blueman; its
+equivalent hazard is the TCC Bluetooth grant, which fails the same way — an empty
+chooser that reads as an absent device. The general rule behind both: **anything
+else that can claim the adapter is a precondition to check, not background.**
 
 ```bash
 pkill -f '[b]lueman-applet'; pkill -f '[b]lueman-tray'
@@ -78,7 +83,27 @@ permanently. Check the socket, never `/sys` — inside a container
 python3 -c "import socket; socket.socket(31, socket.SOCK_RAW, 1)"
 ```
 
-## The host: knuckles
+## The hosts
+
+Arm B needs a host with a real radio of its own; **which** host is not fixed, and
+results are only meaningful when the host is named alongside them. Two are in
+play.
+
+| host | stack | status |
+|---|---|---|
+| `knuckles` (Linux) | Blink on **BlueZ** | in use; green 21/21, 2026-09-06. Slow — see the hazard above. |
+| `cheetah` (MacBook) | Blink on **CoreBluetooth** | **not yet run** — TRA-1256. Faster, and the stack preview and prod testing actually use. |
+
+`cheetah` matters for more than speed: all preview and prod hardware testing is
+done from it, so fidelity established only on knuckles leaves the shipping stack
+unmeasured. On macOS the browser must be **installed Google Chrome** via
+`channel: 'chrome'` rather than Playwright's bundled Chromium, which is
+ad-hoc-signed and cannot reliably hold the TCC Bluetooth grant. Without that
+grant the chooser comes up **empty**, which is indistinguishable from an
+out-of-range device. Safari is not an option — WebKit declined Web Bluetooth, as
+did Firefox.
+
+### knuckles (Linux, BlueZ)
 
 Verified 2026-09-06, by command:
 
