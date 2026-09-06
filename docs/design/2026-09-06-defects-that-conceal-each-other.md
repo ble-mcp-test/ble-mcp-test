@@ -74,6 +74,15 @@ was the whole disclosure.
 
 ## The consequence for how they get fixed
 
+> **This is not two independent bugs. It is one hazard with two locks on it, and
+> removing one lock is the dangerous operation.**
+
+That framing is `platform`'s, offered while checking their own exposure to this
+change, and it is sharper than the one this document was first written with. It
+also gives the operational instruction the shape needs: the question is never
+"which of these should I fix" but "what does the other one become once this is
+gone".
+
 **Fixing one alone makes things worse than fixing neither.** Landing the device
 identity without the cache invalidation would have promoted a hazard nobody hit
 into the ordinary path of every reconnect — silently, with a green suite and a
