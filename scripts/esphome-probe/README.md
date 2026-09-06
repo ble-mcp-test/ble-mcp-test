@@ -1,23 +1,18 @@
 # ESPHome Bluetooth Proxy probe
 
-Answers one question empirically: **can an ESPHome Bluetooth Proxy (GL-S10 or any
-ESP32) replace the local BlueZ/btleplug radio as the transport under ble-mcp-test?**
+Flash an ESP32 as a Bluetooth Proxy, then measure what it does under this
+project's four traffic shapes: steady polling, induced disconnects, a live tag
+stream, and back-to-back writes.
 
-It is the Python twin of `scripts/ble-soak.js` — same CS108 commands, same four
-modes, same summary JSON written to `tmp/soak/<label>.json` — so the results line up
-column-for-column with `scripts/ble-soak.js`.
+The proxy is the bridge's only route to the device — there is no local radio —
+so its behaviour under load is the bridge's behaviour under load. Re-measure
+after anything that could change it: new ESPHome firmware, a different board, a
+move to another network segment, or a hardware fault you are trying to pin down.
 
-No Home Assistant, no BlueZ, no local radio. The probe talks the ESPHome native API
-over TCP via `bleak-esphome`, which is the same path a Rust bridge would take with
-the `esphome-native-api` crate.
-
-## Baselines to beat (ASUS dongle + btleplug, 2026-08-21)
-
-| Mode | Result |
-|---|---|
-| `poll` @ 1 s | 100 % (928/929 over 15 min; 72 min clean), p50 **40 ms**, p95 ~55 ms |
-| `recover` ×10 | **10/10** recovered, p50 **5.5 s**, max 7.3 s |
-| `inventory` (10 min) | **50.3 tags/s** (30,262 tags, 1.37 MB), `streamGaps: 0`, 0 drops — with the extra tags in the field; production logs peak at ~20/s |
+The probe talks the ESPHome native API over TCP via `bleak-esphome`, the same
+library the bridge uses. No Home Assistant. It writes a summary JSON to
+`tmp/soak/<label>.json` in the same column layout as `scripts/ble-soak.js`, so
+runs from either tool sit side by side.
 
 ## 1. Flash the proxy
 
@@ -92,8 +87,9 @@ uv run scripts/esphome-probe/probe.py --proxy $P --mode thrash --interval 20 --m
 ```
 
 `recover` defaults to `--induce disconnect`, which asks the proxy to drop the GATT
-link (the proxy-side equivalent of `hcitool ledc`). `--induce manual` instead waits
-for you to power-cycle the reader each cycle — a harsher, more realistic drop.
+link. `--induce manual` instead waits for you to power-cycle the reader each cycle —
+a harsher, more realistic drop, and the only one that exercises the reader's own
+re-advertisement.
 
 Writes default to **without-response**, which is what the bridge does.
 `--with-response` flips to write-with-response.
@@ -103,23 +99,18 @@ Writes default to **without-response**, which is what the bridge does.
 Each run prints a summary and writes `tmp/soak/<label>.json`. Columns match
 `ble-soak.js`; `panics`/`bridgeRestarts` are `null` here — there is no subprocess to
 panic and no bridge process to watch, and `null` means *not observed* rather than
-*none happened*. Two new columns appear:
+*none happened*. Two columns are specific to this tool:
 
 - `linkDrops` — unexpected GATT disconnects reported by the proxy
 - `apiWarnings` — WARNING+ records from `aioesphomeapi`/`bleak_esphome` (API link
   noise: reconnects, timeouts, slot waits)
 
-Pass/fail is simple: **recover must be 10/10**, poll success ≥ 99.9 %, and the
-inventory stream must show `streamGaps: 0`. Latency can be a bit worse than 40 ms
-p50 (extra TCP hop) without changing the verdict.
+A healthy proxy: **`recover` 10/10**, `poll` success ≥ 99.9 %, and `streamGaps: 0`
+on the inventory run. Latency is the number to compare against your own previous
+run rather than against a fixed threshold — it moves with the network path, and a
+p50 that has doubled since the last firmware is a finding even when it is still
+comfortably inside the bridge's budget.
 
-## If it passes
-
-The Rust bridge gets a `BleTransport` trait with two backends — `btleplug` (proven,
-default) and `esphome` (`esphome-native-api` crate, all Bluetooth messages present
-as of 3.0.0). The bridge then no longer needs a radio host at all: no BlueZ, no
-D-Bus, no `bluez-async` panic, no adapter roulette, and it can run in a container.
-
-## If it fails
-
-Close TRA-1113 on evidence and attach the JSON. An hour well spent either way.
+Keep the JSON. A single run tells you whether the proxy is broken right now; two
+runs either side of a change tell you what the change did, which is the question
+that usually brought you here.

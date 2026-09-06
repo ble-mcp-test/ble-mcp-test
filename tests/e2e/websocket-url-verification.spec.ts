@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { getBleConfig, setupMockPage, E2E_TEST_CONFIG } from './test-config';
+import { bridgeSessionId } from '../shared/test-config.js';
 
 test.describe('WebSocket URL Session Verification', () => {
   test('should include session parameter in actual WebSocket URL', async ({ page }) => {
@@ -21,7 +22,13 @@ test.describe('WebSocket URL Session Verification', () => {
       };
     });
 
-    const testSessionId = 'test-ws-url-capture-xyz789';
+    // This spec CONNECTS -- the URL is only captured because `gatt.connect()`
+    // reaches the real bridge -- so the id lands in the daemon's ownership log.
+    // It used to be `test-ws-url-capture-xyz789`, which is what the journal
+    // showed during the 2026-08-31 contention and what nobody could attribute.
+    // It still has to differ from the suite's default id, because this test
+    // asserts its own id appears in the query string.
+    const testSessionId = bridgeSessionId('ws-url-capture');
     
     // Inject mock and attempt connection
     const bleConfig = getBleConfig();

@@ -45,9 +45,41 @@ function requireUuid(name: string): string {
   return value;
 }
 
+/**
+ * The one place a session id is built.
+ *
+ * A session id tells the bridge WHICH REPO is holding the reader. Platform's is
+ * `trakrf-platform-dev-${hostname}`; every client of ours carries `ble-mcp-`.
+ * That prefix is the only thing that makes the bridge's ownership log
+ * self-attributing, and it is worth something precisely when two repos are
+ * contending -- which is the moment nobody is in a position to go and ask.
+ *
+ * On 2026-08-31 the journal for one contested window showed this suite under two
+ * unrelated names three seconds apart, one of them `test-ws-url-capture-xyz789`,
+ * which is indistinguishable from any stray script on the box. Working out who
+ * held the command path took twenty minutes and two wrong answers.
+ *
+ * **Stable per host, deliberately not unique per process.** The bridge matches a
+ * reconnecting client against its own prior name to tell `DEVICE_BUSY_SELF` from
+ * a foreign holder (TRA-1216), and connection reuse depends on the id not moving
+ * between runs. A per-process id would make every reconnect look like a stranger
+ * and undo that. Telling two clients WITHIN this repo apart is a different
+ * problem and wants per-connection attribution in the bridge's log, not a
+ * different session id.
+ *
+ * `tests/unit/no-dead-server-instructions.test.ts` fails on a bare literal in
+ * `tests/e2e/`, so this is the enforced route rather than the recommended one.
+ *
+ * @param workload what this client is doing -- `e2e`, `ws-url-capture`. It ends
+ *   up in the bridge journal, so name it the way you would want to read it there.
+ */
+export function bridgeSessionId(workload: string): string {
+  return `ble-mcp-${workload}-${os.hostname()}`;
+}
+
 export const SHARED_TEST_CONFIG = {
   // Fixed session ID for all tests - ensures session reuse works across test runs
-  sessionId: `ble-mcp-e2e-${os.hostname()}`,
+  sessionId: bridgeSessionId('e2e'),
   
   // BLE device configuration from environment.
   //

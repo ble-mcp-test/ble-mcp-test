@@ -7,12 +7,15 @@
 # ]
 # ///
 """
-ESPHome Bluetooth Proxy probe — can a GL-S10 / ESP32 proxy back the CS108 use case?
+ESPHome Bluetooth Proxy probe — measure what a GL-S10 / ESP32 proxy does under load.
 
-Python twin of scripts/ble-soak.js: same commands, same modes, same summary JSON,
-written to tmp/soak/<label>.json so results sit next to the btleplug/adapter runs
-and compare apples to apples. Talks to the proxy over the ESPHome native API via
-bleak-esphome — no Home Assistant, no BlueZ, no local radio.
+The proxy is the bridge's only route to the device, so this measures the transport
+the bridge actually runs on. Re-run it after new ESPHome firmware, a board swap, a
+network change, or while chasing a suspected hardware fault.
+
+Same commands, modes and summary-JSON columns as scripts/ble-soak.js, written to
+tmp/soak/<label>.json so runs from either tool line up. Talks to the proxy over the
+ESPHome native API via bleak-esphome — no Home Assistant.
 
 Usage (uv resolves the deps on first run):
 
@@ -21,9 +24,8 @@ Usage (uv resolves the deps on first run):
   uv run scripts/esphome-probe/probe.py --proxy 192.168.1.50 --mode recover --cycles 10 --label esphome-recover
   uv run scripts/esphome-probe/probe.py --proxy 192.168.1.50 --mode thrash --minutes 5 --label esphome-thrash
 
-Baselines to beat (ASUS dongle + btleplug, 2026-08-21, see STATE-OF-PLAY.md §11):
-  poll      100 %, p50 40 ms, 72 min clean
-  recover   10/10 recovered, p50 5.5 s, max 7.3 s
+A healthy proxy: recover 10/10, poll >= 99.9 %, inventory streamGaps 0. Compare
+latency against your own previous run rather than a fixed number — see README.md.
 """
 
 from __future__ import annotations

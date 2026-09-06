@@ -63,7 +63,11 @@ const topLevel = new Set(readdirSync(projectRoot));
  * off.
  */
 const PNPM_BUILTINS = new Set([
-  'install', 'i', 'add', 'remove', 'dlx', 'exec', 'run', 'pack', 'why', 'update', 'link'
+  'install', 'i', 'add', 'remove', 'dlx', 'exec', 'run', 'pack', 'why', 'update', 'link',
+  // `publish` joined this list when the release procedure was written down
+  // (TRA-1221). It is pnpm's own command, not a script -- the script it triggers
+  // is `prepublishOnly`, which npm runs, not the reader.
+  'publish'
 ]);
 
 describe('CONTRIBUTING.md instructions still resolve', () => {

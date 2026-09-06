@@ -144,6 +144,30 @@ pnpm test:e2e
    - [ ] Commit messages use conventional format
    - [ ] Documentation updated if needed
 
+## Publishing a release
+
+`prepublishOnly` is `clean && build && pretest && playwright test` — the **full hardware e2e suite**, about 1.7 minutes against a live reader. npm 2FA is TOTP on a 30-second window, and npm checks the code at the *end* of the upload. So a single `pnpm publish --otp=X` needs a code that was issued ~100 seconds earlier, which is structurally unlikely rather than unlucky: it cost two failed publishes of 0.16.1 in one afternoon, each of which ran the whole hardware suite before failing with `npm error code EOTP`.
+
+Two commands, in this order:
+
+```bash
+# 1. The gate. Runs prepublishOnly in full and uploads nothing. Takes the reader ~1.7 min.
+pnpm publish --dry-run --no-git-checks
+
+# 2. Publish immediately, with a FRESH OTP. Skips the gate step 1 already ran.
+pnpm publish --ignore-scripts --no-git-checks --otp=<fresh code>
+```
+
+The OTP is now needed at the start of a sub-second operation instead of 100 seconds before the end of a long one.
+
+Three things worth knowing before you run it:
+
+- **`--dry-run` really does run the gate.** It is not a metadata-only preview — 23/23 e2e passed against real hardware under it on 2026-08-31.
+- **It exits 1 when the version is already published**, with `You cannot publish over the previously published versions`. The gate still ran and still passed; the non-zero exit is the upload refusal. Do not write "the dry run must exit 0" into a check — re-verifying a version that is already out is the most likely reason to reach for one.
+- **`--ignore-scripts` is safe here only because step 1 ran the identical gate seconds earlier.** On its own it skips the hardware suite entirely and publishes unverified code. The two commands are one procedure, not two options.
+
+**Step 1 takes the CS108 for ~1.7 minutes; step 2 touches no hardware.** Anyone else using the reader has to be told before step 1 and again when it finishes — *including before a retry*, which is the specific omission that caused a collision on 2026-08-31. There is no lock enforcing this yet; TRA-1241 is designing one.
+
 ## Common Tasks
 
 ### Adding a New Web Bluetooth API Method

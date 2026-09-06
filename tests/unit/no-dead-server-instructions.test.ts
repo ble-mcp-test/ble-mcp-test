@@ -36,6 +36,37 @@ import { fileURLToPath } from 'url';
 const HISTORY_MARKER = 'tra-1186-historical';
 
 /**
+ * Prose a reader is expected to follow: the front door, the contributor guide,
+ * the top-level docs, and the README of any directory.
+ *
+ * ## Why the superseded-era terms are scoped to this and nothing else
+ *
+ * `btleplug`, `Noble` and the Rust bridge appear ~60 times in tracked files and
+ * **most of those are correct**. `bridge/src/ble_bridge/config.py` explains a
+ * decision by contrasting it with what `rust-ble-test` did; `bridge/tests/`
+ * asserts that a Rust default did NOT carry over. Those are reasoning about a
+ * predecessor, which is the most useful comment a rewrite can leave behind. A
+ * guard that fired on them would be answered by deleting them.
+ *
+ * `docs/design/` and `CHANGELOG.md` are already handled by isHistory().
+ *
+ * What is left after those two exclusions is prose that describes the system as
+ * it is now -- and there, naming a transport this project does not have is
+ * always one of two errors: an instruction to use it, or a comparison against
+ * it. Both send the reader looking for a radio that is not there.
+ */
+const READER_FACING = /^(?:README\.md|CONTRIBUTING\.md|docs\/[^/]+\.md|(?:[^/]+\/)*README\.md)$/;
+
+/**
+ * Every spec that can reach the REAL bridge daemon.
+ *
+ * Unit tests are deliberately excluded: they run against the in-process stub in
+ * `tests/conformance/stub-bridge.ts` and never open a socket to the daemon, so
+ * an id like `write-error-codes` never appears in anyone's ownership log.
+ */
+const REACHES_THE_DAEMON = /^tests\/e2e\//;
+
+/**
  * Each pattern is a claim the repo must not make about itself.
  *
  * Deliberately NOT included: `scan_devices`, `get_metrics` and friends. Those
@@ -116,6 +147,94 @@ const FORBIDDEN: ReadonlyArray<{ pattern: RegExp; why: string; appliesTo?: RegEx
     // which is where the rename is legitimately recorded.
     pattern: /web-ble-bridge/,
     why: 'the package was renamed to `ble-mcp-test` (see CHANGELOG); the old name 404s as a repo URL and names a package that no longer exists (TRA-1219)'
+  },
+  {
+    // TRA-1221. The replatform shipped -- TypeScript server + Noble, then a Rust
+    // spike over btleplug, both replaced by a Python bridge that reaches the
+    // device over TCP through an ESPHome proxy -- and the reader-facing docs did
+    // not follow it. `scripts/esphome-probe/README.md` still asked whether
+    // ESPHome *should* replace btleplug, which reads as an open question five
+    // months after it was answered by deleting the alternative.
+    //
+    // This one fails quietly rather than loudly. A reader who believes there is
+    // a local-radio backend goes looking for an adapter, a BlueZ service and a
+    // dongle, none of which this project has needed since 0.8.0 -- and every
+    // step of that hunt looks like ordinary setup trouble rather than like a
+    // document being wrong.
+    pattern: /btleplug/i,
+    why: 'btleplug was the Rust spike\'s local-radio backend, deleted with the spike (TRA-1155/TRA-1163); reader-facing prose that names it is either instructing a reader to use a transport that does not exist or benchmarking against one',
+    appliesTo: READER_FACING
+  },
+  {
+    // Same class, one architecture earlier. Noble was the TypeScript server's
+    // transport and went with it in 0.8.0.
+    //
+    // Scoped to reader-facing prose for a second reason beyond the one above:
+    // `bridge/src/ble_bridge/ws/server.py` says "the zombie they existed to
+    // clear was a Noble artifact, and this server has never used Noble" -- a
+    // removal notice attached to the code whose absence it explains, which is
+    // where that sentence is worth the most. A repo-wide pattern would demand
+    // it be marked as history or deleted, and both are worse than leaving it.
+    pattern: /\bNoble\b/,
+    why: 'Noble was the deleted TypeScript server\'s BLE transport (0.8.0); the Python bridge has never used it, so reader-facing prose naming it describes a stack that is not running',
+    appliesTo: READER_FACING
+  },
+  {
+    // The Rust bridge (`rust-ble-test/`, PR #41) was superseded before it ever
+    // shipped -- `docs/design/2026-08-23-python-bridge-rewrite.md` is its
+    // obituary. It is the one term here that still has a legitimate
+    // reader-facing use: `docs/MCP-SERVER.md` lists `restart_rust_bridge` among
+    // the tools that were NOT ported, and "died with the Rust bridge" is the
+    // whole reason that line earns its place. That line carries the marker.
+    //
+    // Which is the distinction this entry exists to hold, and the reason the
+    // three patterns here are scoped rather than repo-wide: a sentence that
+    // names the old thing in order to say it is gone is the most useful sentence
+    // in the file for someone arriving with old assumptions. A sweep that cannot
+    // tell it from a stale assertion deletes it.
+    pattern: /\bRust bridge\b|rust-ble-test/i,
+    why: 'the Rust bridge was a spike that never shipped and was deleted in TRA-1163; naming it in reader-facing prose describes a component no reader can run',
+    appliesTo: READER_FACING
+  },
+  {
+    // TRA-1221, second subject. A session id presented to the bridge identifies
+    // WHICH REPO the client belongs to -- platform's is
+    // `trakrf-platform-dev-${hostname}`, ours is `ble-mcp-*-${hostname}` -- which
+    // is what makes the bridge's ownership log self-attributing.
+    //
+    // Exactly one id in the tree followed it. During the 0.16.1 publish on
+    // 2026-08-31 a publish suite and a platform client contended for the CS108,
+    // and the bridge journal for that window shows OUR OWN suite presenting two
+    // unrelated identities seconds apart:
+    //
+    //     11:54:48  refused a writer for session ble-mcp-e2e-mssb: Device is busy
+    //     11:54:51  refused a writer for session test-ws-url-capture-xyz789: ...
+    //
+    // `test-ws-url-capture-xyz789` is indistinguishable from any stray script on
+    // the box. Reconstructing who held the command path took ~20 minutes across
+    // two sessions and produced two wrong attributions, one in each direction,
+    // before Mike's direct confirmation settled it. Had every client carried the
+    // prefix the log would have answered it.
+    //
+    // The convention existed and nothing enforced it, which is this ticket's
+    // whole subject in a different medium.
+    //
+    // Matches a non-empty string literal only. `sessionId: ''` is left alone
+    // deliberately: `mock-bundle-validation.spec.ts` asserts that the empty
+    // string is rejected like a missing one, so the empty literal there IS the
+    // subject of its check and a prefix would destroy it.
+    //
+    // `[:=]` and not just `:`, because the first version of this pattern read
+    // `sessionId:` and therefore did not match
+    //
+    //     const testSessionId = 'test-ws-url-capture-xyz789';
+    //
+    // which is the exact literal out of the incident above. A guard that goes
+    // red on four incidental fixtures and stays green on the id that cost the
+    // twenty minutes is worse than no guard: it reports the class closed.
+    pattern: /[Ss]ession_?[Ii]d\s*[:=]\s*(['"`])(?!\1)(?!ble-mcp-)/,
+    why: 'every client that can reach the real bridge must derive its session id from bridgeSessionId() in tests/shared/test-config.ts, so the ownership log says which repo is holding the reader (TRA-1221)',
+    appliesTo: REACHES_THE_DAEMON
   }
 ];
 

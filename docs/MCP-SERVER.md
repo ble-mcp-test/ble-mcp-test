@@ -45,7 +45,8 @@ Every tool returns `structuredContent` against a declared `outputSchema`.
 - `scan_devices` — scanned a local radio. There is no local radio: the bridge reaches the device
   over TCP through an ESPHome proxy. Discovery through that proxy would be a different tool with a
   different contract, and nothing has asked for one.
-- `restart_rust_bridge` — died with the Rust bridge.
+- `restart_rust_bridge` — died with the Rust bridge. <!-- tra-1186-historical: naming the dead
+  component is the point of the line; the guard forbids it elsewhere in reader-facing prose -->
 
 `get_logs` is a **tool**. It is not the MCP protocol's `logging/*` capability, which is deprecated.
 A tool that returns log text and a server-to-client logging channel are different things.
@@ -225,6 +226,21 @@ name, which is the coupling these fields exist to remove.
 Call `read_stream` with no cursor to see what the ring holds. Keep `next_cursor` from the reply and
 pass it back as `cursor` on the next call to get only what is new. `next_cursor` holds its place
 when nothing arrived, so polling a quiet stream does not rewind.
+
+Two things about the cursor decide what a first-time caller gets back, and neither errors when it
+is assumed the other way round:
+
+- **No cursor means the OLDEST retained record, not the newest.** A caller that wanted "what just
+  happened" and omitted the cursor gets the front of the ring instead, which on a full buffer is
+  hours old and looks like a stalled device.
+- **The cursor is EXCLUSIVE.** `{"cursor": 900000}` returns `id` 900001 first. Treating it as
+  inclusive duplicates one record per page — which on a paginating client is a duplicate every
+  `limit` records, spread thinly enough to read as retransmission.
+
+Each entry is `{id, timestamp, direction, text, size}` plus a derived `is_packet`. One `text` field
+carries the hex for a packet and the message for a log line, and `direction` carries `TX`/`RX` for
+a packet and `DEBUG`/`INFO`/`WARN`/`ERROR` for a log line — which is what lets one ring hold both
+in true order. `is_packet` is the field to branch on, not the shape of `text`.
 
 Two fields say when the answer is not what it looks like:
 
