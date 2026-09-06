@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+#
+# ble-radio-lock -- hold the shared reader for a WHOLE operation.
+#
+# On 2026-08-31 two sessions collided on the CS108 and `held: false` was telling
+# the truth the entire time. A publish ran its 23-test hardware gate, died on an
+# expired OTP, and re-attempted 26 seconds later; a poll landed in that gap, read
+# a genuinely free device, and took it. The lock was enforced and nobody misread
+# it. The critical section was simply longer than the hold that protected it --
+# it released twice, inside itself.
+#
+# So this is not a better flag. It is a hold that:
+#
+#   * spans the whole operation, retries and the gaps between attempts included,
+#   * is enforced by the kernel rather than observed by a reader, and
+#   * is returned by the kernel when its holder dies, by any means.
+#
+# THE MECHANISM IS flock(2) ON ONE FIXED PATH. That, not this script, is the
+# contract: anything that flocks the same file participates correctly, in any
+# language. This script exists to make the refusal legible and to be the single
+# thing an entry point wraps.
+#
+# THERE IS DELIBERATELY NO WAY TO ASK WHETHER THE LOCK IS FREE. Acquisition is
+# the only interface. An observation API is what the 2026-08-31 poll used, and a
+# reading that is true when taken and false when acted on is exactly how that
+# incident happened. You cannot poll what does not exist.
+#
+# ASSUMES ONE HOST. flock is same-kernel. Both sides run on mssb today; arm B on
+# knuckles drives the same physical reader through a real Bluetooth stack and is
+# NOT covered. See docs/radio-lock.md.
+
+set -euo pipefail
+
+# ONE literal, no computed default. A path derived from the environment --
+# $XDG_RUNTIME_DIR, a repo root, anything -- is this codebase's second named
+# failure class: two sides would resolve different files, each acquire would
+# succeed, and the lock would silently protect nothing while looking configured.
+# The env var below is an override for tests, not a fallback chain.
+readonly DEFAULT_LOCK_PATH='/tmp/ble-mcp-test.radio.lock'
+readonly LOCK_PATH="${BLE_MCP_RADIO_LOCK:-$DEFAULT_LOCK_PATH}"
+readonly HOLDER_PATH="${LOCK_PATH}.holder"
+
+# EX_TEMPFAIL. Distinct from any exit code the wrapped operation produces, so a
+# caller can tell "refused, never ran" from "ran and failed".
+readonly EXIT_RADIO_BUSY=75
+
+usage() {
+    cat <<'EOF'
+Hold the shared BLE reader for the duration of an operation.
+
+  ble-radio-lock [--label <name>] -- <command> [args...]
+      Acquire, run the command, release when it exits. The command's exit code
+      is propagated. Refuses with 75 if the reader is already held.
+
+  ble-radio-lock [--label <name>] hold
+      Acquire and open a shell. The lock is held until that shell exits -- this
+      is how a MULTI-COMMAND operation is protected. Publish is the reason it
+      exists: gate, then OTP, then a retry on expiry are one critical section,
+      and wrapping each command separately would release between them.
+
+  ble-radio-lock path
+      Print the lock file both sides must agree on.
+
+Environment:
+  BLE_MCP_RADIO_LABEL   how this holder names itself in a refusal message
+  BLE_MCP_RADIO_LOCK    override the lock path (tests)
+EOF
+}
+
+# Read one key out of the sidecar without executing it. `source` on a file any
+# process can write is a command-injection hole, and this one is read precisely
+# when we do not trust its author.
+holder_field() {
+    local key="$1"
+    [ -r "$HOLDER_PATH" ] || return 0
+    sed -n "s/^${key}=//p" "$HOLDER_PATH" | head -1
+}
+
+# Refuse, loudly, naming whoever we can actually verify.
+refuse() {
+    local pid label command since ago now
+
+    pid="$(holder_field pid)"
+    label="$(holder_field label)"
+    command="$(holder_field command)"
+    since="$(holder_field since)"
+
+    {
+        echo
+        echo "RADIO BUSY -- the shared reader is held by another operation."
+        echo
+
+        # A recorded pid that is not alive means the sidecar is stale: either a
+        # holder died between releasing and cleanup, or the current holder has
+        # not written itself yet. Both are the same answer -- we do not know who
+        # holds it -- and naming a dead process would send someone chasing a
+        # ghost. Say unidentified and stop.
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            echo "  holder:   ${label:-unnamed} (pid ${pid} on $(holder_field host))"
+            [ -n "$command" ] && echo "  running:  ${command}"
+            if [ -n "$since" ]; then
+                now="$(date +%s)"
+                ago="$(( now - $(holder_field since_epoch) ))"
+                echo "  since:    ${since} (${ago}s ago)"
+            fi
+        else
+            echo "  holder:   unidentified -- the lock is held, but no live holder"
+            echo "            has recorded itself. The lock is still authoritative."
+        fi
+
+        echo "  lock:     ${LOCK_PATH}"
+        echo
+        echo "Nothing was run. This is a lock, not a poll: there is no reading of"
+        echo "it that means 'clear'. Wait for the holder to finish, or find out"
+        echo "what it is and stop it."
+        echo
+    } >&2
+
+    exit "$EXIT_RADIO_BUSY"
+}
+
+# Record who we are, for the benefit of whoever we refuse next. Written after
+# acquiring (there is nowhere else to write it) and renamed into place, so a
+# contender reading it concurrently sees one complete version or the other,
+# never a half-written one.
+record_holder() {
+    local tmp
+    tmp="$(mktemp "${HOLDER_PATH}.XXXXXX")"
+    {
+        echo "pid=$$"
+        echo "host=$(uname -n)"
+        echo "label=${LABEL}"
+        echo "command=$*"
+        echo "since=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        echo "since_epoch=$(date +%s)"
+    } >"$tmp"
+    mv -f "$tmp" "$HOLDER_PATH"
+}
+
+LABEL="${BLE_MCP_RADIO_LABEL:-}"
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --label)
+            [ $# -ge 2 ] || { echo "--label needs a value" >&2; exit 2; }
+            LABEL="$2"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        path)
+            echo "$LOCK_PATH"
+            exit 0
+            ;;
+        --)
+            shift
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+MODE_HOLD=0
+if [ "${1:-}" = 'hold' ] && [ $# -eq 1 ]; then
+    MODE_HOLD=1
+    shift
+fi
+
+if [ "$MODE_HOLD" -eq 0 ] && [ $# -eq 0 ]; then
+    usage >&2
+    exit 2
+fi
+
+# Label is diagnostic, never correctness: it only ever appears in a message. So
+# deriving one is safe in a way that deriving the PATH would not be.
+if [ -z "$LABEL" ]; then
+    LABEL="$(basename "$(git rev-parse --show-toplevel 2>/dev/null || pwd)")"
+fi
+
+# Open for append, never for write: `>` would truncate, and truncation is a
+# write to a file another process may be holding. And NEVER unlink it -- a
+# deleted lock file is the classic race in which two processes hold flocks on
+# two different inodes at the same path and both believe they are exclusive.
+exec 9>>"$LOCK_PATH"
+
+if ! flock -n 9; then
+    refuse
+fi
+
+if [ "$MODE_HOLD" -eq 1 ]; then
+    record_holder "interactive hold"
+    echo "Radio lock HELD by '${LABEL}' for the life of this shell (${LOCK_PATH})." >&2
+    echo "Exit the shell to release it." >&2
+    # exec: the shell inherits fd 9, so the kernel holds the lock for exactly as
+    # long as that process lives -- through every command run inside it, and
+    # through the gaps between them.
+    exec "${SHELL:-/bin/bash}"
+fi
+
+record_holder "$*"
+echo "Radio lock held by '${LABEL}' (${LOCK_PATH})." >&2
+exec "$@"

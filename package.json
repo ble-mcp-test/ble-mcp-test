@@ -48,10 +48,14 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "bin",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
+  "bin": {
+    "ble-radio-lock": "./bin/ble-radio-lock"
+  },
   "scripts": {
     "build": "pnpm run version:sync && tsc && pnpm run build:browser",
     "build:browser": "node scripts/build-browser-bundle.js",
