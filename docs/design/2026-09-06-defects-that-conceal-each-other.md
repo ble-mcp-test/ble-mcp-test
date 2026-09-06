@@ -98,6 +98,19 @@ Two other things follow, both worth doing before the fix rather than after:
   because it nulls every reference in one teardown owner and re-derives on every
   connect. That is a property of their code, not an inference from ours, and it
   was read rather than assumed.
+
+  **And the reason it is true is a fix of theirs, not a habit of theirs.** The
+  exposed surface was never the transport — it was their e2e hooks, which reach
+  a characteristic through `window.__TRANSPORT_MANAGER__` across a reconnect.
+  They resolve it at the moment of use and fail loudly when it is absent because
+  of **TRA-1179**, where two teardown paths cleared different amounts and left
+  those hooks injecting into an orphaned characteristic on real hardware. They
+  had already paid for the *stale-object* form of this bug; that payment is what
+  makes the *stale-cache* fix a non-event on their side.
+
+  Neither repo records the dependency, and neither could see it from its own
+  tree: a consumer's history can be load-bearing for a change here, and the only
+  way to find that out is to read their code and ask them what it is for.
 - **Expect a test to have to change, and read it as evidence.** The unit test
   that went red here was not stale and not wrong about its own subject. It was
   correctly asserting the compensating behaviour. A test that must be inverted to
