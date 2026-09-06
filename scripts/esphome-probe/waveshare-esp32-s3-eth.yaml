@@ -9,12 +9,24 @@
 # W5500 pinout from kiler129/ESP32-S3-ETH-bt-proxy (community-verified):
 #   MOSI 11, MISO 12, CLK 13, CS 14, RESET 9, INT 10.
 
+# `device_name` is the mDNS hostname, so it must differ per board. Two proxies
+# answering to waveshare-s3-eth-probe.local resolve to whichever replies first,
+# and not necessarily the same one twice -- which presents as one proxy with
+# intermittently wrong telemetry rather than as two proxies with one name.
+#
+# Override per board on the command line rather than editing this file:
+#
+#   uvx esphome -s device_name proxy-2 run scripts/esphome-probe/waveshare-esp32-s3-eth.yaml
+#
+# Editing the default instead means every later flash silently inherits whichever
+# board was done last, which is the same collision one step removed.
+substitutions:
+  device_name: waveshare-s3-eth-probe
+  device_friendly_name: Waveshare S3-ETH BLE Probe
+
 esphome:
-  # This is the mDNS hostname. Change it before flashing a SECOND board from this
-  # file -- two proxies answering to waveshare-s3-eth-probe.local resolve to
-  # whichever replies first, which presents as one flaky proxy rather than as two.
-  name: waveshare-s3-eth-probe
-  friendly_name: Waveshare S3-ETH BLE Probe
+  name: ${device_name}
+  friendly_name: ${device_friendly_name}
   min_version: 2026.5.1   # slot-leak fix (esphome/esphome PR #16588)
 
 esp32:
