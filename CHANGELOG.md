@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0]
+
+### Added
+
+- **`ble-radio-lock`: a hold on the shared reader that spans a whole operation.** New
+  package `bin`, so a consumer that already depends on this package gets it on upgrade:
+
+  ```bash
+  ble-radio-lock --label platform-integration -- pnpm test:integration
+  ble-radio-lock hold     # multi-command operations; release by exiting the shell
+  ble-radio-lock path     # the lock file both sides must agree on
+  ```
+
+  It exists because on 2026-08-31 two sessions collided on one reader while
+  `held: false` reported the truth throughout. A publish ran its hardware gate, died on
+  an expired OTP, and re-attempted 26 seconds later; a poll landed in that gap and took
+  a device that genuinely was free. Nobody misread the flag. **The critical section was
+  longer than the hold protecting it** — the section was *publish*, the hold was *one
+  gate run*, and it released inside itself twice. A value that is true when read and
+  false when acted upon cannot be fixed by making it more accurate; it needs a duration.
+
+  A contended acquire refuses immediately with **exit 75** (`EX_TEMPFAIL`) and names the
+  holder, its pid, what it is running and for how long. It never queues — a run that
+  waits invisibly behind a publish is worse than one that fails saying why.
+
+  **There is deliberately no way to ask whether the lock is free.** No `status`, no
+  `--check`. Acquisition is the only interface, because an observation API is what that
+  poll used and any answer it can give is stale by the time the caller branches on it.
+  Expect this to read as a missing feature; it is the load-bearing decision.
+
+  The mechanism is `flock(2)` on **one fixed path**, `/tmp/ble-mcp-test.radio.lock`, so
+  anything that flocks that file participates — in any language, this script or not. The
+  kernel releases it when the holder dies by any means, so a killed test run cannot
+  strand the reader, and there is no stale-lock logic or liveness heuristic to get wrong.
+  Wrapping is re-entrant and fails closed, so wrapping an entry point that is already
+  inside a hold passes through rather than deadlocking against its own ancestor.
+
+  **Two limits, stated because neither degrades loudly.** `flock` is same-kernel: this
+  excludes nothing between hosts, and if the participants stop sharing a machine it will
+  silently stop excluding anything rather than fail. And a browser holding the device
+  through a real Bluetooth stack is outside it entirely — a green acquisition is not
+  clearance against a hand test. `docs/radio-lock.md` covers both, and
+  `docs/design/2026-09-06-radio-lock.md` records the design decisions and what each
+  rejected.
+
+  Linux only (it shells out to `flock(1)`), which matches where the hardware path
+  already runs.
+
+### Changed
+
+- This repo's own radio entry points now hold the lock for their whole run: the e2e
+  suites, the publish gate, and `bridge`'s `just hardware`. `just radio-hold` covers
+  multi-command operations.
+
 ## [0.16.1]
 
 ### Changed
