@@ -549,14 +549,22 @@ takeover, no release timing, no error frames**. It proves the client surface and
 nothing about the wire. Release timing is the most dangerous silence: it is the
 property four e2e specs encoded wrong for months with nothing to contradict them.
 
-**Arm B has been run.** Twice, on 2026-09-06, on a box with a real adapter
-against a real CS108, with identical results both times: one clause red out of
-nineteen. That clause was the mock's — `requestDevice` minting a fresh device per
-call where Chromium returns the same object — and it is fixed above (TRA-1255).
-The fix has not itself been through arm B; a green arm A says nothing about that,
-which is the whole reason this arm exists. See
+**Arm B has been run, and it is green.** 2026-09-06, on `knuckles` with an ASUS
+BT500 against a real CS108: first at 18/19, which found the mock minting a fresh
+device per `requestDevice()` where Chromium returns the same object; then at
+**21/21, twice consecutively, after the fix** (TRA-1255). So the three clauses
+that fix touches — device identity, attribute invalidation on disconnect, and
+`connect()` on a connected server — are **verified against Chromium**, not
+asserted from the algorithm.
+
+**That is the strongest thing this document can say about any clause, and it
+covers 21 of them.** Everything else here is still asserted: a clause arm B
+cannot exercise, or one changed since it last ran, is read off the spec. See
 [`tests/conformance/README.md`](../../tests/conformance/README.md) and
-[`docs/conformance-arm-b.md`](../conformance-arm-b.md) for what running it needs.
+[`docs/conformance-arm-b.md`](../conformance-arm-b.md) — including the
+precondition that anything else able to claim the adapter (blueman on Linux, the
+TCC grant on macOS) must be dealt with first, because both fail as an empty
+chooser that reads as an absent device.
 
 **A skipped arm B is loud in the result line, not in the config.** A suite
 reporting green with arm B silently skipped is worse than a one-armed suite,
@@ -570,7 +578,7 @@ across both:
 | grade | what stands behind it | what would falsify it |
 |---|---|---|
 | **verified** | a check in `tests/conformance/` or `tests/unit/` that goes red when the behaviour changes | running `just validate` |
-| **asserted** | the Web Bluetooth specification, or someone's reading of Chrome. Arm B has now run — twice, 2026-09-06 — so the clauses it exercises are verified against Chrome; **every clause it does not exercise, and every clause changed since, is not** | reading the normative algorithm, or re-running arm B |
+| **asserted** | the Web Bluetooth specification, or someone's reading of Chrome. Arm B ran green at 21/21 on 2026-09-06, so the clauses it exercises are verified against Chrome; **every clause it does not exercise, and every clause changed since, is not** | reading the normative algorithm, or re-running arm B |
 
 **A verified clause says the mock does this. An asserted clause says the real API
 does this — and is exactly as good as its citation.**

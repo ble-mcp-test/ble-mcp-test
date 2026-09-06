@@ -47,10 +47,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   consumer can produce, and it is why arm A was structurally unable to observe the
   per-realm device map that arm B found wrong.
 
-  ⚠ **Arm B has not seen this fix.** It found the defect; it has not been re-run against
-  the correction, and arm A's green is not evidence about it. `tests/conformance/README.md`
-  and `docs/conformance-arm-b.md` say a result is owed rather than carrying the one from
-  2026-09-06, which describes code that no longer exists.
+  **Arm B found this defect and has now confirmed the fix: 21/21, twice consecutively,
+  on real Chromium against a real CS108** (`knuckles`, ASUS BT500, 2026-09-06). So the
+  three clauses above are verified against the API the mock doubles, rather than asserted
+  from the specification — which is the only form of evidence that means anything here,
+  and the reason the arm exists.
+
+  ⚠ **A precondition the run made visible: anything else able to claim the adapter must
+  be stopped first.** On Linux that is `blueman-applet`/`blueman-tray`, a second BlueZ
+  client that pairs and auto-connects while the chooser is open; on macOS it is the TCC
+  Bluetooth grant. Both fail the same way — an empty chooser, indistinguishable from a
+  device that is not there. `docs/conformance-arm-b.md` records blueman as a
+  *precondition with a mechanism* rather than a closed case: the decisive experiment,
+  restoring it and watching the failures return, has not been run.
 
 ## [0.17.0]
 
