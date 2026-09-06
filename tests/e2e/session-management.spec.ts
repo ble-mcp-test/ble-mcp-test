@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { E2E_TEST_CONFIG, getBleConfig, setupMockPage } from './test-config';
+import { bridgeSessionId } from '../shared/test-config.js';
 
 test.describe('Session Management - Session ID and Reuse Testing', () => {
   test('should reuse BLE session across test runs with explicit sessionId', async ({ page }) => {
@@ -73,7 +74,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
     
     const results = await page.evaluate(async (testConfig) => {
       const log: string[] = [];
-      const { service, write, notify } = testConfig;
+      const { service, write, notify, foreignSessionId } = testConfig;
       
       try {
         // === FIRST CONNECTION WITH STANDARD SESSION ID ===
@@ -100,7 +101,10 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
         
         // Create new mock config with different session ID
         const differentSessionConfig = {
-          sessionId: 'different-session-id-12345',
+          // Different from the suite's own id -- that is what this test is about
+          // -- but still `ble-mcp-*`, so the refusal the bridge logs names this
+          // repo rather than an anonymous literal.
+          sessionId: foreignSessionId,
           serverUrl: testConfig.serverUrl,
           service: testConfig.service,
           write: testConfig.write,
@@ -172,7 +176,7 @@ test.describe('Session Management - Session ID and Reuse Testing', () => {
           error: error.message
         };
       }
-    }, getBleConfig());
+    }, { ...getBleConfig(), foreignSessionId: bridgeSessionId('second-session') });
 
     console.log('[Session Test] Results:');
     results.log.forEach(line => console.log(`  ${line}`));

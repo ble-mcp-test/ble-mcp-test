@@ -52,6 +52,21 @@ describe('the `.` entry point', () => {
     // Playwright's addInitScript and platform's transformIndexHtml cannot import.
     expect(pkg.exports['./browser']).toBe('./dist/web-ble-mock.bundle.js');
   });
+
+  it('installs nothing into a consumer', () => {
+    // The README's Features list claims "the published package has no runtime
+    // dependencies" (TRA-1221). It used to claim "core bridge under 600 lines",
+    // which was 7x out when it was written and 11x out a week later -- a number
+    // in prose that nothing reads drifts silently, and the fix is not a fresher
+    // number, it is a claim something can check.
+    //
+    // Both entry points reach the wire through the runtime's global WebSocket:
+    // the browser bundle through the browser's, `.` through Node 24's. `ws` is a
+    // devDependency for the test harness only, so a consumer installs zero
+    // transitive packages. That is the whole content of "minimal", and adding a
+    // `dependencies` block is the change that would make the README false.
+    expect(pkg.dependencies ?? {}).toEqual({});
+  });
 });
 
 describe('the built package', () => {

@@ -3,6 +3,19 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as fs from 'fs';
 import { setupMockPage, getBleConfig } from './test-config';
+import { bridgeSessionId } from '../shared/test-config.js';
+
+/**
+ * The filler id for the checks below, whose subject is a MISSING argument rather
+ * than the session id itself.
+ *
+ * None of them reaches the bridge -- `injectWebBluetoothMock` throws before a
+ * socket is opened -- so nothing here can appear in an ownership log. It still
+ * carries the prefix, because "a bare literal is fine when injection happens to
+ * throw first" is a rule that has to be re-derived at every call site, and the
+ * one place it was got wrong was a spec that did connect.
+ */
+const FILLER_SESSION_ID = bridgeSessionId('bundle-validation');
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -118,18 +131,18 @@ test.describe('Mock Bundle Validation', () => {
     });
 
     test('should require serverUrl and throw clear error when missing', async ({ page }) => {
-      const result = await page.evaluate(() => {
+      const result = await page.evaluate((sessionId) => {
         try {
           // Try to inject without serverUrl (should fail)
           window.WebBleMock.injectWebBluetoothMock({
-            sessionId: 'test-session',
+            sessionId,
             service: '9800'
           } as any);
           return { success: true, error: null };
         } catch (error: any) {
           return { success: false, error: error.message };
         }
-      });
+      }, FILLER_SESSION_ID);
       
       expect(result.success).toBe(false);
       expect(result.error).toContain('serverUrl is required');
@@ -137,18 +150,18 @@ test.describe('Mock Bundle Validation', () => {
     });
 
     test('should require service and throw clear error when missing', async ({ page }) => {
-      const result = await page.evaluate(() => {
+      const result = await page.evaluate((sessionId) => {
         try {
           // Try to inject without service (should fail)
           window.WebBleMock.injectWebBluetoothMock({
-            sessionId: 'test-session',
+            sessionId,
             serverUrl: 'ws://localhost:25153'
           } as any);
           return { success: true, error: null };
         } catch (error: any) {
           return { success: false, error: error.message };
         }
-      });
+      }, FILLER_SESSION_ID);
       
       expect(result.success).toBe(false);
       expect(result.error).toContain('service is required');
@@ -182,11 +195,14 @@ test.describe('Mock Bundle Validation', () => {
       await page.goto('about:blank');
       await page.addScriptTag({ path: bundlePath });
 
-      const result = await page.evaluate(() => {
+      const result = await page.evaluate((sessionId) => {
         const testCases = [
+          // The empty string here is the SUBJECT -- this asserts an empty
+          // sessionId is rejected the way a missing one is -- so it stays a
+          // literal while the other two take the real id.
           { sessionId: '', serverUrl: 'ws://localhost:25153', service: '9800' },
-          { sessionId: 'test', serverUrl: '', service: '9800' },
-          { sessionId: 'test', serverUrl: 'ws://localhost:25153', service: '' }
+          { sessionId, serverUrl: '', service: '9800' },
+          { sessionId, serverUrl: 'ws://localhost:25153', service: '' }
         ];
 
         return testCases.map(config => {
@@ -197,7 +213,7 @@ test.describe('Mock Bundle Validation', () => {
             return { config, success: false, error: error.message };
           }
         });
-      });
+      }, FILLER_SESSION_ID);
 
       // All should fail with appropriate error messages
       expect(result[0].success).toBe(false);

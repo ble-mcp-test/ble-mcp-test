@@ -451,7 +451,7 @@ This is especially useful when:
 ✅ **TypeScript** - Full type safety and IntelliSense  
 ✅ **Single-writer safety** - A second writer is refused, not silently admitted  
 ✅ **Service UUID Filtering** - Connect by service without device name (v0.5.8+)  
-✅ **Minimal** - Core bridge under 600 lines, one connection at a time  
+✅ **Minimal** - One writer at a time; the published package has no runtime dependencies  
 
 ## Documentation
 

@@ -1,5 +1,10 @@
 # GL.iNet GL-S10 as an ESPHome Bluetooth Proxy — probe configuration.
 #
+# NOT the reference board. The GL-S10 was evaluated and not adopted: the fleet on
+# hand is v2.1 (IP101 PHY) and did not hold up for this use case. The reference is
+# waveshare-esp32-s3-eth.yaml. This config still works and is kept as a second
+# data point, not as a recommendation.
+#
 # Based on the official esphome/bluetooth-proxies gl-inet/gl-s10.yaml, trimmed to
 # what the probe needs and pinned so a firmware bump can't silently change results.
 #

@@ -218,11 +218,14 @@ export async function setupBleTest(page: Page) {
   // Monitor console for BLE-related errors
   page.on('console', msg => {
     const text = msg.text();
-    if (msg.type() === 'error' || 
-        text.includes('WebSocket') || 
+    // 'zombie' and 'Noble' were here too. Both were names from the deleted
+    // TypeScript server's local-radio transport, and neither has been printable
+    // by anything since 0.8.0 -- a filter term that can no longer match reads as
+    // coverage while contributing nothing.
+    if (msg.type() === 'error' ||
+        text.includes('WebSocket') ||
         text.includes('Transport') ||
-        text.includes('zombie') ||
-        text.includes('Noble')) {
+        text.includes('Device is busy')) {
       console.log(`[Browser ${msg.type()}]`, text);
     }
   });
