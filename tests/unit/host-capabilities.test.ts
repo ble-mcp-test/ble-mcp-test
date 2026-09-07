@@ -184,12 +184,36 @@ describe('renderNotRun', () => {
     expect(out).toContain('0 checks NOT RUN');
   });
 
-  it('names each skipped check and its reason, in what the run prints', () => {
+  it('names each skipped check and the capabilities it needs', () => {
     const out = renderNotRun('PRETEST', [
-      { what: 'orphaned test-runner sweep', because: 'no /proc on this host' },
+      { what: 'orphaned test-runner sweep', needs: [PROCFS] },
     ]);
     expect(out).toContain('1 check NOT RUN');
     expect(out).toContain('orphaned test-runner sweep');
-    expect(out).toContain('no /proc on this host');
+    expect(out).toContain(PROCFS);
+    expect(out).toContain(CAPABILITIES[PROCFS].because);
+  });
+
+  it('prints each capability paragraph EXACTLY ONCE across overlapping needs', () => {
+    // ⚠ The test that was missing. The first grouping keyed on the composed
+    // reason STRING, so a suite needing two capabilities formed a third group
+    // and reprinted both paragraphs -- groups scaled with COMBINATIONS, not
+    // capabilities. It looked correct against knuckles' case (six suites, one
+    // combination) and cheetah falsified it with two ordinary missing ones.
+    //
+    // Overlapping combinations are therefore the shape to assert, not a list of
+    // single-capability entries.
+    const out = renderNotRun('OVERLAPPING', [
+      { what: 'suite A', needs: [FLOCK] },
+      { what: 'suite B', needs: [FLOCK, PROCFS] },
+      { what: 'suite C', needs: [PROCFS, CLK_TCK] },
+    ]);
+    for (const id of [FLOCK, PROCFS, CLK_TCK]) {
+      const paragraph = CAPABILITIES[id].because;
+      const seen = out.split(paragraph).length - 1;
+      expect(seen, `${id}'s reason appears ${seen} times, expected exactly 1`).toBe(1);
+    }
+    // And every check is still named, which is the half the reason must not bury.
+    for (const what of ['suite A', 'suite B', 'suite C']) expect(out).toContain(what);
   });
 });

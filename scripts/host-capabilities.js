@@ -238,22 +238,38 @@ export function renderNotRun(heading, entries) {
     `  ${entries.length} check${entries.length === 1 ? '' : 's'} NOT RUN on this host` +
       (entries.length === 0 ? ' - nothing was skipped for the host' : ':'),
   ];
-  // Grouped by reason, and the reason printed ONCE per group.
+
+  // NAMES first, then each capability's paragraph EXACTLY ONCE.
   //
-  // It used to repeat under every entry. On knuckles with lsof blinded that was
-  // six copies of a ~1.5KB paragraph, which pushed the NAMES of what did not run
-  // off the top of the terminal -- the exact thing this banner exists to show.
-  // A reason worth stating is not worth stating six times.
-  const byReason = new Map();
+  // Two goes at this. The first printed the reason under every entry: on
+  // knuckles with lsof blinded that was six copies of a ~1.5KB paragraph, which
+  // pushed the names off the top of the terminal -- the thing AC2 is for.
+  //
+  // The second grouped by the composed reason STRING, and cheetah falsified it
+  // without blinding anything: reasons COMPOSE, so a suite needing two
+  // capabilities gets a concatenated key that matches neither single-capability
+  // group, forms a third, and reprints both paragraphs. Groups scaled with the
+  // number of distinct COMBINATIONS rather than capabilities -- 2 capabilities,
+  // 3 groups, every paragraph twice. knuckles' case was six suites needing lsof
+  // alone, i.e. one combination, which is exactly why it looked fixed there.
+  //
+  // A fix verified against the reported case and not the general one is this
+  // repo's "correct answer, narrower question". So the grouping key is now the
+  // CAPABILITY: N paragraphs for N missing capabilities, whatever the
+  // combinations, and each entry lists the names it needs beside itself.
+  const paragraphs = new Map();
   for (const entry of entries) {
-    if (!byReason.has(entry.because)) byReason.set(entry.because, []);
-    byReason.get(entry.because).push(entry.what);
+    const needs = entry.needs ?? [];
+    lines.push(`    - ${entry.what}${needs.length ? `  -- needs ${needs.join(', ')}` : ''}`);
+    for (const id of needs) {
+      if (!paragraphs.has(id)) paragraphs.set(id, CAPABILITIES[id]?.because ?? '');
+    }
   }
-  for (const [because, whats] of byReason) {
-    for (const what of whats) lines.push(`    - ${what}`);
-    lines.push(`        ${because}`);
-    lines.push('');
+  if (paragraphs.size > 0) {
+    lines.push('', '  why:');
+    for (const [id, because] of paragraphs) lines.push(`    ${id}: ${because}`);
   }
+
   lines.push(rule, '');
   return lines.join('\n');
 }

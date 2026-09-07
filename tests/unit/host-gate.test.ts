@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  CAPABILITIES,
   CAPABILITY_IDS,
   CLK_TCK,
   FLOCK,
@@ -174,7 +175,12 @@ describe('the banner', () => {
     expect(report).toContain(`${skipped.length} check`);
     for (const entry of skipped) {
       expect(report).toContain(entry.what);
-      expect(report).toContain(entry.because);
+      // The capability names travel with the entry; their paragraphs are
+      // printed once each in the `why:` section rather than per entry.
+      for (const id of entry.needs) {
+        expect(report).toContain(id);
+        expect(report).toContain(CAPABILITIES[id].because);
+      }
     }
   });
 });

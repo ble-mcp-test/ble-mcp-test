@@ -121,7 +121,8 @@ export function hostCannotRun(suite: string): boolean {
 
 export interface NotRunEntry {
   what: string;
-  because: string;
+  /** Capability ids. The banner prints each one's paragraph exactly once. */
+  needs: string[];
 }
 
 /** The suites this host will not run, in the shape `renderNotRun` prints. */
@@ -132,9 +133,7 @@ export function hostSkipList(): NotRunEntry[] {
     if (missing.length === 0) continue;
     out.push({
       what: `${entry.suite}  (${entry.file})`,
-      because:
-        `needs ${missing.map((m) => m.id).join(' and ')}. ` +
-        missing.map((m) => m.because).join(' '),
+      needs: missing.map((m) => m.id),
     });
   }
   return out;
