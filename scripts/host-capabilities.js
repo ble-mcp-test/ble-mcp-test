@@ -238,9 +238,21 @@ export function renderNotRun(heading, entries) {
     `  ${entries.length} check${entries.length === 1 ? '' : 's'} NOT RUN on this host` +
       (entries.length === 0 ? ' - nothing was skipped for the host' : ':'),
   ];
+  // Grouped by reason, and the reason printed ONCE per group.
+  //
+  // It used to repeat under every entry. On knuckles with lsof blinded that was
+  // six copies of a ~1.5KB paragraph, which pushed the NAMES of what did not run
+  // off the top of the terminal -- the exact thing this banner exists to show.
+  // A reason worth stating is not worth stating six times.
+  const byReason = new Map();
   for (const entry of entries) {
-    lines.push(`    - ${entry.what}`);
-    lines.push(`        ${entry.because}`);
+    if (!byReason.has(entry.because)) byReason.set(entry.because, []);
+    byReason.get(entry.because).push(entry.what);
+  }
+  for (const [because, whats] of byReason) {
+    for (const what of whats) lines.push(`    - ${what}`);
+    lines.push(`        ${because}`);
+    lines.push('');
   }
   lines.push(rule, '');
   return lines.join('\n');

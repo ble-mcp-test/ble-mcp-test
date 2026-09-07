@@ -69,6 +69,36 @@ async def stack(tmp_path):
         await server.stop()
 
 
+async def _await_release(control, timeout_s=5.0):
+    """Wait until the server has PROCESSED the close, rather than assuming it has.
+
+    CLAUDE.md states the rule this file was breaking: "Release completes when the
+    server processes the socket close, so **await disconnect** or the next connect
+    races it." Leaving an `async with websockets.connect(...)` returns as soon as
+    the client is done; the server's own teardown is a separate event, and the
+    snapshot only returns to nulls after it.
+
+    Found on cheetah 2026-09-06, which could not see it until `AF_UNIX` was fixed:
+    every test in this file was one of the 58 path-length errors before that, so a
+    pre-existing timing bug was invisible here for as long as a different bug was
+    louder. 1 red run in 3, on a fast host.
+
+    Bounded, and it FAILS rather than returning on timeout -- a poll that gives up
+    quietly would turn this back into the assumption it replaces.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        state = await _ask(control, "get_connection_state")
+        if state["mock_version"] is None:
+            return state
+        if time.monotonic() >= deadline:
+            raise AssertionError(
+                f"the connection was still held {timeout_s}s after its socket "
+                f"closed: {state}. That is not the race this wait exists for."
+            )
+        await asyncio.sleep(0.02)
+
+
 async def _ask(control, op):
     reader, writer = await asyncio.open_unix_connection(control.path)
     try:
@@ -125,7 +155,10 @@ async def test_the_counter_outlives_the_connection_that_moved_it(stack):
     url, control = stack
     async with websockets.connect(f"{url}/?{REQUIRED}&_mv={STALE}") as ws:
         await ws.recv()
-    assert (await _ask(control, "get_connection_state"))["mock_version"] is None
+    # The snapshot returning to nulls is the PRECONDITION -- it establishes that
+    # the close has been processed. The counter below is the claim. Asserting the
+    # precondition without waiting for it is what made this flaky.
+    await _await_release(control)
     assert (await _ask(control, "status"))["mock_version_mismatches"] == 1
 
 
