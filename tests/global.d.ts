@@ -105,6 +105,7 @@ declare module '*/host-capabilities.js' {
   export function hostDescription(): string;
   export function renderNotRun(
     heading: string,
-    entries: Array<{ what: string; because: string }>
+    /** `needs` is capability ids; the banner prints each one's reason once. */
+    entries: Array<{ what: string; needs: string[] }>
   ): string;
 }

@@ -18,6 +18,7 @@ import contextlib
 import json
 import os
 import socket
+import stat
 import time
 
 import pytest
@@ -480,15 +481,44 @@ async def test_an_overlong_line_is_refused_rather_than_buffered_forever(server):
             await writer.wait_closed()
 
 
+def _leave_a_corpse(path) -> None:
+    """Make sure a dead socket FILE is on disk at `path`.
+
+    Simulating `kill -9` by closing the listener stopped working on Python
+    3.13, which gave `create_unix_server()` `cleanup_socket=True` by default:
+    `close()` now unlinks the file. A hard kill does not -- nothing runs -- so
+    on 3.13 the close-based simulation produces the opposite of the state the
+    test is about, and the test failed while the behaviour under test was fine.
+
+    Verified as a VERSION dependency, not a platform one: it fails on 3.13 and
+    passes on 3.12 on the same Linux host, and `requires-python = ">=3.12"`
+    admits both. Found on cheetah (macOS/3.13), reproduced on mssb (Linux/3.13).
+
+    Binding and closing a bare socket leaves the file behind on every supported
+    version, so the corpse is created directly rather than inferred from a
+    cleanup policy the interpreter is free to change. It must be a real socket:
+    `_clear_the_path()` deliberately REFUSES to unlink anything that is not one.
+    """
+    if os.path.exists(path):
+        return
+    corpse = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        corpse.bind(str(path))
+    finally:
+        corpse.close()
+
+
 async def test_a_stale_socket_file_is_replaced(tmp_path):
     """kill -9 leaves the file behind. Refusing to start over a corpse would make
     every hard restart a manual cleanup."""
     path = tmp_path / "stale.sock"
     first = _make(path)
     await first.start()
-    first._server.close()  # drop the listener, leave the file on disk
+    first._server.close()  # drop the listener
     await first._server.wait_closed()
+    _leave_a_corpse(path)  # ...and make sure the file is still there to start over
     assert os.path.exists(path)
+    assert stat.S_ISSOCK(os.stat(path).st_mode), "the corpse must be a socket, not a plain file"
 
     second = _make(path)
     await second.start()
@@ -548,6 +578,20 @@ async def test_the_daemon_serves_the_relay_and_the_socket_together(tmp_path, mon
     # A concrete free port, not 0: config refuses 0 as outside 1-65535, and the
     # relay's binding is incidental to what this test is about.
     monkeypatch.setenv("BLE_MCP_WS_PORT", str(_a_free_port()))
+    # The device config is SUPPLIED, never inherited. `from_env` refuses to build
+    # a config without these two, so taking them from the ambient shell made this
+    # test pass only where direnv had already exported the deployment's values --
+    # and fail everywhere else: a bare `ssh mssb 'just test'`, a fresh clone, a
+    # cron run. Worse, the failure did not stay local: it took seven downstream
+    # tests with it, because `expected_mock_version()` is @cache'd process-wide,
+    # so whichever value lands in that memo first is the one every later test
+    # sees. Three sessions measured this suite and got 0, 8 and 8 failures with
+    # nothing in the tree to explain the difference (TRA-1257).
+    #
+    # Nothing here reaches a radio: no BLE session is opened, so the proxy host
+    # only has to be well-formed, not reachable.
+    monkeypatch.setenv("ESPHOME_PROXY_HOST", "192.0.2.1")  # TEST-NET-1, RFC 5737
+    monkeypatch.setenv("BLE_MCP_DEVICE_MAC", "AA:BB:CC:DD:EE:FF")
     config = from_env(dict(os.environ))
     task = asyncio.create_task(entry._run(config, LogBuffer(100)))
     try:

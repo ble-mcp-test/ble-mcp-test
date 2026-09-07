@@ -12,7 +12,7 @@ import net from 'net';
 import path from 'path';
 import { killPort } from './port-cleanup.js';
 import { assertBridgeCurrent } from './bridge-staleness.js';
-import { CAPABILITIES, PROCFS, hasCapability, renderNotRun } from './host-capabilities.js';
+import { PROCFS, hasCapability, renderNotRun } from './host-capabilities.js';
 
 const DEFAULT_TEST_PORTS = [25153, 25154, 25155, 25156];
 const COOLDOWN_MS = 5000;
@@ -132,7 +132,7 @@ async function cleanup() {
     // a busy port will surface later as a test failure, not as a cleanup.
     notRun.push({
       what: 'killing a listener on a test port (the port check itself still runs)',
-      because: CAPABILITIES[PROCFS].because,
+      needs: [PROCFS],
     });
   }
   for (const port of TEST_PORTS) {
@@ -155,7 +155,7 @@ async function cleanup() {
   if (orphans === null) {
     notRun.push({
       what: 'the orphaned test-runner sweep',
-      because: CAPABILITIES[PROCFS].because,
+      needs: [PROCFS],
     });
     console.log('  - NOT RUN: no /proc, so no runner can be identified');
   } else if (orphans.length) {

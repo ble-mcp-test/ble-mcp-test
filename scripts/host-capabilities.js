@@ -107,14 +107,68 @@ export const CAPABILITIES = {
   },
   [LSOF]: {
     because:
-      'lsof is not on PATH. It is how a listener on a port is identified, and ' +
-      '"cannot ask" is not "nothing is listening" -- so neither the port sweep ' +
-      'nor the staleness guard can reach a verdict without it.',
-    // Whether the PROGRAM is there, not whether this one invocation liked its
-    // arguments: `lsof -v` exits non-zero on some builds.
-    probe: ({ spawn }) => !notOnPath(spawn('lsof', ['-v'], EXEC)),
+      'lsof cannot see a listener that was deliberately opened for it to find. ' +
+      'Either it is not on PATH, or it is installed and BLIND: a binary carrying ' +
+      'file capabilities runs secure-exec, which makes the process non-dumpable ' +
+      'and ptrace-gates /proc/<pid>/fd, so lsof cannot map that process\'s ' +
+      'sockets even as the same user. Measured on knuckles 2026-09-06 -- ' +
+      '`cap_net_raw=eip` left on the fnm-managed node binary from the Noble era ' +
+      'made every test spawning the Node stand-in daemon fail. Remedy: ' +
+      'setcap -r "$(readlink -f "$(command -v node)")". The tell is `ss` ' +
+      'reporting a listener `lsof` cannot find.',
+    // A POSITIVE CONTROL, not a which(1).
+    //
+    // "lsof is on PATH" is necessary and NOT sufficient, and the gap is not
+    // theoretical: on knuckles lsof existed, ran, and could not see a single
+    // Node socket. The old probe said `present`, the gate ran the suites, and 13
+    // failed exactly as before -- the mechanism built to stop that reported a
+    // clean host.
+    //
+    // `listenerPidsOnPort` reads lsof's exit 1 as "nothing is listening", which
+    // is indistinguishable from "cannot see". So the only honest question is the
+    // one asked here: open a listener that certainly exists, and check lsof
+    // finds it. An empty result is a claim about the query until the query has
+    // been shown capable of returning something.
+    //
+    // The listener is opened by a NODE child on purpose. That is the process
+    // class that was blind on knuckles, and a probe that proved lsof could see
+    // some other kind of process would have passed there.
+    probe: ({ spawn }) => {
+      if (notOnPath(spawn('lsof', ['-v'], EXEC))) return false;
+      const result = spawn(process.execPath, ['-e', LSOF_SELF_CHECK], EXEC);
+      return String(result.stdout ?? '').trim() === 'VISIBLE';
+    },
   },
 };
+
+/**
+ * Run in a child: hold a listening socket open and ask lsof to find it.
+ *
+ * It has to happen inside one child because `spawnSync` does not return until
+ * the child exits -- a parent that spawned a listener and then looked would be
+ * looking at a closed socket. So the child opens, looks, and reports.
+ *
+ * Prints exactly `VISIBLE` or `BLIND`. Anything else (a crash, no node, a
+ * timeout) is not `VISIBLE`, and the caller treats that as absent, which is the
+ * fail-closed direction: an unusable lsof must not read as a working one.
+ */
+const LSOF_SELF_CHECK = [
+  "const net=require('net');",
+  "const {execFileSync}=require('child_process');",
+  'const s=net.createServer();',
+  "s.listen(0,'127.0.0.1',()=>{",
+  '  const port=s.address().port;',
+  '  let out="";',
+  '  try{',
+  "    out=execFileSync('lsof',['-t','-sTCP:LISTEN',`-i:${port}`],",
+  "      {encoding:'utf8',stdio:['ignore','pipe','ignore']});",
+  '  }catch(e){out="";}',
+  '  const mine=out.split(String.fromCharCode(10)).map(x=>x.trim())',
+  '    .includes(String(process.pid));',
+  "  process.stdout.write(mine?'VISIBLE':'BLIND');",
+  '  s.close();',
+  '});',
+].join('');
 
 /** Every declared capability id. */
 export const CAPABILITY_IDS = Object.keys(CAPABILITIES);
@@ -184,10 +238,38 @@ export function renderNotRun(heading, entries) {
     `  ${entries.length} check${entries.length === 1 ? '' : 's'} NOT RUN on this host` +
       (entries.length === 0 ? ' - nothing was skipped for the host' : ':'),
   ];
+
+  // NAMES first, then each capability's paragraph EXACTLY ONCE.
+  //
+  // Two goes at this. The first printed the reason under every entry: on
+  // knuckles with lsof blinded that was six copies of a ~1.5KB paragraph, which
+  // pushed the names off the top of the terminal -- the thing AC2 is for.
+  //
+  // The second grouped by the composed reason STRING, and cheetah falsified it
+  // without blinding anything: reasons COMPOSE, so a suite needing two
+  // capabilities gets a concatenated key that matches neither single-capability
+  // group, forms a third, and reprints both paragraphs. Groups scaled with the
+  // number of distinct COMBINATIONS rather than capabilities -- 2 capabilities,
+  // 3 groups, every paragraph twice. knuckles' case was six suites needing lsof
+  // alone, i.e. one combination, which is exactly why it looked fixed there.
+  //
+  // A fix verified against the reported case and not the general one is this
+  // repo's "correct answer, narrower question". So the grouping key is now the
+  // CAPABILITY: N paragraphs for N missing capabilities, whatever the
+  // combinations, and each entry lists the names it needs beside itself.
+  const paragraphs = new Map();
   for (const entry of entries) {
-    lines.push(`    - ${entry.what}`);
-    lines.push(`        ${entry.because}`);
+    const needs = entry.needs ?? [];
+    lines.push(`    - ${entry.what}${needs.length ? `  -- needs ${needs.join(', ')}` : ''}`);
+    for (const id of needs) {
+      if (!paragraphs.has(id)) paragraphs.set(id, CAPABILITIES[id]?.because ?? '');
+    }
   }
+  if (paragraphs.size > 0) {
+    lines.push('', '  why:');
+    for (const [id, because] of paragraphs) lines.push(`    ${id}: ${because}`);
+  }
+
   lines.push(rule, '');
   return lines.join('\n');
 }

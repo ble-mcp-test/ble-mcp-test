@@ -321,7 +321,7 @@ export function assertBridgeCurrent({ port, log = console.log, hostDeps } = {}) 
       `Cannot tell whether anything is listening on port ${wsPort}. ` +
         cannotSeeListeners[0].because +
         '\n"Cannot ask" is not "nothing is listening", and passing on an unanswerable question ' +
-        'is exactly the silence this guard exists to break. Install lsof.'
+        'is exactly the silence this guard exists to break.'
     );
   }
 

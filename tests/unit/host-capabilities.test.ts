@@ -98,15 +98,54 @@ describe('getconf CLK_TCK', () => {
   });
 });
 
+/**
+ * lsof is probed by POSITIVE CONTROL, and these pin both halves.
+ *
+ * "lsof is on PATH" is necessary and not sufficient. On knuckles (2026-09-06)
+ * lsof existed, ran, and could not see a single Node socket: `cap_net_raw=eip`
+ * on the fnm-managed node binary made those processes non-dumpable, which
+ * ptrace-gates `/proc/<pid>/fd`. The old probe answered `present`, the gate ran
+ * the suites, and 13 failed exactly as before.
+ *
+ * ⚠ The blind branch is NOT reproducible here -- setting file capabilities needs
+ * root and a real binary. It was observed in the wild on knuckles and is
+ * exercised below by injection. Said plainly rather than implied, because a
+ * green run on this box is not evidence that a blind host is detected.
+ */
 describe('lsof', () => {
+  /** Distinguishes the two spawns the probe makes: `lsof -v`, then the child. */
+  const answering = (verdict: string) => (cmd: string) =>
+    cmd === 'lsof' ? ran('lsof version 4.95.0', 1) : ran(verdict);
+
   it('is absent when the executable is not on PATH', () => {
     expect(probeCapability(LSOF, { spawn: enoent })).toBe(false);
   });
 
-  it('is present when it runs, whatever it exits with', () => {
-    // `lsof -v` exits non-zero on some builds. The question is whether the
-    // program is there, not whether that one invocation liked its arguments.
-    expect(probeCapability(LSOF, { spawn: () => ran('lsof version 4.95.0', 1) })).toBe(true);
+  it('is present when it finds a listener opened for it to find', () => {
+    // `lsof -v` exits non-zero on some builds, so the first call's status is
+    // deliberately 1 here -- the verdict comes from the control, not from that.
+    expect(probeCapability(LSOF, { spawn: answering('VISIBLE') })).toBe(true);
+  });
+
+  it('is ABSENT when lsof runs but cannot see our own listener', () => {
+    // The knuckles case. This is the whole reason the probe is not a which(1):
+    // every other signal here says lsof is fine.
+    expect(probeCapability(LSOF, { spawn: answering('BLIND') })).toBe(false);
+  });
+
+  it('is absent when the control says nothing at all', () => {
+    // A crashed child, a missing node, a timeout. Fail closed: an lsof that
+    // cannot be shown to work must not read as one that does.
+    expect(probeCapability(LSOF, { spawn: answering('') })).toBe(false);
+  });
+
+  it('takes its verdict from the control, not from `lsof -v`', () => {
+    // `lsof -v` printing VISIBLE must not satisfy the probe on its own -- that
+    // would be the check satisfied by a subject other than the one it is about,
+    // which is the shape the whole positive control exists to close.
+    const lsofLooksFineButIsBlind = (cmd: string) =>
+      cmd === 'lsof' ? ran('VISIBLE') : ran('BLIND');
+    expect(probeCapability(LSOF, { spawn: lsofLooksFineButIsBlind })).toBe(false);
   });
 });
 
@@ -119,7 +158,14 @@ describe('missingCapabilities', () => {
   });
 
   it('is empty when everything asked for is present', () => {
-    const deps = { spawn: () => ran('100'), readFile: () => '1 (init) S 0 ' + '0 '.repeat(30) };
+    // lsof needs its control to answer VISIBLE; getconf needs a tick count. One
+    // stub cannot say both, so it answers per command -- which is also a
+    // reminder that these probes ask different questions.
+    const deps = {
+      spawn: (cmd: string, args: string[]) =>
+        cmd === process.execPath || (args ?? []).includes('-e') ? ran('VISIBLE') : ran('100'),
+      readFile: () => '1 (init) S 0 ' + '0 '.repeat(30),
+    };
     expect(missingCapabilities([FLOCK, PROCFS, CLK_TCK, LSOF], deps)).toEqual([]);
   });
 
@@ -138,12 +184,36 @@ describe('renderNotRun', () => {
     expect(out).toContain('0 checks NOT RUN');
   });
 
-  it('names each skipped check and its reason, in what the run prints', () => {
+  it('names each skipped check and the capabilities it needs', () => {
     const out = renderNotRun('PRETEST', [
-      { what: 'orphaned test-runner sweep', because: 'no /proc on this host' },
+      { what: 'orphaned test-runner sweep', needs: [PROCFS] },
     ]);
     expect(out).toContain('1 check NOT RUN');
     expect(out).toContain('orphaned test-runner sweep');
-    expect(out).toContain('no /proc on this host');
+    expect(out).toContain(PROCFS);
+    expect(out).toContain(CAPABILITIES[PROCFS].because);
+  });
+
+  it('prints each capability paragraph EXACTLY ONCE across overlapping needs', () => {
+    // ⚠ The test that was missing. The first grouping keyed on the composed
+    // reason STRING, so a suite needing two capabilities formed a third group
+    // and reprinted both paragraphs -- groups scaled with COMBINATIONS, not
+    // capabilities. It looked correct against knuckles' case (six suites, one
+    // combination) and cheetah falsified it with two ordinary missing ones.
+    //
+    // Overlapping combinations are therefore the shape to assert, not a list of
+    // single-capability entries.
+    const out = renderNotRun('OVERLAPPING', [
+      { what: 'suite A', needs: [FLOCK] },
+      { what: 'suite B', needs: [FLOCK, PROCFS] },
+      { what: 'suite C', needs: [PROCFS, CLK_TCK] },
+    ]);
+    for (const id of [FLOCK, PROCFS, CLK_TCK]) {
+      const paragraph = CAPABILITIES[id].because;
+      const seen = out.split(paragraph).length - 1;
+      expect(seen, `${id}'s reason appears ${seen} times, expected exactly 1`).toBe(1);
+    }
+    // And every check is still named, which is the half the reason must not bury.
+    for (const what of ['suite A', 'suite B', 'suite C']) expect(out).toContain(what);
   });
 });
